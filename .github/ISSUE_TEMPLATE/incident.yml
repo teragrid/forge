@@ -1,0 +1,95 @@
+name: Incident report
+description: A production or staging incident that needs tracking.
+title: "incident: <short title> [S0/S1/S2/S3]"
+labels: ["incident", "triage:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use `forge incident new` to open an incident programmatically (preferred).
+        This template is the manual fallback for reporters without CLI access.
+
+  - type: input
+    id: forge-version
+    attributes:
+      label: forge version affected
+      placeholder: "v0.2.0-m2-preview"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: >
+        S0 — service down / data loss / security breach;
+        S1 — major feature broken for many users;
+        S2 — degraded performance or partial outage;
+        S3 — minor issue, low impact.
+      options:
+        - "S0 — critical"
+        - "S1 — major"
+        - "S2 — degraded"
+        - "S3 — minor"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: status
+    attributes:
+      label: Current status
+      options:
+        - "identified — we know it is happening but don't have a fix"
+        - "mitigated — the blast radius is reduced but not fully resolved"
+        - "monitoring — fix deployed, watching metrics"
+        - "resolved — fully resolved"
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User impact
+      description: Who is affected and how?
+      placeholder: "All users running `forge scan secrets` see FORGE-3000 on every file."
+    validations:
+      required: true
+
+  - type: textarea
+    id: timeline
+    attributes:
+      label: Timeline (UTC)
+      description: Key events so far. Add a row per event.
+      placeholder: |
+        | Time (UTC) | Event |
+        |-----------|-------|
+        | 2026-05-10 14:00 | First alert |
+        | 2026-05-10 14:05 | On-call paged |
+    validations:
+      required: false
+
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Mitigation / workaround
+      description: Describe any temporary fix users can apply now.
+    validations:
+      required: false
+
+  - type: input
+    id: postmortem
+    attributes:
+      label: Post-mortem PR (fill in after resolution)
+      placeholder: "https://github.com/teragrid/forge/pull/…"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: On-call checklist
+      options:
+        - label: Status page updated (if S0/S1)
+        - label: "`forge incident update` run with current status"
+        - label: Post-mortem scheduled within 72 h (S0/S1)
+        - label: Failure-register entry created / updated (ADR-016)

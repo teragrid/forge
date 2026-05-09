@@ -1,0 +1,106 @@
+name: Feature request / idea
+description: Propose a new feature or improvement for community discussion.
+title: "feat: <one-line summary>"
+labels: ["feature-request", "triage:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea!
+
+        **Before submitting:** search [existing issues](../../issues?q=is%3Aissue+label%3Afeature-request)
+        and the [`rfcs/`](../../rfcs/) directory to avoid duplicates.
+
+        Once submitted, the community can react with 👍 / 👎. Ideas that reach
+        **≥ 10 👍 within 30 days** are automatically promoted to an RFC draft
+        (see `docs/FEATURE_SUBMISSION.md`). The Core Team may also fast-track
+        strategic items regardless of vote count.
+
+  - type: dropdown
+    id: persona
+    attributes:
+      label: Your primary use-case persona
+      description: Which persona from spec §11.1.1 best describes you?
+      options:
+        - "Solo founder — building a SaaS MVP alone"
+        - "Small team — 2-5 engineers in a startup"
+        - "Agency — building apps for clients"
+        - "Enterprise — large org with compliance requirements"
+        - "Open-source maintainer — building a library or tool"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: >
+        What is the pain point? Describe the situation without prescribing a solution.
+        A good framing: "When I do X, I have to Y, which is painful because Z."
+      placeholder: |
+        When I run `forge scan secrets` on a monorepo with 500 packages,
+        I have to wait 45 seconds even when only 3 files changed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Your best current thinking on how to solve this. It is fine to say "I don't know yet."
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you try or consider?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: affected-verbs
+    attributes:
+      label: Affected forge verbs (multi-select)
+      multiple: true
+      options:
+        - new
+        - doctor
+        - clean
+        - scan
+        - lint
+        - ship
+        - upgrade
+        - plugin
+        - eval
+        - insights
+        - spend
+        - incident
+        - telemetry
+        - audit
+        - explain
+        - version
+        - other / new verb
+    validations:
+      required: false
+
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Willingness to contribute
+      options:
+        - "Yes — I can implement this"
+        - "Mentored — I can implement with guidance"
+        - "No — I can describe it but not implement it"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and RFCs and this is not a duplicate.
+          required: true

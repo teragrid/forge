@@ -43,6 +43,13 @@ Plugins are WASM components hosted on `wazero` (per [ADR-002](adr/ADR-002-plugin
 
 See [docs/SECURITY.md](docs/SECURITY.md) for the private disclosure process. Do **not** open a public issue for vulnerabilities.
 
+## Pre-ship checklist
+
+Before opening a PR, work through [CHECKLIST.md](CHECKLIST.md).  
+It maps every gate from spec §16.5.4 to a concrete local command so you can
+verify green before pushing. The pre-push hook (`make hooks`) runs the same
+gates automatically.
+
 ## License
 
 By contributing you agree that your contributions are licensed under the [Apache License 2.0](LICENSE).

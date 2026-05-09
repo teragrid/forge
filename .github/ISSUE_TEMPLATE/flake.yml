@@ -1,0 +1,74 @@
+name: Flaky test
+description: A test that fails intermittently without a deterministic reproduction.
+title: "flake: <package>/<TestName>"
+labels: ["flake", "triage:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Flaky tests reduce CI confidence. Please provide as much signal as possible
+        so the on-call engineer can quarantine or fix promptly.
+
+  - type: input
+    id: test-name
+    attributes:
+      label: Full test name
+      description: "`go test -v` name, e.g. `TestAudit_VerifyText_Broken`"
+      placeholder: "TestAudit_VerifyText_Broken"
+    validations:
+      required: true
+
+  - type: input
+    id: package
+    attributes:
+      label: Package path
+      placeholder: "github.com/teragrid/forge/internal/cli/cmdaudit"
+    validations:
+      required: true
+
+  - type: input
+    id: ci-run
+    attributes:
+      label: CI run URL
+      description: Link to the failing GitHub Actions run
+      placeholder: "https://github.com/teragrid/forge/actions/runs/…"
+    validations:
+      required: false
+
+  - type: input
+    id: failure-rate
+    attributes:
+      label: Approximate failure rate
+      placeholder: "1 in 20 runs"
+    validations:
+      required: false
+
+  - type: textarea
+    id: failure-output
+    attributes:
+      label: Failure output
+      description: Paste the `go test` failure output including the race detector output if applicable.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis / notes
+      description: Any timing, concurrency, or environment sensitivity you've noticed.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: quarantine
+    attributes:
+      label: Should this test be quarantined immediately?
+      description: >
+        Quarantine adds a `t.Skip("FLAKE: #NNN")` marker so CI stays green while
+        the root cause is investigated. See ADR-023 for the quarantine policy.
+      options:
+        - "Yes — failure rate is high enough that it blocks the queue"
+        - "No — rare enough that it can wait for the next triage"
+    validations:
+      required: true

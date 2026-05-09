@@ -1,0 +1,100 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "bug: <short summary>"
+labels: ["bug", "triage:new"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report.
+        Please fill in every required field — this helps us triage faster.
+        For **security vulnerabilities** use the [private advisory](../security/advisories/new) path; do NOT open a public bug.
+
+  - type: input
+    id: forge-version
+    attributes:
+      label: forge version
+      description: Output of `forge --version`
+      placeholder: "v0.2.0-m2-preview"
+    validations:
+      required: true
+
+  - type: input
+    id: os-arch
+    attributes:
+      label: OS / arch
+      description: e.g. macOS 14 arm64, Ubuntu 22.04 amd64, Windows 11 amd64
+      placeholder: "macOS 14.4 arm64"
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: Output of `go version`
+      placeholder: "go1.25.0 darwin/arm64"
+    validations:
+      required: false
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include the exact command you ran.
+      placeholder: |
+        I ran `forge clean --check` and got …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: I expected the command to exit 0 and print …
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, ideally a `git clone`-able repo or inline snippet.
+      placeholder: |
+        1. `forge new my-app`
+        2. `cd my-app`
+        3. `forge clean --check`
+        4. See error …
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste the full terminal output (use `forge --explain` for extra detail).
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Perceived severity
+      options:
+        - S3 — minor / cosmetic
+        - S2 — degraded functionality, workaround exists
+        - S1 — major feature broken, no workaround
+        - S0 — data loss / security / crash at startup
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I searched the [docs](../../docs/) and [error code list](../../docs/error_codes.md).
+          required: false
