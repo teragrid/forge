@@ -5,6 +5,9 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 ## [Unreleased]
 
 ### Added
+- Codemod `dependabot-baseline` (DEV-M2-07) — writes `.github/dependabot.yml` if missing, with weekly updates for ecosystems detected at the project root (`go.mod` → gomod, `package.json` → npm, `requirements.txt`/`pyproject.toml` → pip, `Dockerfile` → docker, `.github/workflows` → github-actions). Empty project falls back to a `github-actions` entry so the file is non-empty.
+- Codemod `pre-commit-baseline` (DEV-M2-08) — writes `.pre-commit-config.yaml` if missing, with baseline hygiene hooks (`trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-added-large-files`) plus `gitleaks`; appends `go-fmt` + `go-vet-mod` when `go.mod` is present.
+- Tests: 10 in `internal/codemod` (happy + data-accuracy + idempotency + dry-run + ecosystem dedup/sort + false-positive guard for non-go projects + registry presence).
 - `forge eval [path]` (verb #12) — JSON scenario harness for deterministic regression suites. Loads `*.scenario.json` from `.forge/eval/` (or a given file/dir), runs each step's argv via `exec.CommandContext`, and asserts on exit code, `stdout_contains`, `stdout_not_contains`, `stderr_contains`, and `stdout_json` key-equality. `--json` emits machine-readable `Report`; `--ci` (default true) exits non-zero on any failure.
 - `internal/eval` package — pure-stdlib runner: `Scenario`, `Step`, `Expect`, `StepResult`, `ScenarioResult`, `Report`, `Runner`, `LoadScenario`, `LoadDir` (sorted, deterministic). Substrate for the M3 LLM-prompt eval suite (a future `prompt` step type slots in without changing runner shape).
 - Reserved error-code range `cli/eval` (3600..3699); 3 codes registered (`ErrEvalLoadFailed` 3600, `ErrEvalScenarioFailed` 3601, `ErrEvalUsage` 3602).
