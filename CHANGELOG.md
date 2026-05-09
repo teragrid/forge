@@ -4,6 +4,17 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+### Added
+- `forge plugin list` / `forge plugin show <name>` (verb #11) — enumerate every in-tree scanner + codemod via `plugin.Default()`. JSON + text output, `--kind` filter.
+- `internal/cli/cmdscan/plugins.go` — adapter registering each scanner family (`secrets`, `rls`, `prompt-injection`, `supply-chain`) as a `plugin.Scanner` at init().
+- `internal/cli/cmdupgrade/plugins.go` — adapter mirroring every `codemod.Default()` entry into `plugin.Default()` as a `plugin.Codemod`.
+- Reserved error-code range `cli/plugin` (3500..3599); 2 codes registered (`ErrPluginUnknown` 3500, `ErrPluginUsage` 3501).
+- Tests: 7 for `cmdplugin` (text+JSON list, kind filter false-positive guard, invalid kind, show happy/JSON/unknown, idempotency); 3 for cmdscan adapter (registry presence, dataset accuracy, AKIA conversion); 2 for cmdupgrade adapter (registry mirror, dryRun pass-through).
+
+### Changed
+- CI (`ci.yml`): bumped `GO_VERSION` 1.24 → 1.25 (govulncheck `GO-2026-4602` `os.ReadDir` CVE); enabled `CGO_ENABLED=1` for the `-race` test step only.
+- Generated `docs/ERROR_CODES.md` now lists 20 codes (was 18).
+
 ## [0.2.0-m2-preview] — plugin loader, codemod runner, audit ledger
 
 Pulls forward the **M1 expansion + M2 scaffolding + M3 spike** in one preview cut. Adds 2 new top-level verbs (10 total) plus three new scanner families, an in-process plugin registry, a tamper-evident action ledger, and the first NFR benchmarks.
