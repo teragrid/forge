@@ -99,6 +99,18 @@ check: fmt-check
 	govulncheck ./...
 	$(GO) mod verify
 
+.PHONY: docs
+docs:
+	$(GO) run ./cmd/gen-errors --out docs/ERROR_CODES.md
+
+.PHONY: docs-check
+docs-check:
+	$(GO) run ./cmd/gen-errors --out docs/ERROR_CODES.md --check
+
+.PHONY: bench
+bench:
+	$(GO) test -bench=. -benchmem -run='^$$' ./...
+
 .PHONY: clean
 clean:
 	rm -rf $(BIN_DIR) coverage.out

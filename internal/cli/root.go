@@ -8,6 +8,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/cli/cmdaudit"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmddoctor"
 	"github.com/teragrid/forge/internal/cli/cmdexplain"
@@ -15,6 +16,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdnew"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/cli/cmdship"
+	"github.com/teragrid/forge/internal/cli/cmdupgrade"
 	"github.com/teragrid/forge/internal/cli/cmdversion"
 )
 
@@ -42,6 +44,8 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdscan.New(),
 		cmdlint.New(),
 		cmdship.New(),
+		cmdupgrade.New(),
+		cmdaudit.New(),
 	)
 
 	return root
