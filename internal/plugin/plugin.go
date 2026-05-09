@@ -34,6 +34,7 @@ type Manifest struct {
 	Summary      string   `json:"summary,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"` // e.g. "fs:read", "net:http"
 	Forge        string   `json:"forge_version,omitempty"`
+	WASMPath     string   `json:"wasm_path,omitempty"` // path to .wasm binary; empty = in-process
 }
 
 // Validate returns an error if the manifest is incomplete or malformed.

@@ -81,6 +81,7 @@ func New() *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	cmd.Flags().StringVar(&verb, "verb", "", "(append) verb name")
 	cmd.Flags().StringVar(&action, "action", "", "(append) action name")
+	cmd.AddCommand(newQueryCmd())
 	cmd.AddCommand(newFailureRegisterCmd())
 	return cmd
 }

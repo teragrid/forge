@@ -5,6 +5,26 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 ## [Unreleased]
 
 ### Added
+- **`forge budget`** (verb #15, DEV-M3-03) — LLM spend tracker. Subcommands: `status`, `set --daily USD --monthly USD`, `reset [--limits]`. Budget persisted as JSON at `.forge/llm-budget.json`. `--json` emits `daily_spend_usd / monthly_spend_usd / daily_limit_usd / monthly_limit_usd / record_count`. Zero limit = unlimited. Error codes: FORGE-2400..2402.
+- **`forge incident`** (verb #16, DEV-M3-06) — ADR-021 incident lifecycle. Subcommands: `new --id INC-042 --title "…" --severity S1 --systems "CLI,Registry"`, `update <id> --state investigating [--note "…"]`, `list [--open] [--json]`, `close <id> [--postmortem path]`. State machine: `identified → investigating ↔ monitoring → mitigated → fixed → post-mortem-published`. Incidents stored as JSON at `.forge/incidents/<id>.json`. Error codes: FORGE-4000..4002.
+- **`forge telemetry`** (verb #17, DEV-M3-01) — opt-in file-based spans (ADR-006). Subcommands: `enable`, `disable`, `status`, `rotate-id`. Config at `.forge/telemetry.json`; spans appended as JSON-Lines to `.forge/telemetry.jsonl` when opted in. Span fields: `trace_id, span_id, verb, exit_code, duration_ms, error_code, install_id, version, os, arch, timestamp` (no PII). Error codes: FORGE-4100..4199.
+- **`forge audit query`** (DEV-M2-09) — sub-subcommand `forge audit query` with AND-filter semantics: `--root`, `--verb`, `--action`, `--since YYYY-MM-DD`, `--limit N`, `--json`. Empty or unmatched results return 0 rows (not error). Error code: FORGE-3402.
+- **WASM plugin runtime stub** (DEV-M2-05) — `internal/plugin/wasm_stub.go` (default) provides `NewExternalPlugin` + `Call` → `ErrNotLoaded`. Build with `-tags forge_wasm` for the real wazero-backed runtime in `wasm.go`. `WASMPath string` field added to `Manifest`. Error codes: FORGE-4200..4299 (reserved).
+- **`internal/llmbudget`** package — `Budget`, `Config`, `Record` types. `New()`, `Load(path)`, `Save(path)`, `Add(r)`, `DailySpend(t)`, `MonthlySpend(t)`, `CheckLimits(t)`, `SetLimits(daily, monthly)`, `Reset(resetLimits)`.
+- **`internal/incident`** package — `Incident`, `State`, `Severity` types. `New()`, `Save(dir, inc)`, `Load(dir, id)`, `LoadAll(dir)`, `Transition(inc, state)`, `RenderMarkdown(inc)`, `CanTransition(from, to)`. `IsOpen()` returns false for `fixed` and `post-mortem-published`.
+- **`internal/telemetry`** package — `Config`, `Span` types. `LoadConfig(path)`, `SaveConfig(path, cfg)`, `Emit(spanPath, cfg, span)`, `ReadSpans(spanPath)`, `RotateInstallID(cfg)`.
+- Reserved error-code ranges: `cli/incident` (4000..4099), `cli/telemetry` (4100..4199), `plugin/wasm` (4200..4299).
+- Tests: 29 for `internal/llmbudget` + `cmdbudget`; 29 for `internal/incident` + `cmdincident`; 21 for `internal/telemetry` + `cmdtelemetry`; 11 for `cmdaudit query`; 8 for WASM stub. Full suite: 31 packages, all green.
+- Generated `docs/ERROR_CODES.md` now lists 38 codes (was 30).
+
+### Changed
+- README: bumped to "17 verbs"; added `forge budget`, `forge incident`, `forge telemetry` rows.
+- `internal/plugin.Manifest` — added `WASMPath string` field (`json:"wasm_path,omitempty"`).
+- `cmd/gen-errors`: added side-effect imports for `cmdbudget`, `cmdincident`, `cmdtelemetry`.
+- `internal/cli/root.go`: wired verbs #15, #16, #17.
+- `tasks/DEVELOPMENT_TASKS.md`: marked DEV-M2-05/09 + DEV-M3-01/03/06 as shipped.
+
+### Added (previous Unreleased batch — now also in this release)
 - **`forge postmortem [path]`** (verb #13, DEV-M3-05) — lints post-mortem documents in `docs/postmortems/INC-*.md` per ADR-020. Checks: all 8 mandatory sections present, ≥1 action item in canonical shape (`- [ ] AI-NN — … — owner: @… — due: YYYY-MM-DD — issue: #NNN`), ≥1 action item references a failure-register entry (`register: FR-NNN`) or a commit SHA. `--json` emits `[]FileReport` for dashboards. Exit non-zero for CI gate.
 - **`forge stats`** (verb #14, DEV-M3-02) — local telemetry rollup from `.forge/audit.log`. Aggregates per-verb event counts with action breakdown and last-seen timestamps. `--since YYYY-MM-DD` filter. `--json` emits `Report`. No remote calls.
 - **`forge audit failure-register <verify|list|lint>`** (DEV-M3-04) — manages the ADR-016 failure register at `.forge/failure-register.json`. `lint` validates schema; `list --json` dumps active entries; `verify` detects drift (entries missing `test_anchor`). Exit non-zero on drift (FORGE-3702).
@@ -14,9 +34,6 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 - Tests: 8 for `internal/plugin` discovery (happy, missing file no-op, bad JSON, invalid manifest, built-in precedence, idempotency, manifest round-trip, `Discover` path contract); 18 for `internal/failure` (entry validation, register validation, `Active()` filter, save/load round-trip, idempotency, JSON keys, `LoadDefault` path contract); 11 for `cmdpostmortem` (happy, missing sections, no action item, no register ref, commit-ref satisfies, absent dir, non-INC ignored, find-all sorted, JSON, CI gate, idempotency); 10 for `cmdstats` (count aggregate, sort, empty, `--since` filter, false-positive guard, JSON, text, empty ledger, invalid `--since`, idempotency); 5 for `cmdaudit` failure-register integration (lint OK, list JSON, verify drift FORGE-3702, verify OK, empty list).
 - Generated `docs/ERROR_CODES.md` now lists 30 codes (was 23).
 
-### Changed
-- README: bumped to "14 verbs"; added `forge stats` and `forge postmortem` rows.
-- `cmd/gen-errors`: added side-effect imports for `cmdpostmortem` and `cmdstats`.
 
 
 ## [0.2.0-m2-preview] — plugin loader, codemod runner, audit ledger
