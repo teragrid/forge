@@ -40,6 +40,24 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`.
 
 ---
 
+## S0-PROCESS — Feature & Idea Submission Process (LAUNCH-S0-PROCESS-01..08)
+
+> **How community ideas become framework features.** Documents the full lifecycle from raw idea to shipped capability, including both the community-vote path and the core-team triage path. Must be live before S1 so early adopters have a clear feedback channel from day one.
+> Owner: Founder + Community lead. Reference: `GOVERNANCE.md`, `rfcs/`, `.github/ISSUE_TEMPLATE/`.
+
+| ID | Document / Artifact | Audience | Acceptance |
+|----|---------------------|----------|------------|
+| LAUNCH-S0-PROCESS-01 | `GOVERNANCE.md` — decision-making structure: Core Team composition, Working Groups, BDFL tie-break, voting quorum rules, sponsorship criteria for becoming a maintainer | All community members | File committed to repo root; linked from `CONTRIBUTING.md` and `README.md`; reviewed by one external contributor before S1 |
+| LAUNCH-S0-PROCESS-02 | `docs/FEATURE_SUBMISSION.md` — step-by-step guide: (1) search existing issues + RFCs, (2) open a `feature-request` issue using the template, (3) gather community reactions (👍 / 👎 / comment), (4) threshold for automatic promotion to RFC draft (≥10 👍 within 30 days), (5) Core Team triage path for strategic items regardless of vote count | Community members | Validated end-to-end by a non-author: they submit a test idea, see it triaged, and understand the outcome without asking for help |
+| LAUNCH-S0-PROCESS-03 | `.github/ISSUE_TEMPLATE/feature_request.yml` — structured template: problem statement, proposed solution, alternatives considered, use-case persona, willingness to contribute (yes / mentored / no), affected verbs | Community members | Template renders on GitHub with required-field validation; submitted issue automatically receives `triage:new` + area label from auto-triage bot (DEV-M1-41) |
+| LAUNCH-S0-PROCESS-04 | `rfcs/README.md` + `rfcs/_TEMPLATE.md` — RFC lifecycle: Draft → Review (14-day comment window) → Final Comment Period (7 days) → Accepted / Rejected / Withdrawn; every accepted RFC gets a tracking issue and a changelog entry | RFC authors | Template is self-contained; a new RFC author can submit without help; at least one synthetic RFC goes through the full lifecycle as a proof-of-process before S1 |
+| LAUNCH-S0-PROCESS-05 | `docs/ROADMAP.md` — publicly visible, rolling 3-milestone roadmap: each item tagged with origin (`core-team`, `community-vote`, `RFC-NNN`, or `pilot-user`), current status (planned / in-progress / shipped / deferred), and the GitHub issue or RFC that tracks it | All users | Roadmap updated at the start of each milestone; stale items (>90 days without status change) trigger an automated staleness label; reviewed by one community champion at S2 |
+| LAUNCH-S0-PROCESS-06 | **Community-vote mechanism**: GitHub Reactions (👍) as the lightweight ballot; auto-promote script runs weekly, converts issues with ≥10 👍 and no `wont-fix` label into RFC drafts and posts a summary comment | Community members | Script tested on a staging repo: seeded issue reaches threshold → RFC draft opened automatically; below-threshold issue → no action; `wont-fix` label → suppressed |
+| LAUNCH-S0-PROCESS-07 | **Core-team triage cadence**: bi-weekly triage meeting (async-friendly: async vote in a pinned thread, 48-hour window, majority of active Core Team members); triage outcomes recorded in a public `triage-log.md` in the repo | Core Team + observers | First triage meeting conducted before S1; `triage-log.md` has ≥1 entry with outcome (`accept` / `defer` / `reject` + rationale); log visible to the community |
+| LAUNCH-S0-PROCESS-08 | `docs/DECISION_RECORD.md` — explains when to use ADR vs. RFC vs. `feature_request` issue: ADR = internal implementation decision by maintainers; RFC = user-visible interface or protocol change; feature_request = idea needing community validation before design work begins; includes a 3-question decision tree | Contributors | Decision tree correctly routes 5 synthetic scenarios (boundary test) without ambiguity; cross-linked from `CONTRIBUTING.md`, `GOVERNANCE.md`, and the RFC template |
+
+---
+
 ## S1 — Friends & Family Alpha (LAUNCH-S1-01..09)
 
 | ID | Task | Owner | Acceptance |
