@@ -1,0 +1,26 @@
+# Build artefacts
+/dist/
+/bin/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local env
+.env
+.env.local
+
+# Forge runtime scratch (per spec §4 hygiene)
+.forge/cache/
+.forge/scratch/

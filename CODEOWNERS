@@ -1,0 +1,16 @@
+# Default reviewers for the entire tree until WGs are formed (see ARCH-GOV-01).
+# Per ADR-022 every PR needs two Maintainer reviews; CODEOWNERS encodes the
+# routing layer for that gate. This file is intentionally coarse during M0 and
+# will be sharded once internal/, pkg/ and adr/ have dedicated owners.
+
+*                       @teragrid/maintainers
+
+# ADRs and architecture artefacts require both Maintainer + Architect review.
+/adr/                   @teragrid/maintainers @teragrid/architects
+/ARCHITECTURE.md        @teragrid/maintainers @teragrid/architects
+/THREAT_MODEL.md        @teragrid/maintainers @teragrid/security
+
+# CI / supply-chain — DevSecOps owns these gates.
+/.github/               @teragrid/maintainers @teragrid/devsecops
+/Makefile               @teragrid/maintainers @teragrid/devsecops
+/.golangci.yml          @teragrid/maintainers @teragrid/devsecops

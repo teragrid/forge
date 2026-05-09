@@ -1,0 +1,15 @@
+# Notices
+
+This project bundles or links the following third-party software. License
+texts are available at the upstream URLs and are reproduced under each
+project's terms.
+
+| Component | License | Upstream |
+|-----------|---------|----------|
+| github.com/spf13/cobra | Apache-2.0 | https://github.com/spf13/cobra |
+| github.com/spf13/viper | MIT | https://github.com/spf13/viper |
+| github.com/tetratelabs/wazero (planned, ADR-002) | Apache-2.0 | https://github.com/tetratelabs/wazero |
+| go.opentelemetry.io/otel (planned) | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-go |
+
+The authoritative machine-generated list is produced by `go-licenses report`
+in CI per ADR-008 (OPS-04). This file is the human-curated mirror.

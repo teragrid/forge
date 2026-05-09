@@ -1,0 +1,112 @@
+# Forge CI — DEV-M0-01 / DEV-M0-05 (ADR-001 stack baseline)
+#
+# Gates wired here are the pre-merge contract for every PR. Adding/removing a
+# gate requires an ADR amendment. The matrix is the 6-triple cross-compile
+# surface required by DEV-M0-01 TC-01-06.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.24'
+  CGO_ENABLED: '0'
+
+jobs:
+  lint:
+    name: lint (golangci-lint + gofmt + goimports)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: gofmt + goimports
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          test -z "$(gofmt -s -l .)" || (gofmt -s -l . && exit 1)
+          test -z "$(goimports -l .)"  || (goimports -l . && exit 1)
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  test:
+    name: test (go test -race) on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: go mod verify
+        run: go mod verify
+      - name: install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+      - name: run tests
+        run: gotestsum --format pkgname -- -race -count=1 ./...
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: run govulncheck
+        run: govulncheck ./...
+
+  build:
+    name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64 }
+          - { goos: linux,   goarch: arm64 }
+          - { goos: darwin,  goarch: amd64 }
+          - { goos: darwin,  goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          mkdir -p dist
+          go build -ldflags "-s -w -X main.Version=${GITHUB_SHA::7}" \
+            -o "dist/forge-${GOOS}-${GOARCH}${ext}" ./cmd/forge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/forge-*
+          if-no-files-found: error
