@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -18,6 +19,7 @@ import (
 // Reserved error codes (range 1200..1299).
 var (
 	ErrEnvUnhealthy = errcode.Register(errcode.Code(1200), "environment health check failed")
+	ErrDoctorDrift  = errcode.Register(errcode.Code(1201), ".gitignore managed block drift detected")
 )
 
 // Status enumerates per-check outcomes.
@@ -65,7 +67,8 @@ func New() *cobra.Command {
 		Short: "Check local environment health.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			rep := Run()
+			root, _ := os.Getwd()
+			rep := Run(root)
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -86,14 +89,19 @@ func New() *cobra.Command {
 	return cmd
 }
 
-// Run executes the checks and returns a Report. Exposed for tests + future
-// callers that want to embed the doctor output.
-func Run() Report {
+// Run executes the checks and returns a Report. root is the project root
+// directory; pass an empty string to auto-detect from the working directory.
+// Exposed for tests and future callers that want to embed the doctor output.
+func Run(root string) Report {
+	if root == "" {
+		root, _ = os.Getwd()
+	}
 	rep := Report{OS: runtime.GOOS, Arch: runtime.GOARCH}
 	rep.Checks = append(rep.Checks,
 		checkBinary("git", true, "install git from https://git-scm.com/downloads"),
 		checkBinary("go", true, "install Go 1.24+ from https://go.dev/dl/"),
 		checkTempWritable(),
+		checkGitignoreDrift(root),
 	)
 	rep.Healthy = true
 	for _, c := range rep.Checks {
@@ -125,6 +133,69 @@ func checkTempWritable() Check {
 	_ = os.Remove(f.Name())
 	return Check{Name: "temp dir writable", Status: StatusOK, Required: true,
 		Detail: filepath.ToSlash(dir)}
+}
+
+// ── .gitignore drift check ────────────────────────────────────────────────
+
+// giDriftStart / giDriftEnd are the same markers used by the "gitignore"
+// codemod (internal/codemod/hygiene.go). We redeclare them here to avoid an
+// import cycle (cmddoctor → codemod is fine, but codemod imports nothing from
+// cmddoctor so there is no cycle — we could import directly; using local
+// constants keeps the dependency graph clean).
+const (
+	giDriftStart = "# forge:gitignore:start"
+	giDriftEnd   = "# forge:gitignore:end"
+)
+
+// canonicalGiSnippet is used only for content comparison. It must stay in
+// sync with codemod.canonicalGitignoreBlock. The drift check compares the
+// entire managed block (start + body + end) found in the file against this.
+const canonicalGiSnippet = `# forge:gitignore:start
+# Managed by forge — do not edit this block. Run "forge upgrade gitignore" to refresh.
+# forge-version: managed
+.forge/scratch/
+.forge/cache/
+*.tmp
+*.bak
+__pycache__/
+# forge:gitignore:end
+`
+
+// checkGitignoreDrift reports whether the .gitignore managed block has
+// drifted from the canonical content known to this version of forge.
+func checkGitignoreDrift(root string) Check {
+	const checkName = ".gitignore managed block"
+	path := filepath.Join(root, ".gitignore")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Check{Name: checkName, Status: StatusOK, Required: false,
+				Detail: "no .gitignore present"}
+		}
+		return Check{Name: checkName, Status: StatusWarn, Required: false,
+			Detail: "cannot read .gitignore: " + err.Error()}
+	}
+	content := string(body)
+	si := strings.Index(content, giDriftStart)
+	ei := strings.Index(content, giDriftEnd)
+	if si < 0 || ei <= si {
+		// No managed block — that is fine; user has not run `forge upgrade gitignore` yet.
+		return Check{Name: checkName, Status: StatusOK, Required: false,
+			Detail: "no managed block present"}
+	}
+	// Extract the managed block (inclusive of end marker + trailing newline).
+	endIdx := ei + len(giDriftEnd)
+	if endIdx < len(content) && content[endIdx] == '\n' {
+		endIdx++
+	}
+	block := content[si:endIdx]
+	if block == canonicalGiSnippet {
+		return Check{Name: checkName, Status: StatusOK, Required: false,
+			Detail: "up to date"}
+	}
+	return Check{Name: checkName, Status: StatusWarn, Required: false,
+		Detail: "managed block differs from current canonical content",
+		Hint:   "run 'forge upgrade gitignore --apply' to refresh"}
 }
 
 func renderText(cmd *cobra.Command, r Report) {
