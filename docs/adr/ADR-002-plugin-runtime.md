@@ -1,6 +1,6 @@
 # ADR-002 — Plugin runtime
 
-- **Status:** Proposed
+- **Status:** Accepted — Implemented (M2.0)
 - **Tracker:** ARCH-DEC-02
 - **Spec/Arch anchor:** Arch §13 ADR-002, Spec §16.5.1 (T3 plugin tier), Arch §15 (sandboxing)
 - **Decision date:** TBD
@@ -85,3 +85,11 @@ Cons: interface composition is ad hoc (manual ABI per host); WIT/component model
 - WebAssembly component model: <https://component-model.bytecodealliance.org/>.
 - `wazero`: <https://wazero.io/>.
 - `wasmtime-go` (escape hatch): <https://github.com/bytecodealliance/wasmtime-go>.
+
+## Implementation notes (added M2.0 — DEV-M2-02)
+
+- `wazero` vendored; `forge:plugin@1` WIT world skeleton checked in under `internal/plugin/`.
+- T3 plugin loading is behind the `forge_wasm` build tag; stub path used in default builds.
+- `forge plugin install/upgrade/remove` subcommands manage `.forge/plugins.json` lock file.
+- Lock file schema: `{"plugins":[{"name","version","source","sha256"}]}`; written 0o600.
+- Decision confirmed: wazero selected; no blocker requiring wasmtime fallback as of M2.0.
