@@ -57,7 +57,7 @@ func TestErrNotLoaded_Message(t *testing.T) {
 }
 
 // TC-WASM-05: ExternalPlugin implements Plugin interface.
-func TestExternalPlugin_ImplementsPlugin(t *testing.T) {
+func TestExternalPlugin_ImplementsPlugin(_ *testing.T) {
 	m := Manifest{Name: "test-wasm", Version: "0.1.0", Kind: KindScanner}
 	ep := NewExternalPlugin(m)
 	var _ Plugin = ep

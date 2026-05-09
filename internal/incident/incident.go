@@ -133,7 +133,7 @@ func Save(dir string, inc *Incident) error {
 		return fmt.Errorf("incident: marshal: %w", err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(filePath(dir, inc.ID), data, 0o644)
+	return os.WriteFile(filePath(dir, inc.ID), data, 0o600)
 }
 
 // Load reads an incident from dir/<id>.json.
