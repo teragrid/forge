@@ -18,8 +18,10 @@ import (
 	_ "github.com/teragrid/forge/internal/cli/cmdlint"
 	_ "github.com/teragrid/forge/internal/cli/cmdnew"
 	_ "github.com/teragrid/forge/internal/cli/cmdplugin"
+	_ "github.com/teragrid/forge/internal/cli/cmdpostmortem"
 	_ "github.com/teragrid/forge/internal/cli/cmdscan"
 	_ "github.com/teragrid/forge/internal/cli/cmdship"
+	_ "github.com/teragrid/forge/internal/cli/cmdstats"
 	_ "github.com/teragrid/forge/internal/cli/cmdupgrade"
 	_ "github.com/teragrid/forge/internal/cli/cmdversion"
 

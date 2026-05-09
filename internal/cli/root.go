@@ -6,6 +6,8 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
@@ -16,10 +18,13 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdlint"
 	"github.com/teragrid/forge/internal/cli/cmdnew"
 	"github.com/teragrid/forge/internal/cli/cmdplugin"
+	"github.com/teragrid/forge/internal/cli/cmdpostmortem"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/cli/cmdship"
+	"github.com/teragrid/forge/internal/cli/cmdstats"
 	"github.com/teragrid/forge/internal/cli/cmdupgrade"
 	"github.com/teragrid/forge/internal/cli/cmdversion"
+	"github.com/teragrid/forge/internal/plugin"
 )
 
 // NewRootCommand returns the top-level `forge` cobra command. Wiring is kept
@@ -37,6 +42,21 @@ func NewRootCommand(version string) *cobra.Command {
 	}
 	root.SetVersionTemplate("forge {{.Version}}\n")
 
+	// Load any external plugins declared in .forge/plugins.json before
+	// verbs run. Errors are silently swallowed (missing file is fine;
+	// malformed JSON is logged to stderr so the user sees it but is not
+	// blocked from running the CLI).
+	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil // can't determine root; skip discovery
+		}
+		if _, err := plugin.Discover(wd); err != nil {
+			cmd.PrintErrln("forge: plugin discovery warning:", err)
+		}
+		return nil
+	}
+
 	root.AddCommand(
 		cmdversion.New(version),
 		cmdnew.New(version),
@@ -50,6 +70,8 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdaudit.New(),
 		cmdplugin.New(),
 		cmdeval.New(),
+		cmdpostmortem.New(),
+		cmdstats.New(),
 	)
 
 	return root

@@ -46,19 +46,19 @@
 ### Remaining for `v0.3.0` and beyond
 
 **M2.x — plugin ecosystem**
-- DEV-M2-04 — `forge eval` scenario harness (YAML scenarios, deterministic runner, JSON report; codes 3600..3699). 🔄 **in progress**
+- DEV-M2-04 — `forge eval` scenario harness (YAML scenarios, deterministic runner, JSON report; codes 3600..3699). ✅ **shipped**
 - DEV-M2-05 — Wazero WASM plugin runtime behind `forge_wasm` build tag
-- DEV-M2-06 — `.forge/plugin.toml` discovery + dynamic registration
-- DEV-M2-07 — Codemod: `dependabot-baseline`
-- DEV-M2-08 — Codemod: `pre-commit-baseline`
+- DEV-M2-06 — `.forge/plugins.json` discovery + dynamic registration ✅ **shipped**
+- DEV-M2-07 — Codemod: `dependabot-baseline` ✅ **shipped**
+- DEV-M2-08 — Codemod: `pre-commit-baseline` ✅ **shipped**
 - DEV-M2-09 — Audit ledger: optional SQLite backend for queryable history
 
 **M3 — governance + telemetry**
 - DEV-M3-01 — OTLP exporter (ADR-006) wired into `forge ship` + `forge scan`
-- DEV-M3-02 — `forge stats` verb (#12) — local telemetry rollup
+- DEV-M3-02 — `forge stats` verb (#14) — local telemetry rollup ✅ **shipped**
 - DEV-M3-03 — Rate limiter + budget tracker for LLM calls
-- DEV-M3-04 — Failure-register data model (ADR-016)
-- DEV-M3-05 — Postmortem CI gate (ADR-020)
+- DEV-M3-04 — Failure-register data model (ADR-016) ✅ **shipped**
+- DEV-M3-05 — Postmortem CI gate (ADR-020) ✅ **shipped**
 - DEV-M3-06 — Status-page generator (ADR-021)
 
 **Cross-cutting**

@@ -5,24 +5,19 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 ## [Unreleased]
 
 ### Added
-- Codemod `dependabot-baseline` (DEV-M2-07) — writes `.github/dependabot.yml` if missing, with weekly updates for ecosystems detected at the project root (`go.mod` → gomod, `package.json` → npm, `requirements.txt`/`pyproject.toml` → pip, `Dockerfile` → docker, `.github/workflows` → github-actions). Empty project falls back to a `github-actions` entry so the file is non-empty.
-- Codemod `pre-commit-baseline` (DEV-M2-08) — writes `.pre-commit-config.yaml` if missing, with baseline hygiene hooks (`trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-added-large-files`) plus `gitleaks`; appends `go-fmt` + `go-vet-mod` when `go.mod` is present.
-- Tests: 10 in `internal/codemod` (happy + data-accuracy + idempotency + dry-run + ecosystem dedup/sort + false-positive guard for non-go projects + registry presence).
-- `forge eval [path]` (verb #12) — JSON scenario harness for deterministic regression suites. Loads `*.scenario.json` from `.forge/eval/` (or a given file/dir), runs each step's argv via `exec.CommandContext`, and asserts on exit code, `stdout_contains`, `stdout_not_contains`, `stderr_contains`, and `stdout_json` key-equality. `--json` emits machine-readable `Report`; `--ci` (default true) exits non-zero on any failure.
-- `internal/eval` package — pure-stdlib runner: `Scenario`, `Step`, `Expect`, `StepResult`, `ScenarioResult`, `Report`, `Runner`, `LoadScenario`, `LoadDir` (sorted, deterministic). Substrate for the M3 LLM-prompt eval suite (a future `prompt` step type slots in without changing runner shape).
-- Reserved error-code range `cli/eval` (3600..3699); 3 codes registered (`ErrEvalLoadFailed` 3600, `ErrEvalScenarioFailed` 3601, `ErrEvalUsage` 3602).
-- Tests: 13 for `internal/eval` (happy, boundary empty steps, invalid scenarios, exit/substring/JSON assertions, false-positive guard for `stdout_not_contains`, idempotency, `LoadDir` filtering+sort, data-accuracy on `Report` counts); 7 for `cmdeval` (dir + single-file happy, `--json` shape, missing path FORGE-3600, CI gate FORGE-3601, `--ci=false` suppression, malformed JSON load error).
-- `forge plugin list` / `forge plugin show <name>` (verb #11) — enumerate every in-tree scanner + codemod via `plugin.Default()`. JSON + text output, `--kind` filter.
-- `internal/cli/cmdscan/plugins.go` — adapter registering each scanner family (`secrets`, `rls`, `prompt-injection`, `supply-chain`) as a `plugin.Scanner` at init().
-- `internal/cli/cmdupgrade/plugins.go` — adapter mirroring every `codemod.Default()` entry into `plugin.Default()` as a `plugin.Codemod`.
-- Reserved error-code range `cli/plugin` (3500..3599); 2 codes registered (`ErrPluginUnknown` 3500, `ErrPluginUsage` 3501).
-- Tests: 7 for `cmdplugin` (text+JSON list, kind filter false-positive guard, invalid kind, show happy/JSON/unknown, idempotency); 3 for cmdscan adapter (registry presence, dataset accuracy, AKIA conversion); 2 for cmdupgrade adapter (registry mirror, dryRun pass-through).
+- **`forge postmortem [path]`** (verb #13, DEV-M3-05) — lints post-mortem documents in `docs/postmortems/INC-*.md` per ADR-020. Checks: all 8 mandatory sections present, ≥1 action item in canonical shape (`- [ ] AI-NN — … — owner: @… — due: YYYY-MM-DD — issue: #NNN`), ≥1 action item references a failure-register entry (`register: FR-NNN`) or a commit SHA. `--json` emits `[]FileReport` for dashboards. Exit non-zero for CI gate.
+- **`forge stats`** (verb #14, DEV-M3-02) — local telemetry rollup from `.forge/audit.log`. Aggregates per-verb event counts with action breakdown and last-seen timestamps. `--since YYYY-MM-DD` filter. `--json` emits `Report`. No remote calls.
+- **`forge audit failure-register <verify|list|lint>`** (DEV-M3-04) — manages the ADR-016 failure register at `.forge/failure-register.json`. `lint` validates schema; `list --json` dumps active entries; `verify` detects drift (entries missing `test_anchor`). Exit non-zero on drift (FORGE-3702).
+- **`internal/failure`** package — ADR-016 failure-register data model. `Register`, `Entry`, `Status`, `Severity` types. JSON persistence (`Load`/`Save`/`LoadDefault`). `Validate()` detects duplicates, unknown status, missing required fields. `Active()` filters out retired entries.
+- **`internal/plugin/discovery.go`** (DEV-M2-06) — `.forge/plugins.json` discovery. `DiscoverFile` reads a JSON array of `Manifest` objects and registers them as `ExternalPlugin` stubs (callable body deferred to DEV-M2-05 WASM runtime). Built-in names take precedence. `Discover(root)` wired into `root.go`'s `PersistentPreRunE` so external plugins appear in `forge plugin list`.
+- Reserved error-code ranges: `cli/failure-register` (3700..3799), `cli/postmortem` (3800..3899), `cli/stats` (3900..3999).
+- Tests: 8 for `internal/plugin` discovery (happy, missing file no-op, bad JSON, invalid manifest, built-in precedence, idempotency, manifest round-trip, `Discover` path contract); 18 for `internal/failure` (entry validation, register validation, `Active()` filter, save/load round-trip, idempotency, JSON keys, `LoadDefault` path contract); 11 for `cmdpostmortem` (happy, missing sections, no action item, no register ref, commit-ref satisfies, absent dir, non-INC ignored, find-all sorted, JSON, CI gate, idempotency); 10 for `cmdstats` (count aggregate, sort, empty, `--since` filter, false-positive guard, JSON, text, empty ledger, invalid `--since`, idempotency); 5 for `cmdaudit` failure-register integration (lint OK, list JSON, verify drift FORGE-3702, verify OK, empty list).
+- Generated `docs/ERROR_CODES.md` now lists 30 codes (was 23).
 
 ### Changed
-- README: bumped "10 verbs" → "12 verbs" across the doc; added `forge plugin` and `forge eval` rows in the verb table.
-- CI (`ci.yml`): bumped `GO_VERSION` 1.24 → 1.25 (govulncheck `GO-2026-4602` `os.ReadDir` CVE); enabled `CGO_ENABLED=1` for the `-race` test step only.
-- Generated `docs/ERROR_CODES.md` now lists 23 codes (was 18 at v0.2.0-m2-preview cut).
-- `tasks/DEVELOPMENT_TASKS.md`: refreshed Release Status section covering v0.1.0-mvp + v0.2.0-m2-preview shipped tasks and remaining M2.x / M3 backlog.
+- README: bumped to "14 verbs"; added `forge stats` and `forge postmortem` rows.
+- `cmd/gen-errors`: added side-effect imports for `cmdpostmortem` and `cmdstats`.
+
 
 ## [0.2.0-m2-preview] — plugin loader, codemod runner, audit ledger
 

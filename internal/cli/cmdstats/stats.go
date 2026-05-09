@@ -1,0 +1,174 @@
+// Package cmdstats implements `forge stats` — local telemetry rollup from
+// the audit ledger (.forge/audit.log). No remote calls; purely local.
+// DEV-M3-02.
+package cmdstats
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"text/tabwriter"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/teragrid/forge/internal/audit"
+	"github.com/teragrid/forge/internal/errcode"
+	"github.com/teragrid/forge/internal/verbmeta"
+)
+
+// Reserved error codes (range 3900–3999).
+var (
+	ErrStatsFailed = errcode.Register(errcode.Code(3900), "stats operation failed")
+)
+
+func init() {
+	verbmeta.Register(verbmeta.Manifest{
+		Verb:    "stats",
+		Summary: "Show local telemetry rollup from the audit ledger.",
+		Inputs: []string{
+			"--root <path> (default: cwd)",
+			"--since <YYYY-MM-DD> (default: all time)",
+			"--json",
+		},
+		Outputs:      []string{"stdout: per-verb action counts and timeline"},
+		SideEffects:  []string{"none (read-only)"},
+		GatesTouched: []string{"DEV-M3-02 local telemetry", "§16.5.5 observability"},
+		ErrorCodes:   []errcode.Code{ErrStatsFailed},
+	})
+}
+
+// VerbStat holds aggregate counts for one verb.
+type VerbStat struct {
+	Verb            string         `json:"verb"`
+	Count           int            `json:"count"`
+	LastSeen        time.Time      `json:"last_seen"`
+	ActionBreakdown map[string]int `json:"action_breakdown,omitempty"`
+}
+
+// Report is the full stats output.
+type Report struct {
+	GeneratedAt time.Time  `json:"generated_at"`
+	TotalEvents int        `json:"total_events"`
+	SinceFilter string     `json:"since,omitempty"`
+	Verbs       []VerbStat `json:"verbs"`
+}
+
+// New returns the cobra command.
+func New() *cobra.Command {
+	var (
+		root   string
+		since  string
+		asJSON bool
+	)
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show local telemetry rollup from the audit ledger.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if root == "" {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return errcode.New(ErrStatsFailed, "getwd", err)
+				}
+				root = cwd
+			}
+			var sinceT time.Time
+			if since != "" {
+				t, err := time.Parse("2006-01-02", since)
+				if err != nil {
+					return errcode.Newf(ErrStatsFailed, err, "--since: invalid date %q (want YYYY-MM-DD)", since)
+				}
+				sinceT = t
+			}
+			path := filepath.Join(root, audit.DefaultPath)
+			ledger, err := audit.Open(path)
+			if err != nil {
+				return errcode.New(ErrStatsFailed, "open ledger", err)
+			}
+			entries, err := ledger.All()
+			if err != nil {
+				return errcode.New(ErrStatsFailed, "read ledger", err)
+			}
+			report := buildReport(entries, sinceT, since)
+			return renderReport(cmd, report, asJSON)
+		},
+	}
+	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
+	cmd.Flags().StringVar(&since, "since", "", "filter events from YYYY-MM-DD onwards")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	return cmd
+}
+
+func buildReport(entries []audit.Entry, sinceT time.Time, sinceLabel string) Report {
+	type accum struct {
+		count    int
+		lastSeen time.Time
+		actions  map[string]int
+	}
+	verbMap := map[string]*accum{}
+	for _, e := range entries {
+		if !sinceT.IsZero() && e.Timestamp.Before(sinceT) {
+			continue
+		}
+		a, ok := verbMap[e.Verb]
+		if !ok {
+			a = &accum{actions: map[string]int{}}
+			verbMap[e.Verb] = a
+		}
+		a.count++
+		if e.Timestamp.After(a.lastSeen) {
+			a.lastSeen = e.Timestamp
+		}
+		a.actions[e.Action]++
+	}
+
+	var verbs []VerbStat
+	for v, a := range verbMap {
+		verbs = append(verbs, VerbStat{
+			Verb:            v,
+			Count:           a.count,
+			LastSeen:        a.lastSeen,
+			ActionBreakdown: a.actions,
+		})
+	}
+	sort.Slice(verbs, func(i, j int) bool {
+		if verbs[i].Count != verbs[j].Count {
+			return verbs[i].Count > verbs[j].Count // descending
+		}
+		return verbs[i].Verb < verbs[j].Verb
+	})
+
+	total := 0
+	for _, vs := range verbs {
+		total += vs.Count
+	}
+	return Report{
+		GeneratedAt: time.Now().UTC(),
+		TotalEvents: total,
+		SinceFilter: sinceLabel,
+		Verbs:       verbs,
+	}
+}
+
+func renderReport(cmd *cobra.Command, r Report, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(r)
+	}
+	if r.TotalEvents == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "stats: no audit events found")
+		return nil
+	}
+	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+	fmt.Fprintf(tw, "VERB\tCOUNT\tLAST SEEN\n")
+	for _, vs := range r.Verbs {
+		fmt.Fprintf(tw, "%s\t%d\t%s\n", vs.Verb, vs.Count, vs.LastSeen.Format("2006-01-02 15:04:05Z"))
+	}
+	_ = tw.Flush()
+	fmt.Fprintf(cmd.OutOrStdout(), "\ntotal events: %d\n", r.TotalEvents)
+	return nil
+}

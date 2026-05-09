@@ -41,6 +41,9 @@ var reservedRanges = []struct {
 	{3400, 3499, "cli/audit"},
 	{3500, 3599, "cli/plugin"},
 	{3600, 3699, "cli/eval"},
+	{3700, 3799, "cli/failure-register"},
+	{3800, 3899, "cli/postmortem"},
+	{3900, 3999, "cli/stats"},
 	{9000, 9099, "internal/test"},
 }
 
