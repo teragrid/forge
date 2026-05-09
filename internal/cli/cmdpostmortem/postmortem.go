@@ -42,7 +42,7 @@ var requiredSections = []string{
 
 // actionItemRE matches the canonical action-item shape from ADR-020:
 //
-//	- [ ] AI-NN — <description> — owner: @handle — due: YYYY-MM-DD — issue: #NNN
+//   - [ ] AI-NN — <description> — owner: @handle — due: YYYY-MM-DD — issue: #NNN
 var actionItemRE = regexp.MustCompile(
 	`^\s*-\s+\[\s*[xX ]?\s*\]\s+AI-\d+\s+—.*owner:\s+@\S+.*due:\s+\d{4}-\d{2}-\d{2}.*issue:\s+#\d+`)
 
