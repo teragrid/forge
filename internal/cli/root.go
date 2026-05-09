@@ -11,6 +11,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmddoctor"
+	"github.com/teragrid/forge/internal/cli/cmdeval"
 	"github.com/teragrid/forge/internal/cli/cmdexplain"
 	"github.com/teragrid/forge/internal/cli/cmdlint"
 	"github.com/teragrid/forge/internal/cli/cmdnew"
@@ -48,6 +49,7 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdupgrade.New(),
 		cmdaudit.New(),
 		cmdplugin.New(),
+		cmdeval.New(),
 	)
 
 	return root

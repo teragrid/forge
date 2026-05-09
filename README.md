@@ -2,7 +2,7 @@
 
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 
-**Status:** M2 Preview — **11 verbs available** (`version`, `doctor`, `new`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue.
+**Status:** M2 Preview — **12 verbs available** (`version`, `doctor`, `new`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue.
 
 ## Spec-driven repo
 
@@ -69,6 +69,7 @@ make all       # lint + test + build
 | `forge upgrade <codemod>` [`--apply`] | Run a codemod (default dry-run): `gitignore-marker`, `gitleaks-baseline`, or `list`. | ✅ M2 preview |
 | `forge audit <show\|verify\|append>` | Tamper-evident hash-chained ledger at `.forge/audit.log`. | ✅ M2 preview |
 | `forge plugin <list\|show>` | Enumerate / inspect in-tree plugins (scanners + codemods). `--kind` filter, `--json`. | ✅ M2 preview |
+| `forge eval [path]` | Run scenario regression suites (JSON `*.scenario.json` files). `--json`, `--ci`. | ✅ M2 preview |
 
 ## Layout
 

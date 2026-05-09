@@ -13,6 +13,7 @@ import (
 	_ "github.com/teragrid/forge/internal/cli/cmdaudit"
 	_ "github.com/teragrid/forge/internal/cli/cmdclean"
 	_ "github.com/teragrid/forge/internal/cli/cmddoctor"
+	_ "github.com/teragrid/forge/internal/cli/cmdeval"
 	_ "github.com/teragrid/forge/internal/cli/cmdexplain"
 	_ "github.com/teragrid/forge/internal/cli/cmdlint"
 	_ "github.com/teragrid/forge/internal/cli/cmdnew"

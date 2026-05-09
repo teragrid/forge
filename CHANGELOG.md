@@ -5,6 +5,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 ## [Unreleased]
 
 ### Added
+- `forge eval [path]` (verb #12) — JSON scenario harness for deterministic regression suites. Loads `*.scenario.json` from `.forge/eval/` (or a given file/dir), runs each step's argv via `exec.CommandContext`, and asserts on exit code, `stdout_contains`, `stdout_not_contains`, `stderr_contains`, and `stdout_json` key-equality. `--json` emits machine-readable `Report`; `--ci` (default true) exits non-zero on any failure.
+- `internal/eval` package — pure-stdlib runner: `Scenario`, `Step`, `Expect`, `StepResult`, `ScenarioResult`, `Report`, `Runner`, `LoadScenario`, `LoadDir` (sorted, deterministic). Substrate for the M3 LLM-prompt eval suite (a future `prompt` step type slots in without changing runner shape).
+- Reserved error-code range `cli/eval` (3600..3699); 3 codes registered (`ErrEvalLoadFailed` 3600, `ErrEvalScenarioFailed` 3601, `ErrEvalUsage` 3602).
+- Tests: 13 for `internal/eval` (happy, boundary empty steps, invalid scenarios, exit/substring/JSON assertions, false-positive guard for `stdout_not_contains`, idempotency, `LoadDir` filtering+sort, data-accuracy on `Report` counts); 7 for `cmdeval` (dir + single-file happy, `--json` shape, missing path FORGE-3600, CI gate FORGE-3601, `--ci=false` suppression, malformed JSON load error).
 - `forge plugin list` / `forge plugin show <name>` (verb #11) — enumerate every in-tree scanner + codemod via `plugin.Default()`. JSON + text output, `--kind` filter.
 - `internal/cli/cmdscan/plugins.go` — adapter registering each scanner family (`secrets`, `rls`, `prompt-injection`, `supply-chain`) as a `plugin.Scanner` at init().
 - `internal/cli/cmdupgrade/plugins.go` — adapter mirroring every `codemod.Default()` entry into `plugin.Default()` as a `plugin.Codemod`.
@@ -12,8 +16,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 - Tests: 7 for `cmdplugin` (text+JSON list, kind filter false-positive guard, invalid kind, show happy/JSON/unknown, idempotency); 3 for cmdscan adapter (registry presence, dataset accuracy, AKIA conversion); 2 for cmdupgrade adapter (registry mirror, dryRun pass-through).
 
 ### Changed
+- README: bumped "10 verbs" → "12 verbs" across the doc; added `forge plugin` and `forge eval` rows in the verb table.
 - CI (`ci.yml`): bumped `GO_VERSION` 1.24 → 1.25 (govulncheck `GO-2026-4602` `os.ReadDir` CVE); enabled `CGO_ENABLED=1` for the `-race` test step only.
-- Generated `docs/ERROR_CODES.md` now lists 20 codes (was 18).
+- Generated `docs/ERROR_CODES.md` now lists 23 codes (was 18 at v0.2.0-m2-preview cut).
+- `tasks/DEVELOPMENT_TASKS.md`: refreshed Release Status section covering v0.1.0-mvp + v0.2.0-m2-preview shipped tasks and remaining M2.x / M3 backlog.
 
 ## [0.2.0-m2-preview] — plugin loader, codemod runner, audit ledger
 
