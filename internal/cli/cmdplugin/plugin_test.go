@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -143,5 +145,181 @@ func TestList_Idempotent(t *testing.T) {
 	}
 	if a != b {
 		t.Errorf("list is not idempotent\nfirst:\n%s\nsecond:\n%s", a, b)
+	}
+}
+
+// ── helper ────────────────────────────────────────────────────────────────
+
+func runCmdRoot(t *testing.T, root string, args ...string) (string, error) {
+	t.Helper()
+	cmd := New()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs(append(args, "--root", root))
+	err := cmd.Execute()
+	return buf.String(), err
+}
+
+// ── DEV-M2-02: install / upgrade / remove tests ───────────────────────────
+
+// TC-02-01 (happy path): install → verify lock → upgrade → remove cycle.
+func TestPlugin_InstallUpgradeRemove(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	out, err := runCmdRoot(t, dir, "install", "my-scanner@1.0.0")
+	if err != nil {
+		t.Fatalf("install: %v (out: %s)", err, out)
+	}
+	if !strings.Contains(out, "installed") {
+		t.Errorf("expected 'installed' in output: %s", out)
+	}
+	lf, err := readLock(dir)
+	if err != nil {
+		t.Fatalf("readLock: %v", err)
+	}
+	if len(lf.Plugins) != 1 || lf.Plugins[0].Name != "my-scanner" || lf.Plugins[0].Version != "1.0.0" {
+		t.Fatalf("unexpected lock: %+v", lf)
+	}
+
+	out, err = runCmdRoot(t, dir, "upgrade", "my-scanner", "--version", "2.0.0")
+	if err != nil {
+		t.Fatalf("upgrade: %v (out: %s)", err, out)
+	}
+	lf2, _ := readLock(dir)
+	if lf2.Plugins[0].Version != "2.0.0" {
+		t.Errorf("expected version 2.0.0, got %s", lf2.Plugins[0].Version)
+	}
+
+	out, err = runCmdRoot(t, dir, "remove", "my-scanner")
+	if err != nil {
+		t.Fatalf("remove: %v (out: %s)", err, out)
+	}
+	lf3, _ := readLock(dir)
+	if len(lf3.Plugins) != 0 {
+		t.Errorf("expected empty lock after remove, got %v", lf3.Plugins)
+	}
+}
+
+// TC-02-02 (idempotency): same install twice → second is no-op.
+func TestPlugin_Install_Idempotent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmdRoot(t, dir, "install", "foo@1.0.0"); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	out, err := runCmdRoot(t, dir, "install", "foo@1.0.0")
+	if err != nil {
+		t.Fatalf("second install should not error: %v", err)
+	}
+	if !strings.Contains(out, "already installed") {
+		t.Errorf("expected 'already installed' on second install: %s", out)
+	}
+	lf, _ := readLock(dir)
+	if len(lf.Plugins) != 1 {
+		t.Errorf("lock should still have exactly 1 entry, got %d", len(lf.Plugins))
+	}
+}
+
+// TC-02-03 (negative): install without pinned version when lock already has different version.
+func TestPlugin_Install_VersionConflict(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	lf := LockFile{Plugins: []LockEntry{{Name: "bar", Version: "1.0.0", Source: "in-tree"}}}
+	if err := writeLock(dir, lf); err != nil {
+		t.Fatalf("writeLock: %v", err)
+	}
+	_, err := runCmdRoot(t, dir, "install", "bar")
+	if err == nil {
+		t.Fatal("expected ErrPluginLockInvalid, got nil")
+	}
+	var fe *errcode.Error
+	if !errors.As(err, &fe) || fe.Code != ErrPluginLockInvalid {
+		t.Errorf("want FORGE-%d, got %v", ErrPluginLockInvalid, err)
+	}
+}
+
+// TC-02-04: install of zero-length name → ErrPluginUsage.
+func TestPlugin_Install_EmptyName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, err := runCmdRoot(t, dir, "install", "@1.0.0")
+	if err == nil {
+		t.Fatal("expected error for empty plugin name, got nil")
+	}
+}
+
+// TC-02-05: upgrade of unknown plugin → ErrPluginUnknown.
+func TestPlugin_Upgrade_Unknown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, err := runCmdRoot(t, dir, "upgrade", "ghost")
+	if err == nil {
+		t.Fatal("expected error for unknown plugin upgrade, got nil")
+	}
+	var fe *errcode.Error
+	if !errors.As(err, &fe) || fe.Code != ErrPluginUnknown {
+		t.Errorf("want FORGE-%d, got %v", ErrPluginUnknown, err)
+	}
+}
+
+// TC-02-06: remove of unknown plugin → ErrPluginUnknown.
+func TestPlugin_Remove_Unknown(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, err := runCmdRoot(t, dir, "remove", "ghost")
+	if err == nil {
+		t.Fatal("expected error for unknown plugin remove, got nil")
+	}
+	var fe *errcode.Error
+	if !errors.As(err, &fe) || fe.Code != ErrPluginUnknown {
+		t.Errorf("want FORGE-%d, got %v", ErrPluginUnknown, err)
+	}
+}
+
+// TC-02-07: lock file is valid JSON after round-trip.
+func TestPlugin_LockFile_ValidJSON(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmdRoot(t, dir, "install", "alpha@0.1.0"); err != nil {
+		t.Fatalf("install alpha: %v", err)
+	}
+	if _, err := runCmdRoot(t, dir, "install", "beta@0.2.0"); err != nil {
+		t.Fatalf("install beta: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, lockFilePath))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	var parsed LockFile
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("invalid JSON in lock file: %v\n%s", err, raw)
+	}
+	if len(parsed.Plugins) != 2 {
+		t.Errorf("expected 2 plugins, got %d", len(parsed.Plugins))
+	}
+}
+
+// TC-02-08: remove one plugin, others survive.
+func TestPlugin_Remove_PreservesOthers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, p := range []string{"a@1.0", "b@2.0", "c@3.0"} {
+		if _, err := runCmdRoot(t, dir, "install", p); err != nil {
+			t.Fatalf("install %s: %v", p, err)
+		}
+	}
+	if _, err := runCmdRoot(t, dir, "remove", "b"); err != nil {
+		t.Fatalf("remove b: %v", err)
+	}
+	lf, _ := readLock(dir)
+	if len(lf.Plugins) != 2 {
+		t.Fatalf("expected 2 remaining, got %d: %v", len(lf.Plugins), lf.Plugins)
+	}
+	for _, e := range lf.Plugins {
+		if e.Name == "b" {
+			t.Error("plugin 'b' still present after remove")
+		}
 	}
 }
