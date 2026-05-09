@@ -100,6 +100,81 @@ func TestRun_SkipsDotGit(t *testing.T) {
 	}
 }
 
+// ── DEV-M0-36 secret guard tests ───────────────────────────────────────────
+
+// TC-36-01: checkTrackedSecrets in a non-git tree → graceful skip (no panic, empty result).
+func TestCheckTrackedSecrets_NonGitTree(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// No .git directory; git ls-files should fail → err returned, caller skips.
+	secrets, err := checkTrackedSecrets(dir)
+	if err == nil && len(secrets) > 0 {
+		t.Errorf("expected no secrets in non-git tree, got %v", secrets)
+	}
+	// err != nil is expected and fine — caller suppresses it.
+}
+
+// TC-36-02: secretPatterns coverage — patterns that SHOULD match.
+func TestSecretPatterns_Match(t *testing.T) {
+	t.Parallel()
+	shouldMatch := []string{
+		".env", ".env.local", ".env.production.local",
+		"server.pem", "private.key", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+		"secrets.json", "credentials.json", ".netrc",
+	}
+	for _, name := range shouldMatch {
+		matched := false
+		for _, pat := range secretPatterns {
+			if ok, _ := filepath.Match(pat, name); ok {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("expected %q to match a secret pattern but it did not", name)
+		}
+	}
+}
+
+// TC-36-03 false-positive guard: names that MUST NOT match.
+func TestSecretPatterns_NoFalsePositive(t *testing.T) {
+	t.Parallel()
+	shouldNotMatch := []string{
+		".env.local.example",
+		".env.example",
+		"environment.go",
+		"key_handler.go",
+		"secrets_test.go",
+		"README.md",
+		"main.go",
+		".envrc",
+	}
+	for _, name := range shouldNotMatch {
+		for _, pat := range secretPatterns {
+			if ok, _ := filepath.Match(pat, name); ok {
+				t.Errorf("false positive: %q matched secret pattern %q — should NOT match", name, pat)
+			}
+		}
+	}
+}
+
+// TC-36-04: Run() with git unavailable does NOT return an error (graceful degradation).
+func TestRun_SecretGuard_GracefulSkipWhenNoGit(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Write .env inside the tree — no git repo.
+	_ = os.WriteFile(filepath.Join(root, ".env"), []byte("SECRET=x"), 0o600)
+	// Run should succeed (no git = graceful skip).
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run should not error when git is absent: %v", err)
+	}
+	// TrackedSecrets should be nil or empty since git is unavailable.
+	if len(res.TrackedSecrets) > 0 {
+		t.Errorf("expected no TrackedSecrets without git repo, got %v", res.TrackedSecrets)
+	}
+}
+
 func expectIncludes(t *testing.T, got []string, wants ...string) {
 	t.Helper()
 	for _, w := range wants {
