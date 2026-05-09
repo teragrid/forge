@@ -37,7 +37,7 @@ Plugins are WASM components hosted on `wazero` (per [ADR-002](adr/ADR-002-plugin
 
 ## Reporting security issues
 
-See [SECURITY.md](SECURITY.md) for the private disclosure process. Do **not** open a public issue for vulnerabilities.
+See [docs/SECURITY.md](docs/SECURITY.md) for the private disclosure process. Do **not** open a public issue for vulnerabilities.
 
 ## License
 

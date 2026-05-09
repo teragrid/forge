@@ -50,3 +50,28 @@ func TestRootCommand_Help(t *testing.T) {
 		t.Fatalf("help output missing binary name; got: %q", out.String())
 	}
 }
+
+// TestRootCommand_VerbsRegistered guards that every MVP verb is wired into the
+// root. Adding a verb without registering it here will fail this test.
+func TestRootCommand_VerbsRegistered(t *testing.T) {
+	t.Parallel()
+
+	cmd := NewRootCommand("0.0.0-dev")
+	want := map[string]bool{
+		"version": false,
+		"new":     false,
+		"doctor":  false,
+		"clean":   false,
+		"explain": false,
+	}
+	for _, c := range cmd.Commands() {
+		if _, ok := want[c.Name()]; ok {
+			want[c.Name()] = true
+		}
+	}
+	for v, ok := range want {
+		if !ok {
+			t.Errorf("verb %q not registered on root", v)
+		}
+	}
+}

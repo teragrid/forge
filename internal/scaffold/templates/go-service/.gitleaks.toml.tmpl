@@ -1,0 +1,34 @@
+# Forge-managed gitleaks rule pack (DEV-M0-34; forge {{.ForgeVer}})
+# Adapted defaults; M1 will publish the full Forge-aware pack.
+title = "forge gitleaks defaults"
+
+[allowlist]
+description = "Files we never scan"
+paths = [
+  '''(.*?)/?\.forge/cache/''',
+  '''(.*?)/?dist/''',
+]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key"
+regex = '''(?i)(api[_-]?key|secret|token)[\"\']?\s*[:=]\s*[\"\']?[A-Za-z0-9_\-]{20,}'''
+tags = ["key", "generic"]
+
+[[rules]]
+id = "private-key-block"
+description = "Private key block"
+regex = '''-----BEGIN ((EC|PGP|DSA|RSA|OPENSSH) )?PRIVATE KEY-----'''
+tags = ["key", "private"]
+
+[[rules]]
+id = "openai-key"
+description = "OpenAI API key"
+regex = '''sk-[A-Za-z0-9]{20,}'''
+tags = ["key", "openai"]
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS access key id"
+regex = '''AKIA[0-9A-Z]{16}'''
+tags = ["key", "aws"]

@@ -1,7 +1,31 @@
 # Forge — Development Tasks
 
-> Companion to `../DEVELOPMENT_PLAN.md`.
+> Companion to `../docs/DEVELOPMENT_PLAN.md`.
 > Tracker for the Section-B tasks (DEV-M{0..3}-NN) from the master breakdown.
+
+## MVP (`v0.1.0-mvp`) status — what shipped in the community-launch slice
+
+| Task | Title | MVP slice |
+|------|-------|-----------|
+| DEV-M0-01 | Repo skeleton + DCO + cross-compile | ✅ (CI gates, 6-triple matrix, CODEOWNERS) |
+| DEV-M0-02 | Config loader (layered) | 🟡 partial — flags+env via cobra; viper layering deferred to M0.3 |
+| DEV-M0-03 | Error-code framework `FORGE-XXXX` | ✅ `internal/errcode` (reserved-range registry, panic on dup, tests) |
+| DEV-M0-04 | Structured logger | ✅ `internal/logobs` (slog wrapper, secret redaction, `--explain` bypass) |
+| DEV-M0-10 | Plugin runtime ABI | ⏳ M1 |
+| DEV-M0-11 | CLI verb router | ✅ `internal/cli` + `internal/cli/cmd<verb>/` subpackages, `verbmeta` registry |
+| DEV-M0-12 | `forge explain` | ✅ `--json` supported; lists all verbs or one manifest |
+| DEV-M0-13 | `forge new` | ✅ `go-service` template; `--name`/`--module`/`--force`/`--json` |
+| DEV-M0-14 | `forge doctor` | ✅ checks git/go/temp; `--json` supported |
+| DEV-M0-15 | `forge clean` | ✅ `--check`/`--apply`; manifest-driven |
+| DEV-M0-22 | Bundled `.gitignore` template | ✅ ships in `go-service` template with marker block |
+| DEV-M0-23 | Bundled `.gitleaks.toml` | ✅ ships in `go-service` template (4 baseline rules) |
+| DEV-M0-27 | `.forge/manifest` reader | ✅ `internal/manifest` (scratch/managed sections, glob matcher) |
+| DEV-M0-33 | CI workflow (lint+test+build matrix) | ✅ `.github/workflows/ci.yml` |
+| DEV-M0-34 | Release workflow stub | ✅ tag-driven, GoReleaser-ready |
+
+Items deferred past `v0.1.0-mvp` (still tracked below): DEV-M0-05/06/07/08/09/16/17/18/19/20/21/24/25/26/28/29/30/31/32/35/36. The MVP slice is intentionally small so contributors can run `forge new go-service ...` end-to-end in <60 seconds.
+
+---
 
 ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/T2/T3) lists explicit **test cases** (TC-IDs) following the 9-point checklist from `always-write-tests.md` (happy / boundary / negative / idempotency / concurrency / cross-tenant / regression / data-accuracy / false-positive guard) — only points that meaningfully apply are included, never invented. OPS/DOC tasks list **verification checks** instead of unit-style cases.
 

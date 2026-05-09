@@ -2,7 +2,7 @@
 
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 
-**Status:** Pre-RFC / M0 Bootstrap. Not yet usable. See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the milestone roadmap.
+**Status:** M0 Bootstrap — **MVP preview** (`forge new`, `forge doctor`, `forge clean`, `forge explain`, `forge version` work). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap.
 
 ## Spec-driven repo
 
@@ -10,18 +10,20 @@ This repo is **spec-first**. Every feature lands as: `spec` → ADR → red test
 
 | Doc | Purpose |
 |-----|---------|
-| [FORGE_FRAMEWORK_SPEC.md](FORGE_FRAMEWORK_SPEC.md) | Product specification (v0.10.6). |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture (tier model, NFRs, ADR index). |
-| [THREAT_MODEL.md](THREAT_MODEL.md) | STRIDE threat model + mitigations. |
-| [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) | Per-milestone delivery plan (M0–M3). |
-| [TEST_PLAN.md](TEST_PLAN.md) | Test strategy + coverage gates. |
-| [GO_TO_COMMUNITY_PLAN.md](GO_TO_COMMUNITY_PLAN.md) | OSS launch + governance plan. |
+| [docs/FORGE_FRAMEWORK_SPEC.md](docs/FORGE_FRAMEWORK_SPEC.md) | Product specification (v0.10.6). |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture (tier model, NFRs, ADR index). |
+| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | STRIDE threat model + mitigations. |
+| [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) | Per-milestone delivery plan (M0–M3). |
+| [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | Test strategy + coverage gates. |
+| [docs/GO_TO_COMMUNITY_PLAN.md](docs/GO_TO_COMMUNITY_PLAN.md) | OSS launch + governance plan. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute (DCO, gates, review flow). |
+| [docs/SECURITY.md](docs/SECURITY.md) | Private vulnerability disclosure. |
 | [adr/](adr/) | Accepted/Proposed Architecture Decision Records. |
 | [tasks/](tasks/) | Task trackers (ARCHITECTURE_TASKS, DEVELOPMENT_TASKS, TEST_TASKS, LAUNCH_TASKS). |
 
 ## Tech stack (resolved)
 
-Per [ADR-001](adr/ADR-001-implementation-language.md) and [ADR-002](adr/ADR-002-plugin-runtime.md):
+Per [ADR-001](adr/ADR-001-implementation-language.md), [ADR-002](adr/ADR-002-plugin-runtime.md), and [ADR-008](adr/ADR-008-license.md):
 
 - **Language:** Go (`go 1.24`, `CGO_ENABLED=0` default)
 - **CLI:** [`cobra`](https://github.com/spf13/cobra) + [`viper`](https://github.com/spf13/viper)
@@ -31,24 +33,53 @@ Per [ADR-001](adr/ADR-001-implementation-language.md) and [ADR-002](adr/ADR-002-
 - **Lint:** [`golangci-lint`](https://golangci-lint.run/) (staticcheck, govet, gosec, errcheck, ineffassign, gocritic) + `gofmt` + `goimports`
 - **Supply-chain:** `govulncheck` + `go mod verify` + `syft` SBOM at release; `go-licenses` audit
 
-## Quickstart (contributors)
+## Quickstart
+
+### Try the MVP
 
 ```bash
 git clone https://github.com/teragrid/forge.git
 cd forge
+make build
+./dist/forge version
+./dist/forge doctor                     # env health check
+./dist/forge new go-service ../my-app   # scaffold a Go HTTP service
+cd ../my-app && go run ./...
+```
+
+### Contributor setup
+
+```bash
 make tools     # one-time: golangci-lint, govulncheck, goimports, gotestsum
 make all       # lint + test + build
-./dist/forge --version
 ```
+
+## Verbs available in the MVP
+
+| Verb | Purpose | Status |
+|------|---------|--------|
+| `forge version` | Print version + build metadata. | ✅ |
+| `forge doctor` | Check env (git, go, OS, write perms). `--json` supported. | ✅ |
+| `forge new <template> <path>` | Scaffold a project from a built-in template (`go-service`). Emits managed `.gitignore`, `.gitleaks.toml`, `.forge/manifest.yaml`. | ✅ |
+| `forge clean [--check\|--apply]` | Manifest-based scratch / LLM-cruft sweeper. | ✅ (MVP) |
+| `forge explain <verb>` | Print the verb manifest (inputs, outputs, side-effects). `--json` supported. | ✅ |
+| `forge ship` | Full 5-checkpoint pipeline. | ⏳ M1 |
+| `forge scan` | Scan-fix-learn loop. | ⏳ M1 |
 
 ## Layout
 
 ```
 cmd/forge/        # CLI entry point (main package)
 internal/         # Internal packages (not importable by consumers)
-  cli/            # cobra command tree
+  cli/            #   cobra command tree + per-verb subpackages (cmd<verb>/)
+  errcode/        #   FORGE-NNNN error code registry
+  logobs/         #   slog wrapper with secret redaction
+  manifest/       #   .forge/manifest reader (scratch/managed patterns)
+  scaffold/       #   embedded template renderer (go-service, ...)
+  verbmeta/       #   verb manifests powering `forge explain`
 pkg/              # (reserved) Public Go API surface
 adr/              # Architecture Decision Records
+docs/             # Spec, plans, threat model, contributor docs
 tasks/            # Task trackers per role
 .github/          # CI/CD workflows
 ```

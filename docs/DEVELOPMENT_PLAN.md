@@ -24,16 +24,55 @@ The stack below is the contractual baseline for every task in this plan. Any dev
 
 | Layer | Choice | ADR |
 |-------|--------|-----|
-| Implementation language | **Go** (current release; min version pinned via `go.mod` `toolchain` + `go` directives; `CGO_ENABLED=0` default) | [ADR-001](adr/ADR-001-implementation-language.md) |
-| WASM plugin host | **`wazero`** (pure-Go); `wasmtime-go` reserved as build-tag-gated escape hatch (`-tags forge_wasmtime`) | [ADR-002](adr/ADR-002-plugin-runtime.md) |
+| Implementation language | **Go** (current release; min version pinned via `go.mod` `toolchain` + `go` directives; `CGO_ENABLED=0` default) | [ADR-001](../adr/ADR-001-implementation-language.md) |
+| WASM plugin host | **`wazero`** (pure-Go); `wasmtime-go` reserved as build-tag-gated escape hatch (`-tags forge_wasmtime`) | [ADR-002](../adr/ADR-002-plugin-runtime.md) |
 | CLI / config | **`cobra`** + **`viper`** | ADR-001 |
 | Concurrency | stdlib **goroutines + `context`** (no third-party async runtime) | ADR-001 |
 | Logging / tracing | **`log/slog`** + **OpenTelemetry-Go** | ADR-001 |
 | Tests | **`go test`** + **`gotestsum`** + golden-file snapshots; **`-race`** mandatory in CI | ADR-001, TEST-01 |
 | Lint / format | **`golangci-lint`** (staticcheck, govet, gosec, errcheck, ineffassign, gocritic) + **`gofmt`** + **`goimports`** | ADR-001 |
 | Supply-chain | **`govulncheck`** + **`go mod verify`** + **`syft`** SBOM at release | ADR-001, ADR-008 |
-| License audit | **`go-licenses check`** in CI | [ADR-008](adr/ADR-008-license.md) |
+| License audit | **`go-licenses check`** in CI | [ADR-008](../adr/ADR-008-license.md) |
 | Repo layout | `cmd/forge/`, `internal/`, `pkg/` (standard Go project layout) | ADR-001 follow-up |
+
+---
+
+## 0.2 MVP slice (M0-MVP) — community launch
+
+To get a usable binary into contributors' hands quickly and start building the ecosystem, M0 is sub-divided. The **MVP slice** is the smallest end-to-end vertical that lets a stranger run `forge new`, get a working project, and keep it tidy with `forge clean`. The remaining M0 tasks land iteratively after launch.
+
+| MVP task (subset of M0) | Status |
+|-------------------------|--------|
+| DEV-M0-01 Repo skeleton + CI | ✅ done |
+| DEV-M0-03 Error-code framework (`FORGE-XXXX`) | ✅ MVP |
+| DEV-M0-02 Config loader (defaults → file → env → flags) | ✅ MVP (subset: defaults + env + flags; file loader behind viper, exercised by `version`/`doctor`) |
+| DEV-M0-04 Structured logger (slog JSON + TTY) | ✅ MVP |
+| DEV-M0-10 CLI verb router (`new`, `doctor`, `explain`, `clean`, `version`) | ✅ MVP |
+| DEV-M0-11 `--json` output framework | ✅ MVP (per-verb schema enforcement deferred) |
+| DEV-M0-12 `--explain` introspection (verb manifests) | ✅ MVP |
+| DEV-M0-13 `forge new go-service` (one built-in template) | ✅ MVP |
+| DEV-M0-14 `forge doctor` | ✅ MVP |
+| DEV-M0-15 `forge clean` (manifest-based, `--check` / `--apply`) | ✅ MVP |
+| DEV-M0-33 `.gitignore` template fragments + composer | ✅ MVP (single composed template; per-fragment selection deferred) |
+| DEV-M0-34 `.gitleaks.toml` template + Forge rule pack | ✅ MVP (default rule pack only) |
+| DEV-M0-22/23 Test harness conventions (unit + subprocess E2E) | ✅ MVP |
+| DEV-M0-27 CI pipeline (lint + unit + integration + cross-compile + vuln) | ✅ MVP |
+
+Deferred to post-MVP (still inside M0, sequenced after launch):
+
+- DEV-M0-05/06/07 (filesystem / git / process services with sandbox + allow-list)
+- DEV-M0-08 audit ledger
+- DEV-M0-09 secret-redaction in LLM pipeline
+- DEV-M0-16/17/18/19 LLM provider interface + gateway + ledger + first real provider
+- DEV-M0-20/21 manual `ship` checklist + `forge ship --quick`
+- DEV-M0-24/25/26 eval harness + NFR benches + secret-leak loop
+- DEV-M0-28/29 sigstore signing + brew/scoop/winget tap
+- DEV-M0-30 telemetry plumbing
+- DEV-M0-31 release-notes/changelog automation
+- DEV-M0-32 hygiene fixture corpus (≥30)
+- DEV-M0-35/36 `forge upgrade gitignore`/`gitleaks` codemods + tracked-secret-file guard
+
+The MVP is launched on GitHub as `v0.1.0-mvp` to start the ecosystem flywheel, then iteratively extended toward the full M0 exit criteria.
 
 ---
 

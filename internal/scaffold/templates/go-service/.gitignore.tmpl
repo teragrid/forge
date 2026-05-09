@@ -1,0 +1,35 @@
+# Forge-managed .gitignore (DEV-M0-33; forge {{.ForgeVer}})
+# >>> forge:gitignore:start (managed) — do not edit between markers; run
+# `forge upgrade gitignore` to update.
+
+# Build artefacts
+/dist/
+/bin/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local env (never commit)
+.env
+.env.local
+.env.*.local
+
+# Negation: example/template files are kept on purpose.
+!.env.example
+!.env.*.example
+
+# Forge runtime scratch (per spec §4 hygiene)
+.forge/cache/
+.forge/scratch/
+
+# <<< forge:gitignore:end
+
+# User section — anything below this marker is preserved across upgrades.

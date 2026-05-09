@@ -1,0 +1,35 @@
+# {{.Name}}
+
+> Scaffolded by `forge new go-service` (forge {{.ForgeVer}}).
+> {{.Description}}
+
+A minimal Go HTTP service with:
+
+- `/healthz` and `/readyz` probes
+- structured `slog` JSON logging
+- graceful shutdown on SIGINT/SIGTERM
+- a single end-to-end test
+
+## Run
+
+```bash
+go run ./...
+# in another shell:
+curl http://localhost:8080/healthz
+```
+
+## Test
+
+```bash
+go test ./...
+```
+
+## Forge hygiene
+
+This project ships with:
+
+- `.gitignore` — managed by `forge upgrade gitignore`
+- `.gitleaks.toml` — secret-scan rule pack managed by `forge upgrade gitleaks`
+- `.forge/manifest` — drives `forge clean`
+
+Run `forge clean --check` before every commit.

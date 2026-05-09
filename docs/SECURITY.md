@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-forge is pre-1.0 (M0 Bootstrap). No version is GA. Once 1.0 ships, the latest minor will receive security patches per the policy in [adr/ADR-022-governance.md](adr/ADR-022-governance.md).
+forge is pre-1.0 (M0 Bootstrap). No version is GA. Once 1.0 ships, the latest minor will receive security patches per the policy in [adr/ADR-022-governance.md](../adr/ADR-022-governance.md).
 
 ## Reporting a vulnerability
 
@@ -23,7 +23,7 @@ Coordinated disclosure: we will credit reporters in the release notes unless ano
 In-scope:
 
 - The `forge` CLI binary and any first-party packages under `cmd/`, `internal/`, `pkg/`.
-- The plugin runtime (per [ADR-002](adr/ADR-002-plugin-runtime.md)).
+- The plugin runtime (per [ADR-002](../adr/ADR-002-plugin-runtime.md)).
 - CI/CD configuration in `.github/workflows/`.
 
 Out of scope:
