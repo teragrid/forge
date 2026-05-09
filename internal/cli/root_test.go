@@ -71,8 +71,8 @@ func TestRootCommand_VerbsRegistered(t *testing.T) {
 		"plugin":     false,
 		"eval":       false,
 		"postmortem": false,
-		"stats":      false,
-		"budget":     false,
+		"insights":   false,
+		"spend":      false,
 		"incident":   false,
 		"telemetry":  false,
 	}

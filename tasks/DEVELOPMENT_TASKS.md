@@ -5,7 +5,7 @@
 
 ## Release status — what shipped where
 
-> Latest tag: **`v0.2.0-m2-preview`** at commit `768367b` (CI green). HEAD adds `forge audit query`, `forge budget` (#15), `forge incident` (#16), `forge telemetry` (#17), and WASM plugin runtime stub (DEV-M2-09/M3-03/M3-06/M3-01/M2-05).
+> Latest tag: **`v0.2.0-m2-preview`** at commit `768367b` (CI green). HEAD adds `forge audit query`, `forge spend` (#15), `forge incident` (#16), `forge telemetry` (#17), and WASM plugin runtime stub (DEV-M2-09/M3-03/M3-06/M3-01/M2-05).
 
 ### `v0.1.0-mvp` — community-launch slice (M0 + M1 partial)
 
@@ -55,8 +55,8 @@
 
 **M3 — governance + telemetry**
 - DEV-M3-01 — File-based telemetry spans (ADR-006) ✅ **shipped** (`internal/telemetry` + `forge telemetry enable/disable/status/rotate-id` verb #17; codes 4100..4199; 21 tests)
-- DEV-M3-02 — `forge stats` verb (#14) — local telemetry rollup ✅ **shipped**
-- DEV-M3-03 — LLM budget tracker ✅ **shipped** (`internal/llmbudget` + `forge budget` verb #15; codes 2400..2402; 29 tests)
+- DEV-M3-02 — `forge insights` verb (#14) — local telemetry rollup ✅ **shipped**
+- DEV-M3-03 — LLM budget tracker ✅ **shipped** (`internal/llmbudget` + `forge spend` verb #15; codes 2400..2402; 29 tests)
 - DEV-M3-04 — Failure-register data model (ADR-016) ✅ **shipped**
 - DEV-M3-05 — Postmortem CI gate (ADR-020) ✅ **shipped**
 - DEV-M3-06 — Incident lifecycle management (ADR-021) ✅ **shipped** (`internal/incident` + `forge incident new/update/list/close` verb #16; codes 4000..4002; 29 tests)

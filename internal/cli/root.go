@@ -11,19 +11,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
-	"github.com/teragrid/forge/internal/cli/cmdbudget"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmddoctor"
 	"github.com/teragrid/forge/internal/cli/cmdeval"
 	"github.com/teragrid/forge/internal/cli/cmdexplain"
 	"github.com/teragrid/forge/internal/cli/cmdincident"
+	"github.com/teragrid/forge/internal/cli/cmdinsights"
 	"github.com/teragrid/forge/internal/cli/cmdlint"
 	"github.com/teragrid/forge/internal/cli/cmdnew"
 	"github.com/teragrid/forge/internal/cli/cmdplugin"
 	"github.com/teragrid/forge/internal/cli/cmdpostmortem"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/cli/cmdship"
-	"github.com/teragrid/forge/internal/cli/cmdstats"
+	"github.com/teragrid/forge/internal/cli/cmdspend"
 	"github.com/teragrid/forge/internal/cli/cmdtelemetry"
 	"github.com/teragrid/forge/internal/cli/cmdupgrade"
 	"github.com/teragrid/forge/internal/cli/cmdversion"
@@ -74,8 +74,8 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdplugin.New(),
 		cmdeval.New(),
 		cmdpostmortem.New(),
-		cmdstats.New(),
-		cmdbudget.New(),
+		cmdinsights.New(),
+		cmdspend.New(),
 		cmdincident.New(),
 		cmdtelemetry.New(),
 	)

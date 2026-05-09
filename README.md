@@ -2,7 +2,7 @@
 
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 
-**Status:** M3 Preview — **17 verbs available** (`version`, `doctor`, `new`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`, `postmortem`, `stats`, `budget`, `incident`, `telemetry`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue (38 codes).
+**Status:** M3 Preview — **17 verbs available** (`version`, `doctor`, `new`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`, `postmortem`, `insights`, `spend`, `incident`, `telemetry`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue (38 codes).
 
 ## Spec-driven repo
 
@@ -71,8 +71,8 @@ make all       # lint + test + build
 | `forge plugin <list\|show>` | Enumerate / inspect in-tree plugins (scanners + codemods). `--kind` filter, `--json`. | ✅ M2 preview |
 | `forge eval [path]` | Run scenario regression suites (JSON `*.scenario.json` files). `--json`, `--ci`. | ✅ M2 preview |
 | `forge postmortem [path]` | Lint post-mortem docs in `docs/postmortems/INC-*.md`. CI gate, `--json`. | ✅ M3 preview |
-| `forge stats` | Local telemetry rollup from `.forge/audit.log`. `--since YYYY-MM-DD`, `--json`. | ✅ M3 preview |
-| `forge budget <status\|set\|reset>` | Track and enforce LLM API spend limits (`.forge/llm-budget.json`). `--daily`, `--monthly`, `--json`. | ✅ M3 preview |
+| `forge insights` | Local telemetry rollup from `.forge/audit.log`. `--since YYYY-MM-DD`, `--json`. | ✅ M3 preview |
+| `forge spend <status\|set\|reset>` | Track and enforce LLM API spend limits (`.forge/llm-budget.json`). `--daily`, `--monthly`, `--json`. | ✅ M3 preview |
 | `forge incident <new\|update\|list\|close>` | ADR-021 incident lifecycle (state machine: identified→fixed). `--json`, `--open`. | ✅ M3 preview |
 | `forge telemetry <enable\|disable\|status\|rotate-id>` | Opt-in file-based spans (ADR-006) at `.forge/telemetry.jsonl`. No PII. | ✅ M3 preview |
 

@@ -1,4 +1,4 @@
-package cmdbudget
+package cmdspend
 
 import (
 	"bytes"

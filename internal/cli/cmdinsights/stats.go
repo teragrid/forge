@@ -1,7 +1,7 @@
-// Package cmdstats implements `forge stats` — local telemetry rollup from
+// Package cmdinsights implements `forge insights` — local telemetry rollup from
 // the audit ledger (.forge/audit.log). No remote calls; purely local.
 // DEV-M3-02.
-package cmdstats
+package cmdinsights
 
 import (
 	"encoding/json"
@@ -26,7 +26,7 @@ var (
 
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
-		Verb:    "stats",
+		Verb:    "insights",
 		Summary: "Show local telemetry rollup from the audit ledger.",
 		Inputs: []string{
 			"--root <path> (default: cwd)",
@@ -64,7 +64,7 @@ func New() *cobra.Command {
 		asJSON bool
 	)
 	cmd := &cobra.Command{
-		Use:   "stats",
+		Use:   "insights",
 		Short: "Show local telemetry rollup from the audit ledger.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

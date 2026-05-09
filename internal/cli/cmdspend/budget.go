@@ -1,6 +1,6 @@
-// Package cmdbudget implements `forge budget` — track and enforce LLM spend
+// Package cmdspend implements `forge spend` — track and enforce LLM spend
 // limits from .forge/llm-budget.json (DEV-M3-03).
-package cmdbudget
+package cmdspend
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ var (
 
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
-		Verb:    "budget",
+		Verb:    "spend",
 		Summary: "Track and enforce LLM API spend limits (.forge/llm-budget.json).",
 		Inputs: []string{
 			"<subcommand>: status | set | reset",
@@ -39,7 +39,7 @@ func init() {
 	})
 }
 
-// New returns the `forge budget` cobra command.
+// New returns the `forge spend` cobra command.
 func New() *cobra.Command {
 	var (
 		root   string
@@ -47,7 +47,7 @@ func New() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "budget <status|set|reset>",
+		Use:   "spend <status|set|reset>",
 		Short: "Track and enforce LLM API spend limits.",
 	}
 	cmd.PersistentFlags().StringVar(&root, "root", "", "project root (default: cwd)")

@@ -1,4 +1,4 @@
-package cmdstats
+package cmdinsights
 
 import (
 	"bytes"
