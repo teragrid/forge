@@ -35,6 +35,8 @@ var reservedRanges = []struct {
 	{2300, 2399, "manifest"},
 	{2400, 2499, "llm/budget"},
 	{3000, 3099, "scan/secrets"},
+	{3100, 3199, "lint"},
+	{3200, 3299, "ship"},
 	{9000, 9099, "internal/test"},
 }
 

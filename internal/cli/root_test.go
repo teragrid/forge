@@ -63,6 +63,9 @@ func TestRootCommand_VerbsRegistered(t *testing.T) {
 		"doctor":  false,
 		"clean":   false,
 		"explain": false,
+		"scan":    false,
+		"lint":    false,
+		"ship":    false,
 	}
 	for _, c := range cmd.Commands() {
 		if _, ok := want[c.Name()]; ok {

@@ -2,7 +2,7 @@
 
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 
-**Status:** M0 Bootstrap — **MVP preview** (`forge new`, `forge doctor`, `forge clean`, `forge explain`, `forge version` work). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap.
+**Status:** M0 Bootstrap — **MVP available** (`forge version`, `forge doctor`, `forge new`, `forge clean`, `forge explain`, `forge scan`, `forge lint`, `forge ship --dry-run`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap.
 
 ## Spec-driven repo
 
@@ -58,13 +58,14 @@ make all       # lint + test + build
 
 | Verb | Purpose | Status |
 |------|---------|--------|
-| `forge version` | Print version + build metadata. | ✅ |
-| `forge doctor` | Check env (git, go, OS, write perms). `--json` supported. | ✅ |
-| `forge new <template> <path>` | Scaffold a project from a built-in template (`go-service`). Emits managed `.gitignore`, `.gitleaks.toml`, `.forge/manifest.yaml`. | ✅ |
-| `forge clean [--check\|--apply]` | Manifest-based scratch / LLM-cruft sweeper. | ✅ (MVP) |
-| `forge explain <verb>` | Print the verb manifest (inputs, outputs, side-effects). `--json` supported. | ✅ |
-| `forge ship` | Full 5-checkpoint pipeline. | ⏳ M1 |
-| `forge scan` | Scan-fix-learn loop. | ⏳ M1 |
+| `forge version` | Print version + build metadata. | ✅ M0 |
+| `forge doctor` | Check env (git, go, OS, write perms). `--json` supported. | ✅ M0 |
+| `forge new <template> <path>` | Scaffold a project from a built-in template (`go-service`). Emits managed `.gitignore`, `.gitleaks.toml`, `.forge/manifest.yaml`. | ✅ M0 |
+| `forge clean [--check\|--apply]` | Manifest-based scratch / LLM-cruft sweeper. | ✅ M0 |
+| `forge explain <verb>` | Print the verb manifest (inputs, outputs, side-effects). `--json` supported. | ✅ M0 |
+| `forge scan secrets [--root]` | Secret scanner (gitleaks + built-in patterns). Exit non-zero on findings (CI-gateable). | ✅ M0+M1 |
+| `forge lint [--root]` | Hygiene checker (manifest, .gitignore markers, .gitleaks.toml). | ✅ M0+M1 |
+| `forge ship [--dry-run]` | Validates 5-checkpoint pipeline without executing. | ✅ M0+M1 |
 
 ## Layout
 
