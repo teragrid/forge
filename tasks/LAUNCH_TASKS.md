@@ -18,6 +18,28 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`.
 
 ---
 
+## S0-DOC — Community Documentation Foundation (LAUNCH-S0-DOC-01..12)
+
+> **Prerequisites for S1.** Early adopters and contributors cannot self-serve without these docs.
+> Owner: Founder + Tech writer. Reference files: `CONTRIBUTING.md`, `README.md`, `docs/`.
+
+| ID | Document | Audience | Acceptance |
+|----|----------|----------|------------|
+| LAUNCH-S0-DOC-01 | `GETTING_STARTED.md` — zero to first `forge ship` in < 10 min | Early adopters | Reviewed by one person with no prior Forge knowledge; they reach a successful `forge ship` without asking for help |
+| LAUNCH-S0-DOC-02 | `CONTRIBUTING.md` deep expansion — prerequisites, pre-push gate steps, how to add a verb, test expectations, DCO sign-off | Contributors | New contributor follows the guide end-to-end without Slack pings; `make test-all` documented and green |
+| LAUNCH-S0-DOC-03 | `docs/PLUGIN_AUTHORING.md` — scaffold a plugin, declare capabilities, write compliance tests, publish to Registry | Plugin authors | Author follows the guide to publish a stub plugin end-to-end; `forge plugin list` shows it |
+| LAUNCH-S0-DOC-04 | `docs/VERBS.md` — reference table: one row per verb with synopsis, all flags, examples, and error codes | All users | Every verb in `forge --help` has a matching row; reviewed by a non-author dev |
+| LAUNCH-S0-DOC-05 | `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1; enforcement email configured | Community | File committed to repo root; enforcement email is monitored before S1 invites go out |
+| LAUNCH-S0-DOC-06 | `docs/INSTALLATION.md` — `go install`, Homebrew tap, Scoop/winget tap, and binary-release paths | All users | Each install path validated on a clean machine or CI matrix job |
+| LAUNCH-S0-DOC-07 | `LICENSE` + `NOTICE` review — Apache-2.0 header present in every `.go` source file; `NOTICE` enumerates all third-party deps | Legal / contributors | `go-licenses` (or equivalent) reports zero unresolved deps; CI gate added |
+| LAUNCH-S0-DOC-08 | `docs/ARCHITECTURE_OVERVIEW.md` — 2-page onboarding summary of `ARCHITECTURE.md` for first-time contributors | Contributors | Reviewed by a first-time contributor; they can navigate the codebase after reading it without further assistance |
+| LAUNCH-S0-DOC-09 | `.github/ISSUE_TEMPLATE/{bug,vulnerability,flake,incident}.yml` — structured issue templates (DEV-M1-41) | All users | Each template tested end-to-end on a staging repo; vulnerability template auto-closes to private security advisory |
+| LAUNCH-S0-DOC-10 | `.github/PULL_REQUEST_TEMPLATE.md` — PR checklist: tests added, `Fixes: #NNN` trailer, `Signed-off-by`, scope declaration | Contributors | Template rendered on every new PR; each item links to the relevant `CONTRIBUTING.md` section |
+| LAUNCH-S0-DOC-11 | `CHECKLIST.md` — manual `forge ship` pre-flight checklist (DEV-M0-20 pre-automation stand-in) | Maintainers | Referenced from `CONTRIBUTING.md`; reviewed and signed off by two maintainers |
+| LAUNCH-S0-DOC-12 | `docs/ERROR_CODES.md` — every `FORGE-XXXX` code with description, typical trigger, and resolution steps | Developers | Generated from `cmd/gen-errors` output; `make docs-sync` CI gate validates freshness |
+
+---
+
 ## S1 — Friends & Family Alpha (LAUNCH-S1-01..09)
 
 | ID | Task | Owner | Acceptance |

@@ -62,7 +62,7 @@
 - DEV-M3-06 — Incident lifecycle management (ADR-021) ✅ **shipped** (`internal/incident` + `forge incident new/update/list/close` verb #16; codes 4000..4002; 29 tests)
 
 **Cross-cutting**
-- Coverage uplift: `cmdaudit` (70%), `codemod` (78%) → ≥85%
+- Coverage uplift: `cmdaudit` (70%) → ✅ **88.6%** (14 new tests in `audit_coverage_test.go`); `codemod` (85.6%) ✅ already ≥85%
 - ADR-002 update: WASM runtime decision finalized
 - Threat-model refresh after WASM lands
 
