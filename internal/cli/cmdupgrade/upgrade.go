@@ -17,6 +17,7 @@ import (
 var (
 	ErrUnknownCodemod = errcode.Register(errcode.Code(3300), "unknown codemod")
 	ErrUpgradeFailed  = errcode.Register(errcode.Code(3301), "upgrade codemod failed")
+	ErrUpgradeDrift   = errcode.Register(errcode.Code(3302), "managed block drift — rerun with --force to overwrite")
 )
 
 func init() {
@@ -27,12 +28,13 @@ func init() {
 			"<codemod-name> (required; or 'list' to enumerate)",
 			"--root <path> (default cwd)",
 			"--apply (apply changes; default is dry-run)",
+			"--force (overwrite drifted managed block; requires --apply)",
 			"--json",
 		},
 		Outputs:      []string{"stdout: codemod report (text or JSON)"},
 		SideEffects:  []string{"--apply mutates project files (codemod-specific)"},
 		GatesTouched: []string{"§16.5.4 #11 — repo hygiene"},
-		ErrorCodes:   []errcode.Code{ErrUnknownCodemod, ErrUpgradeFailed},
+		ErrorCodes:   []errcode.Code{ErrUnknownCodemod, ErrUpgradeFailed, ErrUpgradeDrift},
 	})
 }
 
@@ -41,6 +43,7 @@ func New() *cobra.Command {
 	var (
 		root   string
 		apply  bool
+		force  bool
 		asJSON bool
 	)
 	cmd := &cobra.Command{
@@ -52,6 +55,10 @@ func New() *cobra.Command {
 
 			if name == "list" {
 				return listCodemods(cmd, asJSON)
+			}
+
+			if force && !apply {
+				return errcode.New(ErrUpgradeFailed, "--force requires --apply", nil)
 			}
 
 			if root == "" {
@@ -70,8 +77,26 @@ func New() *cobra.Command {
 				}
 				return errcode.Newf(ErrUnknownCodemod, nil, "unknown codemod %q; known: %v", name, known)
 			}
-			rep, err := c.Apply(root, !apply)
+
+			dryRun := !apply
+			var (
+				rep codemod.Report
+				err error
+			)
+			if force {
+				if fc, ok := c.(codemod.ForcedCodemod); ok {
+					rep, err = fc.ApplyForce(root, dryRun)
+				} else {
+					rep, err = c.Apply(root, dryRun)
+				}
+			} else {
+				rep, err = c.Apply(root, dryRun)
+			}
 			if err != nil {
+				if err == codemod.ErrManagedBlockDrift {
+					return errcode.Newf(ErrUpgradeDrift, err,
+						"codemod %s: managed block has drifted; rerun with --apply --force to overwrite", name)
+				}
 				return errcode.Newf(ErrUpgradeFailed, err, "codemod %s", name)
 			}
 			if asJSON {
@@ -92,6 +117,7 @@ func New() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().BoolVar(&apply, "apply", false, "apply changes (default: dry-run)")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite drifted managed block (requires --apply)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	return cmd
 }
