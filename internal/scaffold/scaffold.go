@@ -45,10 +45,10 @@ type Vars struct {
 
 // Options controls the render.
 type Options struct {
-	Template string  // template directory under templates/
-	Target   string  // destination directory (created if missing)
-	Vars     Vars    // template variables
-	Force    bool    // overwrite into a non-empty target
+	Template string    // template directory under templates/
+	Target   string    // destination directory (created if missing)
+	Vars     Vars      // template variables
+	Force    bool      // overwrite into a non-empty target
 	Out      io.Writer // for "wrote N files" line; defaults to stdout
 }
 

@@ -5,6 +5,7 @@ package cmdexplain
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -93,13 +94,13 @@ func renderText(cmd *cobra.Command, m verbmeta.Manifest) {
 	}
 }
 
-func bullets(w interface{ Write([]byte) (int, error) }, label string, items []string) {
-	fmt.Fprintf(w.(interface{ Write([]byte) (int, error) }), "%s:\n", label)
+func bullets(w io.Writer, label string, items []string) {
+	fmt.Fprintf(w, "%s:\n", label)
 	if len(items) == 0 {
-		fmt.Fprintf(w.(interface{ Write([]byte) (int, error) }), "  (none)\n")
+		fmt.Fprintf(w, "  (none)\n")
 		return
 	}
 	for _, it := range items {
-		fmt.Fprintf(w.(interface{ Write([]byte) (int, error) }), "  - %s\n", it)
+		fmt.Fprintf(w, "  - %s\n", it)
 	}
 }

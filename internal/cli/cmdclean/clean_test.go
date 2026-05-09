@@ -3,6 +3,7 @@ package cmdclean
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,7 +94,7 @@ func TestRun_SkipsDotGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range res.Candidates {
-		if filepath.HasPrefix(c, ".git") {
+		if strings.HasPrefix(c, ".git") || strings.HasPrefix(c, ".git/") {
 			t.Fatalf(".git must not appear in candidates: %v", c)
 		}
 	}
@@ -104,7 +105,7 @@ func expectIncludes(t *testing.T, got []string, wants ...string) {
 	for _, w := range wants {
 		found := false
 		for _, g := range got {
-			if g == w || filepath.HasPrefix(g, w) {
+			if g == w || strings.HasPrefix(g, w+"/") || strings.HasPrefix(g, w) {
 				found = true
 				break
 			}

@@ -83,6 +83,22 @@ tools:
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
 	$(GO) install gotest.tools/gotestsum@latest
 
+# Register the repo's own git hooks (runs once per clone after `make tools`).
+.PHONY: hooks
+hooks:
+	git config core.hooksPath .githooks
+	@echo "pre-push hook active — checks: fmt, vet, lint, build, test, vuln, mod verify"
+
+# Run every quality gate locally in the same order as the pre-push hook.
+.PHONY: check
+check: fmt-check
+	$(GO) vet $(PKG)
+	golangci-lint run ./...
+	CGO_ENABLED=0 $(GO) build $(PKG)
+	$(GO) test -count=1 $(PKG)
+	govulncheck ./...
+	$(GO) mod verify
+
 .PHONY: clean
 clean:
 	rm -rf $(BIN_DIR) coverage.out

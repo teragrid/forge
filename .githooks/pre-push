@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# .githooks/pre-push
+#
+# Forge pre-push quality gate.
+# Runs on every `git push`; blocks the push and prints a clear summary on any failure.
+#
+# Install (one-time):
+#   git config core.hooksPath .githooks
+#
+# Skip (emergency only – do NOT make a habit of this):
+#   SKIP_PRE_PUSH=1 git push
+#
+# Checks (in order – fail-fast per section):
+#   1. gofmt / goimports — formatting
+#   2. go vet            — correctness
+#   3. golangci-lint     — static analysis (gocritic, staticcheck, gosec, errcheck, …)
+#   4. go build          — compilation
+#   5. go test           — unit tests (no -race here because CGO may be off on the
+#                          developer machine; CI runs -race on Linux where CGO is on)
+#   6. govulncheck       — known CVEs in deps
+#   7. go mod verify     — tamper-check downloaded module zips
+#
+# Each check prints a "✓ <name>" on success or "✗ <name>" + details on failure.
+
+set -euo pipefail
+
+# ── emergency bypass ────────────────────────────────────────────────────────
+if [[ "${SKIP_PRE_PUSH:-}" == "1" ]]; then
+  echo "⚠ SKIP_PRE_PUSH=1: all pre-push checks skipped — use only in emergencies"
+  exit 0
+fi
+
+# ── helpers ─────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; RESET='\033[0m'
+FAILED=()
+
+pass() { echo -e "${GREEN}✓${RESET} $1"; }
+fail() { echo -e "${RED}✗${RESET} $1"; FAILED+=("$1"); }
+warn() { echo -e "${YELLOW}⚠${RESET} $1"; }
+
+need() {
+  if ! command -v "$1" &>/dev/null; then
+    warn "$1 not found — skipping (run 'make tools' to install)"
+    return 1
+  fi
+  return 0
+}
+
+echo ""
+echo "━━━  forge pre-push quality gate  ━━━"
+echo ""
+
+# ── 1. formatting ────────────────────────────────────────────────────────────
+echo "[1/7] formatting (gofmt + goimports)"
+FMT_OUT=$(gofmt -s -l . 2>&1)
+if [[ -n "$FMT_OUT" ]]; then
+  fail "gofmt -s"
+  echo "      Files needing formatting:"
+  echo "$FMT_OUT" | sed 's/^/        /'
+  echo "      Fix with: gofmt -s -w ."
+else
+  pass "gofmt -s"
+fi
+
+if need goimports; then
+  IMP_OUT=$(goimports -l . 2>&1)
+  if [[ -n "$IMP_OUT" ]]; then
+    fail "goimports"
+    echo "      Files with import issues:"
+    echo "$IMP_OUT" | sed 's/^/        /'
+    echo "      Fix with: goimports -w ."
+  else
+    pass "goimports"
+  fi
+fi
+
+# ── 2. go vet ────────────────────────────────────────────────────────────────
+echo ""
+echo "[2/7] go vet"
+if VET_OUT=$(go vet ./... 2>&1); then
+  pass "go vet"
+else
+  fail "go vet"
+  echo "$VET_OUT" | sed 's/^/      /'
+fi
+
+# ── 3. golangci-lint ─────────────────────────────────────────────────────────
+echo ""
+echo "[3/7] golangci-lint"
+if need golangci-lint; then
+  if LINT_OUT=$(golangci-lint run ./... 2>&1); then
+    pass "golangci-lint"
+  else
+    fail "golangci-lint"
+    echo "$LINT_OUT" | sed 's/^/      /'
+  fi
+fi
+
+# ── 4. build ─────────────────────────────────────────────────────────────────
+echo ""
+echo "[4/7] go build"
+if BUILD_OUT=$(CGO_ENABLED=0 go build ./... 2>&1); then
+  pass "go build"
+else
+  fail "go build"
+  echo "$BUILD_OUT" | sed 's/^/      /'
+fi
+
+# ── 5. tests ─────────────────────────────────────────────────────────────────
+echo ""
+echo "[5/7] go test"
+# -count=1 disables the test cache so we always exercise the full suite.
+if TEST_OUT=$(go test -count=1 ./... 2>&1); then
+  pass "go test"
+else
+  fail "go test"
+  # Show only the FAIL lines to keep output readable.
+  echo "$TEST_OUT" | grep -E "^(FAIL|---)" | sed 's/^/      /' || echo "$TEST_OUT" | tail -30 | sed 's/^/      /'
+fi
+
+# ── 6. govulncheck ───────────────────────────────────────────────────────────
+echo ""
+echo "[6/7] govulncheck (known CVEs)"
+if need govulncheck; then
+  if VULN_OUT=$(govulncheck ./... 2>&1); then
+    pass "govulncheck"
+  else
+    fail "govulncheck"
+    echo "$VULN_OUT" | sed 's/^/      /'
+  fi
+fi
+
+# ── 7. module integrity ───────────────────────────────────────────────────────
+echo ""
+echo "[7/7] go mod verify"
+if VERIFY_OUT=$(go mod verify 2>&1); then
+  pass "go mod verify"
+else
+  fail "go mod verify"
+  echo "$VERIFY_OUT" | sed 's/^/      /'
+fi
+
+# ── summary ──────────────────────────────────────────────────────────────────
+echo ""
+if [[ ${#FAILED[@]} -eq 0 ]]; then
+  echo -e "${GREEN}━━━  all checks passed — push allowed  ━━━${RESET}"
+  echo ""
+  exit 0
+else
+  echo -e "${RED}━━━  ${#FAILED[@]} check(s) failed — push blocked  ━━━${RESET}"
+  for f in "${FAILED[@]}"; do
+    echo -e "  ${RED}✗${RESET} $f"
+  done
+  echo ""
+  echo "  Fix the issues above, then re-run: git push"
+  echo "  Emergency bypass (DO NOT abuse): SKIP_PRE_PUSH=1 git push"
+  echo ""
+  exit 1
+fi

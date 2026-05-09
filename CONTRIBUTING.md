@@ -13,14 +13,18 @@ Thanks for considering a contribution. forge is **spec-first**: nothing lands wi
 
 ```bash
 make tools     # one-time install of golangci-lint, govulncheck, goimports, gotestsum
+make hooks     # one-time: register the repo's pre-push quality gate
 make fmt       # gofmt + goimports
 make lint      # golangci-lint
-make test      # go test -race ./...
+make test      # go test ./...
+make check     # full gate: fmt + vet + lint + build + test + vuln + mod verify
 make build     # produces ./dist/forge
-make all       # lint + test + build (the same gates CI runs)
+make all       # lint + test + build
 ```
 
-The full pre-merge gate set is encoded in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). If `make all && make vuln` is green locally on a fresh clone, CI will be green too.
+**Pre-push hook** — once you run `make hooks`, git will run `.githooks/pre-push` automatically before every push. It runs the same 7 checks as `make check`. A failing push prints which check failed and how to fix it. Emergency bypass: `SKIP_PRE_PUSH=1 git push` (avoid this).
+
+The full pre-merge gate set is encoded in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). If `make check` is green locally on a fresh clone, CI will be green too.
 
 ## Adding a new CLI verb
 
