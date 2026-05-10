@@ -218,24 +218,29 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/
   - TC-15-04 (boundary): empty repo → zero findings, exit 0.
   - TC-15-05 (false-positive guard): an unmanifested but legitimate file (e.g. `README.md`) is never proposed for deletion.
 
-### DEV-M0-16 — `ILlmProvider` interface + mock provider
-- **Tier:** T1 — **Anchor:** Arch §9.1
-- **Acceptance:** Provider compliance suite (v0) defined.
+### DEV-M0-16 — `ILlmProvider` interface + IDE-config adapters + mock
+- **Tier:** T1 — **Anchor:** Arch §9.2
+- **Scope:** Abstraction layer over IDE-detected LLM connections. Forge never stores credentials; adapters read them from the IDE/dev-tool that the vibe-coder already has configured.
+- **Acceptance:** Provider compliance suite (v0) defined; detection pass resolves correctly for each adapter.
 - **Test cases:**
-  - TC-16-01 (happy): mock provider passes the v0 compliance suite.
-  - TC-16-02 (negative): a deliberately broken mock (omits `streaming`) fails the suite.
-  - TC-16-03 (boundary): empty prompt input returns spec-defined empty completion, not error.
+  - TC-16-01 (happy): mock adapter passes the v0 compliance suite without any credentials.
+  - TC-16-02 (negative): a deliberately broken adapter (omits `Capabilities.Streaming`) fails the compliance suite.
+  - TC-16-03 (boundary): empty prompt input returns spec-defined empty completion, not an error.
+  - TC-16-04 (happy): detection pass with `ANTHROPIC_API_KEY` set resolves to Claude adapter.
+  - TC-16-05 (happy): detection pass with `OPENAI_API_KEY` set resolves to OpenAI adapter.
+  - TC-16-06 (negative): detection pass with nothing configured returns `FORGE-4001`; no partial state left.
+  - TC-16-07 (false-positive guard): mock adapter is never selected when a real IDE config is present.
 
-### DEV-M0-17 — LLM provider bridge (single env-var-configured provider; no routing or caching yet)
-- **Tier:** T1 — **Anchor:** Arch §9
-- **Scope:** Forge's own framework-orchestrated calls only (`forge ship` checkpoints, scan-fix proposals). Developer IDE LLM use (VS Code Copilot, Claude Code, Cursor) is *not* proxied through Forge.
-- **Acceptance:** Integration test with mock; live-test gated by env var (`FORGE_LIVE_LLM=1`).
+### DEV-M0-17 — IDE-config detection + `forge ship` LLM bridge
+- **Tier:** T1 — **Anchor:** Arch §9.1
+- **Scope:** Runs the detection pass (§9.1), resolves the right IDE adapter, and feeds it to `forge ship` checkpoints and scan-fix proposals. Forge does not manage credentials — it reads what the IDE already set up. If nothing detected, emits `FORGE-4001` and tells the developer which IDE to configure.
+- **Acceptance:** Detection test matrix (Claude Code / VS Code Copilot env / bare env var / none); `forge doctor` reports detected adapter.
 - **Test cases:**
-  - TC-17-01 (happy): bridge proxies request → response unchanged through mock provider.
-  - TC-17-02 (negative): provider error surfaces as `FORGE-4xxx` (no raw provider error leaks to stderr).
-  - TC-17-03 (data-accuracy): token counts from provider land in the ledger unchanged.
+  - TC-17-01 (happy): with a detected adapter, ship checkpoint completes and response is unchanged.
+  - TC-17-02 (negative): `FORGE-4001` on no adapter; message names at least one IDE to configure.
+  - TC-17-03 (data-accuracy): token counts from the adapter land in the ledger unchanged.
   - TC-17-04 (regression): live-test only runs when `FORGE_LIVE_LLM=1`.
-  - TC-17-05 (false-positive guard): bridge does not intercept or log any traffic not initiated by Forge verbs.
+  - TC-17-05 (false-positive guard): Forge reads IDE credentials but does not copy, log, or re-export them.
 
 ### DEV-M0-18 — Token ledger (append-only)
 - **Tier:** T1 — **Anchor:** Arch §9.2
@@ -245,14 +250,16 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/
   - TC-18-02 (data-accuracy): summed cost equals reference fixture total to ±$0.0001.
   - TC-18-03 (negative): a request with zero tokens still writes an entry (not skipped).
 
-### DEV-M0-19 — First real provider plugin
-- **Tier:** T2 — **Anchor:** Arch §9
-- **Acceptance:** Provider compliance suite passes against live API (nightly only).
+### DEV-M0-19 — IDE adapter plugins: Claude Code + OpenAI-compatible env (nightly compliance)
+- **Tier:** T2 — **Anchor:** Arch §9.1
+- **Scope:** Validate the two most common IDE credential shapes against the live API in nightly CI. No new credential management — adapters read what the IDE set. `FORGE_LIVE_LLM=1` gates these tests.
+- **Acceptance:** Both adapter compliance suites green in nightly CI.
 - **Test cases:**
-  - TC-19-01 (happy): nightly compliance run green.
-  - TC-19-02 (negative): provider 5xx is retried per policy and surfaces as `FORGE-XXXX` after exhaustion.
-  - TC-19-03 (data-accuracy): provider's reported tokens match the ledger entry.
-  - TC-19-04 (regression): API-version pin in the plugin manifest is asserted at startup.
+  - TC-19-01 (happy): Claude Code adapter (ANTHROPIC_API_KEY) passes compliance suite against live API.
+  - TC-19-02 (happy): OpenAI-compatible adapter (OPENAI_API_KEY) passes compliance suite against live API.
+  - TC-19-03 (negative): provider 5xx is surfaced as `FORGE-4xxx` after configured retries; no raw message leaks.
+  - TC-19-04 (data-accuracy): provider-reported token counts match the ledger entry to the unit.
+  - TC-19-05 (regression): removing the env var causes `FORGE-4001`, not a panic or credential prompt.
 
 ### DEV-M0-20 — Manual `ship` checklist doc (pre-automation stand-in)
 - **Tier:** DOC — **Anchor:** Spec §4 + DEV plan §0

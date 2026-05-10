@@ -289,47 +289,60 @@ expose via verb router
 
 ---
 
-## 9. LLM provider bridge
+## 9. LLM integration — IDE-first
 
-> **Scope of this section:** Forge makes LLM calls *only* for framework-orchestrated tasks — `forge ship` checkpoints (spec / test / breakdown generation), scan-fix proposals, and eval scenarios. The developer's interactive LLM use — VS Code Copilot, Claude Code, Cursor, Windsurf — happens entirely inside the IDE and is not intercepted, proxied, or routed by Forge. `forge ship` runs wherever `forge` runs: the developer's machine or a CI/CD pipeline (GitHub Actions, GitLab, etc.); in either case, provider credentials come from env vars or the CI secrets vault.
+> **Core principle:** Forge never owns LLM credentials or connections. The vibe-coder already has an IDE or dev-tool configured (VS Code Copilot, Claude Code, Cursor, Windsurf). Forge reads *that* configuration for the framework-orchestrated calls it needs to make. If nothing is configured, Forge tells the developer what to set up — it does not offer an alternative path that bypasses the IDE.
 
-### 9.1 Interface (`ILlmProvider`)
+### 9.1 How Forge finds the LLM connection
+
+On every invocation that needs an LLM call, Forge runs a detection pass in priority order:
+
+```
+1. Claude Code  — ~/.claude/credentials.json  or  ANTHROPIC_API_KEY env var set by Claude Code
+2. VS Code Copilot — reads vscode extension config (when inside a VS Code-launched terminal)
+3. Cursor / Windsurf — OPENAI_API_KEY / ANTHROPIC_API_KEY exported by the IDE shell
+4. Bare env vars — OPENAI_API_KEY / ANTHROPIC_API_KEY set manually (CI secrets vault, etc.)
+5. None found — FORGE-4001: prompt developer to configure their IDE; forge ship exits non-zero
+```
+
+Forge **never** stores credentials itself. The CI/CD case (GitHub Actions, GitLab, etc.) is identical to case 4: the secrets vault injects the same env var the IDE would have set, and Forge reads it exactly the same way.
+
+The **mock adapter** is always available without any credentials — used in all unit tests, `--dry-run`, and air-gapped runs.
+
+### 9.2 Interface (`ILlmProvider`)
 
 ```go
 type ILlmProvider interface {
     Name()         string
     Models()       []ModelDescriptor
     Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error)
-    Embed(ctx context.Context, req EmbedRequest) ([]float32, error) // optional; may return ErrNotSupported
+    Embed(ctx context.Context, req EmbedRequest) ([]float32, error) // optional; returns ErrNotSupported if absent
     CostPerToken(model string) (inputUSD, outputUSD float64)
     Capabilities() ProviderCapabilities // {Streaming, Tools, JSONMode bool}
 }
 ```
 
-Provider selection via `FORGE_LLM_PROVIDER=openai|anthropic|local|mock`. Credentials via `FORGE_OPENAI_KEY` / `FORGE_ANTHROPIC_KEY` (or standard `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` as fallback). The **mock provider** is always available — no API key required; used in all unit tests and CI dry-runs.
+Implementations are **IDE-config adapters** (one per detected tool). Provider errors surface as `FORGE-4xxx` — raw messages are never forwarded to stderr or logged without redaction.
 
-### 9.2 Token economy (M0)
+### 9.3 Token economy
 
 ```
 forge ship checkpoint
-  └─▶ ILlmProvider.Complete()
-        └─▶ External API (openai / anthropic / local)
+  └─▶ ILlmProvider.Complete()   ← resolved by detection pass (§9.1)
+        └─▶ IDE's provider API (credentials from IDE / CI vault)
               └─▶ Token ledger  ~/.forge/token-ledger.jsonl  (append-only)
                     Fields: run_id, verb, model, prompt_tokens,
                             completion_tokens, cost_usd, ts
 ```
 
-Provider errors surface as `FORGE-4xxx` codes — raw provider messages are never forwarded to stderr or logged without redaction.
-
-### 9.3 M1+ optimizations (not in M0)
-
-The following layers are added in M1 on top of the M0 bridge. They apply to Forge's own framework calls only — they do not intercept or route developer IDE traffic.
+### 9.4 M1+ optimizations (not in M0)
 
 | Feature | Task | Description |
 |---------|------|-------------|
-| Semantic cache | DEV-M1-07 | `sha256(canonicalize(prompt + ctx_files))` — cache hit skips the provider call entirely; invalidated on any context-file change |
-| Tier router | DEV-M1-08 | Try cheap/local model first; escalate to premium only when confidence is low or tests remain red |
-| Budget guard | DEV-M1-09 | Per-command + per-day cap; `FORGE-2401` on breach; `--budget=N` override flag |
+| Semantic cache | DEV-M1-07 | `sha256(canonicalize(prompt + ctx_files))` — cache hit skips the provider call; invalidated on file change |
+| Tier router | DEV-M1-08 | Try cheapest detected model first; escalate when confidence low or tests still red |
+| Budget guard | DEV-M1-09 | Per-command + per-day cap on Forge's own calls; `FORGE-2401` on breach; `--budget=N` override |
+| `forge doctor` LLM check | DEV-M0-14 | Reports which IDE adapter was detected (or FORGE-4001 if none) |
 
 ---
 
