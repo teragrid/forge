@@ -120,9 +120,9 @@ The 9 long-lived containers/artifacts. *Container = independently deployable/ins
 │  └───────────────────────────────────────────────────┘                │
 │                                                                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────┐ │
-│  │ LLM gateway  │  │ Scan engine  │  │ Migration    │  │ Eval      │ │
-│  │ + token      │  │ (8 families) │  │ runner       │  │ harness   │ │
-│  │  ledger      │  │              │  │              │  │           │ │
+│  │ LLM provider │  │ Scan engine  │  │ Migration    │  │ Eval      │ │
+│  │ bridge +     │  │ (8 families) │  │ runner       │  │ harness   │ │
+│  │ token ledger │  │              │  │              │  │           │ │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └───────────┘ │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -289,42 +289,47 @@ expose via verb router
 
 ---
 
-## 9. LLM provider abstraction
+## 9. LLM provider bridge
 
-### 9.1 Interface
+> **Scope of this section:** Forge makes LLM calls *only* for framework-orchestrated tasks — `forge ship` checkpoints (spec / test / breakdown generation), scan-fix proposals, and eval scenarios. The developer's interactive LLM use — VS Code Copilot, Claude Code, Cursor, Windsurf — happens entirely inside the IDE and is not intercepted, proxied, or routed by Forge. `forge ship` runs wherever `forge` runs: the developer's machine or a CI/CD pipeline (GitHub Actions, GitLab, etc.); in either case, provider credentials come from env vars or the CI secrets vault.
 
-```ts
-interface ILlmProvider {
-  name: string;
-  models: ModelDescriptor[];
-  complete(req: CompletionRequest): AsyncIterable<CompletionChunk>;
-  embed?(req: EmbedRequest): Promise<number[]>;
-  costPerToken(model: string): { input: number; output: number };
-  capabilities: { streaming: boolean; tools: boolean; jsonMode: boolean };
+### 9.1 Interface (`ILlmProvider`)
+
+```go
+type ILlmProvider interface {
+    Name()         string
+    Models()       []ModelDescriptor
+    Complete(ctx context.Context, req CompletionRequest) (CompletionResponse, error)
+    Embed(ctx context.Context, req EmbedRequest) ([]float32, error) // optional; may return ErrNotSupported
+    CostPerToken(model string) (inputUSD, outputUSD float64)
+    Capabilities() ProviderCapabilities // {Streaming, Tools, JSONMode bool}
 }
 ```
 
-### 9.2 Routing & token economy
+Provider selection via `FORGE_LLM_PROVIDER=openai|anthropic|local|mock`. Credentials via `FORGE_OPENAI_KEY` / `FORGE_ANTHROPIC_KEY` (or standard `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` as fallback). The **mock provider** is always available — no API key required; used in all unit tests and CI dry-runs.
+
+### 9.2 Token economy (M0)
 
 ```
-Caller (workflow) → Gateway → Router → Provider plugin → External API
-                       │         │
-                       │         ├─ tier-aware (cheap-first, escalate on fail)
-                       │         ├─ cache (semantic hash of {prompt, ctx})
-                       │         └─ budget guard (per-command + per-day)
-                       │
-                       └─ Token ledger (append-only ~/.forge/token-ledger.jsonl)
+forge ship checkpoint
+  └─▶ ILlmProvider.Complete()
+        └─▶ External API (openai / anthropic / local)
+              └─▶ Token ledger  ~/.forge/token-ledger.jsonl  (append-only)
+                    Fields: run_id, verb, model, prompt_tokens,
+                            completion_tokens, cost_usd, ts
 ```
 
-**Tier policy (default):**
-1. Try cached completion (semantic hash hit).
-2. Try cheap/local model.
-3. On low-confidence or test-still-red, escalate to premium.
-4. Hard budget cap → `FORGE-2401` ("budget exceeded; rerun with `--budget=...`").
+Provider errors surface as `FORGE-4xxx` codes — raw provider messages are never forwarded to stderr or logged without redaction.
 
-### 9.3 Caching keys
+### 9.3 M1+ optimizations (not in M0)
 
-`sha256(canonicalize(prompt) || canonicalize(context_files) || model_id)` — context invalidation is automatic on file change.
+The following layers are added in M1 on top of the M0 bridge. They apply to Forge's own framework calls only — they do not intercept or route developer IDE traffic.
+
+| Feature | Task | Description |
+|---------|------|-------------|
+| Semantic cache | DEV-M1-07 | `sha256(canonicalize(prompt + ctx_files))` — cache hit skips the provider call entirely; invalidated on any context-file change |
+| Tier router | DEV-M1-08 | Try cheap/local model first; escalate to premium only when confidence is low or tests remain red |
+| Budget guard | DEV-M1-09 | Per-command + per-day cap; `FORGE-2401` on breach; `--budget=N` override flag |
 
 ---
 

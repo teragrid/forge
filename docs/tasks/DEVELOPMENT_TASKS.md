@@ -226,14 +226,16 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/
   - TC-16-02 (negative): a deliberately broken mock (omits `streaming`) fails the suite.
   - TC-16-03 (boundary): empty prompt input returns spec-defined empty completion, not error.
 
-### DEV-M0-17 — LLM gateway (single provider, no caching/routing yet)
+### DEV-M0-17 — LLM provider bridge (single env-var-configured provider; no routing or caching yet)
 - **Tier:** T1 — **Anchor:** Arch §9
-- **Acceptance:** Integration test with mock; live-test gated by env var.
+- **Scope:** Forge's own framework-orchestrated calls only (`forge ship` checkpoints, scan-fix proposals). Developer IDE LLM use (VS Code Copilot, Claude Code, Cursor) is *not* proxied through Forge.
+- **Acceptance:** Integration test with mock; live-test gated by env var (`FORGE_LIVE_LLM=1`).
 - **Test cases:**
-  - TC-17-01 (happy): gateway proxies request → response unchanged.
-  - TC-17-02 (negative): provider error surfaces as `FORGE-XXXX` (no raw provider error leaks).
+  - TC-17-01 (happy): bridge proxies request → response unchanged through mock provider.
+  - TC-17-02 (negative): provider error surfaces as `FORGE-4xxx` (no raw provider error leaks to stderr).
   - TC-17-03 (data-accuracy): token counts from provider land in the ledger unchanged.
   - TC-17-04 (regression): live-test only runs when `FORGE_LIVE_LLM=1`.
+  - TC-17-05 (false-positive guard): bridge does not intercept or log any traffic not initiated by Forge verbs.
 
 ### DEV-M0-18 — Token ledger (append-only)
 - **Tier:** T1 — **Anchor:** Arch §9.2
@@ -417,6 +419,7 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/
 
 ### DEV-M1-07 — LLM caching layer (semantic-hash key)
 - **Tier:** T1 — **Anchor:** Arch §9.3
+- **Scope:** Optimizes Forge's own bridge calls (DEV-M0-17); does not affect developer IDE traffic.
 - **Acceptance:** Cache hit/miss test; invalidation on file change.
 - **Test cases:**
   - TC-07-01 (happy): identical request → cache hit, zero provider call.
@@ -426,7 +429,8 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/
   - TC-07-05 (data-accuracy): hit's response is byte-identical to the original recorded one.
 
 ### DEV-M1-08 — LLM tier router (cheap-first, escalate on fail)
-- **Tier:** T1 — **Anchor:** Arch §9.2
+- **Tier:** T1 — **Anchor:** Arch §9.3
+- **Scope:** Routes Forge's own bridge calls (DEV-M0-17); does not proxy IDE traffic.
 - **Acceptance:** Routing test with seeded provider responses.
 - **Test cases:**
   - TC-08-01 (happy): cheap model succeeds → no escalation.
@@ -435,7 +439,8 @@ ID and conventions follow `ARCHITECTURE_TASKS.md`. Each implementation task (T1/
   - TC-08-04 (data-accuracy): ledger records every tier attempt with its cost.
 
 ### DEV-M1-09 — Budget guard (per-command + per-day)
-- **Tier:** T1 — **Anchor:** Arch §9.2
+- **Tier:** T1 — **Anchor:** Arch §9.3
+- **Scope:** Guards Forge's own bridge calls; developer IDE usage is outside Forge's budget scope.
 - **Acceptance:** `FORGE-2401` on cap; rerun-with-`--budget` flow tested.
 - **Test cases:**
   - TC-09-01 (happy): under budget → proceeds.

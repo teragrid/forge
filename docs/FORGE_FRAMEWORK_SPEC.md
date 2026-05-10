@@ -4,7 +4,7 @@
 >
 > *Sub-headline:* The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 >
-> **Ultimate goal:** *enable developers to **ship fast with high quality via vibe-coding** — the speed of "vibe it and ship it" with the quality of a framework that has scanners, tests, multi-tenancy, audit, and learning loops built in.* Every feature, every default, every roadmap item is judged against this single sentence: *does it raise the ceiling of what a vibe-coded app can ship to production with confidence, without slowing the developer down?* If the answer is no, it doesn't ship.
+> **Ultimate goal:** *enable developers to **ship fast with high quality via vibe-coding** — the speed of "vibe it and ship it" with the quality of a framework that has scanners, tests, multi-tenancy, audit, and learning loops built in.* Every feature, every default, every roadmap item is judged against this single sentence: *doesrit raise the ceiling of what a vibe-coded app can ship to production with confidence, without slowing the developer down?* If the answer is no, it doesn't ship.
 
 **Ideal Customer Profile (ICP) — the person Forge is for:**
 - A solo founder, indie hacker, or small-team lead
@@ -74,6 +74,7 @@ Defining boundaries up front prevents scope creep and clarifies positioning:
 
 - **Forge is NOT a no-code / low-code platform.** It generates real code that developers own and modify. No proprietary runtime, no vendor lock-in to a hosted execution environment.
 - **Forge is NOT an AI agent or autonomous coder.** It does not replace the developer's intent — it amplifies it. Cursor/Copilot/Devin remain the agents; Forge is the framework they generate code into.
+- **Forge is NOT an LLM gateway or proxy.** The developer's IDE (VS Code Copilot, Claude Code, Cursor, Windsurf) handles interactive LLM access — Forge does not intercept, route, or multiplex those calls. Forge makes its own LLM calls *only* for framework-orchestrated tasks (`forge ship` checkpoints: spec/test/breakdown generation; scan-fix proposals). Those calls use a thin provider bridge (env-var configured) and run wherever `forge` runs — the developer's machine or the CI/CD pipeline (GitHub Actions, GitLab, etc.).
 - **Forge is NOT a UI component library.** It is unopinionated about UI choices (works with shadcn, MUI, Tailwind, custom). Component libraries are a separate concern.
 - **Forge is NOT a backend-as-a-service.** It uses BaaS (Supabase, etc.) via adapters but does not host or operate infrastructure for you.
 - **Forge is NOT a CMS.** It is a framework for building applications, not for managing content.
