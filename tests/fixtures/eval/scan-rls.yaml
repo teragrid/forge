@@ -1,0 +1,40 @@
+# Eval Scenario: scan-rls
+# Tests that forge scan detects missing Row Level Security on PostgreSQL tables.
+# ADR-005
+
+id: scan-rls
+version: "1"
+verb: scan
+description: |
+  Verify that `forge scan` flags PostgreSQL CREATE TABLE statements that lack
+  a corresponding RLS ENABLE / policy pair.
+
+inputs:
+  files:
+    - path: schema.sql
+      content: |
+        CREATE TABLE users (
+          id   UUID PRIMARY KEY,
+          email TEXT NOT NULL,
+          role  TEXT DEFAULT 'user'
+        );
+
+        CREATE TABLE audit_log (
+          id         UUID PRIMARY KEY,
+          user_id    UUID REFERENCES users(id),
+          event      TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+
+expect:
+  findings_min: 2
+  finding_ids:
+    - FORGE-DB-001  # missing RLS on users
+    - FORGE-DB-001  # missing RLS on audit_log
+  exit_code: 0
+
+tags:
+  - database
+  - postgres
+  - rls
+  - security

@@ -1,0 +1,102 @@
+site_name: Forge Documentation
+site_description: Official documentation for the Forge AI-powered CLI
+site_url: https://docs.forge.dev
+repo_url: https://github.com/teragrid/forge
+repo_name: teragrid/forge
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: INSTALLATION.md
+      - Quick Start: getting-started.md
+      - Air-gapped Install: airgap.md
+  - Core Concepts:
+      - Architecture: ARCHITECTURE.md
+      - Architecture Overview: ARCHITECTURE_OVERVIEW.md
+      - Plugin System: PLUGIN_AUTHORING.md
+      - Error Codes: ERROR_CODES.md
+  - CLI Reference:
+      - All Verbs: VERBS.md
+      - forge new: verbs/new.md
+      - forge scan: verbs/scan.md
+      - forge fix: verbs/fix.md
+      - forge learn: verbs/learn.md
+      - forge ship: verbs/ship.md
+      - forge deploy: verbs/deploy.md
+      - forge rollback: verbs/rollback.md
+      - forge eval: verbs/eval.md
+      - forge plugin: verbs/plugin.md
+      - forge add: verbs/add.md
+      - forge optimize: verbs/optimize.md
+      - forge undo: verbs/undo.md
+      - forge doctor: verbs/doctor.md
+      - forge insights: verbs/insights.md
+      - forge audit: verbs/audit.md
+      - forge report: verbs/report.md
+      - forge incident: verbs/incident.md
+      - forge context: verbs/context.md
+      - forge bundle: verbs/bundle.md
+  - Guides:
+      - Community Plugins: COMMUNITY_PLUGINS.md
+      - Distribution: DISTRIBUTION.md
+      - Pilot Case Study: PILOT_CASE_STUDY.md
+      - Go-to-Community Plan: GO_TO_COMMUNITY_PLAN.md
+  - Development:
+      - Development Plan: DEVELOPMENT_PLAN.md
+      - Test Plan: TEST_PLAN.md
+      - Release Guide: RELEASE_GUIDE.md
+      - Deprecation Policy: DEPRECATION_POLICY.md
+      - Contributing: ../CONTRIBUTING.md
+  - Security:
+      - Security Policy: SECURITY.md
+      - Threat Model: THREAT_MODEL.md
+      - Bug Bounty: BUG_BOUNTY.md
+      - Pentest Policy: PENTEST.md
+  - Reference:
+      - ADRs: adr/index.md
+      - RFCs: rfcs/README.md
+      - Forge Framework Spec: FORGE_FRAMEWORK_SPEC.md
+      - Status Page: STATUS_PAGE.md
+      - Release Notes v1.0: RELEASE_NOTES_v1.0.0.md
+      - Launch: LAUNCH.md

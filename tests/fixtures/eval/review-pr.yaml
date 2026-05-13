@@ -1,0 +1,43 @@
+# Eval Scenario: review-pr
+# Tests that `forge review` produces structured feedback on a diff.
+# ADR-005
+
+id: review-pr
+version: "1"
+verb: review
+description: |
+  Verify that `forge review` analyses a patch and returns structured feedback
+  with at least one finding when the patch contains common issues
+  (missing error check, exported symbol without doc comment).
+
+inputs:
+  files:
+    - path: change.patch
+      content: |
+        --- a/service.go
+        +++ b/service.go
+        @@ -0,0 +1,12 @@
+        +package service
+        +
+        +import "os"
+        +
+        +// Process processes work items.
+        +func Process(path string) string {
+        +    data, _ := os.ReadFile(path)
+        +    return string(data)
+        +}
+        +
+        +func helper() {}
+
+expect:
+  findings_min: 1
+  finding_categories:
+    - "error handling"
+  output_contains:
+    - "finding"
+  exit_code: 0
+
+tags:
+  - review
+  - code-quality
+  - llm

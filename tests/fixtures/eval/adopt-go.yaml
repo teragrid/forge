@@ -1,0 +1,38 @@
+# Eval Scenario: adopt-go
+# Tests that `forge adopt` correctly sets up Forge management in a Go project.
+# ADR-005
+
+id: adopt-go
+version: "1"
+verb: adopt
+description: |
+  Verify that `forge adopt` creates the expected scaffolding files in a
+  minimal Go project: .forge/ directory, forge.config.yml, and AGENTS.md.
+
+inputs:
+  project_type: go
+  files:
+    - path: go.mod
+      content: |
+        module example.com/myapp
+
+        go 1.22
+    - path: main.go
+      content: |
+        package main
+
+        func main() {}
+
+expect:
+  files_created:
+    - .forge/
+    - forge.config.yml
+    - AGENTS.md
+  output_contains:
+    - "adopted"
+  exit_code: 0
+
+tags:
+  - adopt
+  - scaffold
+  - go

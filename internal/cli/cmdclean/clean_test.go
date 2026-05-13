@@ -1,7 +1,21 @@
+// Copyright 2024 The Forge Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 package cmdclean
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +186,67 @@ func TestRun_SecretGuard_GracefulSkipWhenNoGit(t *testing.T) {
 	// TrackedSecrets should be nil or empty since git is unavailable.
 	if len(res.TrackedSecrets) > 0 {
 		t.Errorf("expected no TrackedSecrets without git repo, got %v", res.TrackedSecrets)
+	}
+}
+
+// TC-36-05 (integration): Run() with a real git repo that has a tracked .env file
+// detects it in TrackedSecrets. Skipped if git binary is unavailable.
+func TestRun_SecretGuard_GitTrackedEnvFile(t *testing.T) {
+	t.Parallel()
+
+	// Require git to be available.
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git binary not found — skipping integration test")
+	}
+
+	root := t.TempDir()
+
+	// Initialise a bare git repo.
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(git, args...)
+		cmd.Dir = root
+		// Set minimal git config so commit works in clean CI environments.
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test",
+			"GIT_AUTHOR_EMAIL=test@forge.test",
+			"GIT_COMMITTER_NAME=Test",
+			"GIT_COMMITTER_EMAIL=test@forge.test",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	run("init")
+	run("config", "user.email", "test@forge.test")
+	run("config", "user.name", "Forge Test")
+
+	// Write and commit a .env file — this is the secret file we want detected.
+	envPath := filepath.Join(root, ".env")
+	if err := os.WriteFile(envPath, []byte("API_KEY=hunter2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".env")
+	run("commit", "-m", "chore: seed test repo with .env")
+
+	// Run forge clean (check mode — no deletions).
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	found := false
+	for _, s := range res.TrackedSecrets {
+		if s == ".env" || strings.HasSuffix(filepath.ToSlash(s), "/.env") || s == ".env" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected .env in TrackedSecrets, got %v", res.TrackedSecrets)
 	}
 }
 

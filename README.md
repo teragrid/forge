@@ -2,7 +2,12 @@
 
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 
-**Status:** M3 Preview — **17 verbs available** (`version`, `doctor`, `new`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`, `postmortem`, `insights`, `spend`, `incident`, `telemetry`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue (38 codes).
+**Status:** M3 Preview — **18 verbs available** (`version`, `doctor`, `new`, `init`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`, `postmortem`, `insights`, `spend`, `incident`, `telemetry`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue.
+
+**Install (no Go required):**
+```sh
+npm install -g @forge/cli
+```
 
 ## Spec-driven repo
 
@@ -35,22 +40,47 @@ Per [ADR-001](adr/ADR-001-implementation-language.md), [ADR-002](adr/ADR-002-plu
 
 ## Quickstart
 
-### Try the MVP
+### Option A — npm (recommended, no Go required)
 
 ```bash
-git clone https://github.com/teragrid/forge.git
-cd forge
-make build
-./dist/forge version
-./dist/forge doctor                     # env health check
-./dist/forge new go-service ../my-app   # scaffold a Go HTTP service
-cd ../my-app && go run ./...
+npm install -g @forge/cli
+# or use without installing:
+npx @forge/cli new my-app --template ts-service
 ```
+
+Scaffold a TypeScript service:
+```bash
+forge new ts-service my-app
+cd my-app && npm install && npm run dev
+```
+
+Scaffold a Go HTTP service:
+```bash
+forge new go-service my-app
+cd my-app && go run ./...
+```
+
+Initialise an existing directory (like `git init`):
+```bash
+cd my-existing-project
+forge init           # auto-detects ts-service or go-service from package.json / go.mod
+```
+
+### Option B — `go install`
+
+```bash
+go install github.com/teragrid/forge/cmd/forge@latest
+forge version
+```
+
+### Option C — Download a pre-built binary
+
+Pre-built archives for all 5 platforms are attached to every [GitHub release](https://github.com/teragrid/forge/releases). Checksums and SBOM are included.
 
 ### Contributor setup
 
 ```bash
-make tools     # one-time: golangci-lint, govulncheck, goimports, gotestsum
+make tools     # one-time: golangci-lint, govulncheck, goimports, gotestsum, goreleaser
 make all       # lint + test + build
 ```
 
@@ -60,7 +90,8 @@ make all       # lint + test + build
 |------|---------|--------|
 | `forge version` | Print version + build metadata. | ✅ M0 |
 | `forge doctor` | Check env (git, go, OS, write perms). `--json` supported. | ✅ M0 |
-| `forge new <template> <path>` | Scaffold a project from a built-in template (`go-service`). Emits managed `.gitignore`, `.gitleaks.toml`, `.forge/manifest.yaml`. | ✅ M0 |
+| `forge new <template> <path>` | Scaffold a project into a new directory (`go-service`, `ts-service`). | ✅ M0 |
+| `forge init [path]` | Initialise an existing directory as a Forge project (like `git init`/`npm init`). Auto-detects template. | ✅ M3 |
 | `forge clean [--check\|--apply]` | Manifest-based scratch / LLM-cruft sweeper. | ✅ M0 |
 | `forge explain <verb>` | Print the verb manifest (inputs, outputs, side-effects). `--json` supported. | ✅ M0 |
 | `forge scan <family>` | Scanner: `secrets`, `rls`, `prompt-injection`, `supply-chain`, `all`. Built-in regex engine + optional gitleaks. Exit non-zero on findings. | ✅ M1 |

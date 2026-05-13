@@ -1,0 +1,15 @@
+{
+  "name": "ship-flow",
+  "description": "Execute the full forge ship quick-path and verify all checkpoints pass.",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "ship-quick",
+      "run": ["forge", "ship", "--quick", "--dry-run"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["spec", "test", "breakdown", "code", "ship"]
+      }
+    }
+  ]
+}

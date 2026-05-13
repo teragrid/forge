@@ -1,0 +1,39 @@
+# Eval Scenario: fix-apply
+# Tests that `forge fix --apply` successfully applies a suggested codemod.
+# ADR-005
+
+id: fix-apply
+version: "1"
+verb: fix
+description: |
+  Verify that `forge fix --apply` applies a codemod that wraps a bare
+  `fmt.Errorf` call with %w (error chain) formatting.
+
+inputs:
+  flags:
+    - --apply
+  files:
+    - path: handler.go
+      content: |
+        package handler
+
+        import "fmt"
+
+        func doSomething(err error) error {
+            return fmt.Errorf("operation failed: %s", err.Error())
+        }
+
+expect:
+  output_contains:
+    - "applied"
+  files_changed:
+    - handler.go
+  file_content_contains:
+    path: handler.go
+    contains: "%w"
+  exit_code: 0
+
+tags:
+  - fix
+  - codemod
+  - errors

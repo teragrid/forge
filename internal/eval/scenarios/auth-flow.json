@@ -1,0 +1,23 @@
+{
+  "name": "auth-flow",
+  "description": "Scan a project for auth/authz issues and verify findings are reported.",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "scan-auth",
+      "run": ["forge", "scan", "auth", "--json"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["findings"]
+      }
+    },
+    {
+      "id": "scan-rls",
+      "run": ["forge", "scan", "rls", "--json"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["findings"]
+      }
+    }
+  ]
+}

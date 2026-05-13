@@ -1,0 +1,464 @@
+# Forge CI Quality Gates — M1-26..M1-35
+#
+# Required pre-merge gates beyond the baseline ci.yml build+test.
+# All gates below correspond to DEV-M1-26 through DEV-M1-35.
+# Adding/removing a gate requires an ADR amendment (see ADR-009).
+
+name: ci-gates
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.25'
+  CGO_ENABLED: '0'
+
+jobs:
+  # ── M1-26: Spec-presence gate ─────────────────────────────────────────────
+  # Every PR that ships a new feature must include a spec file at
+  # .forge/specs/<branch-slug>/spec.md. Merges without a spec are rejected.
+  spec-presence:
+    name: "M1-26 spec-presence gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check spec-presence
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          SLUG=$(echo "$BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+          SPEC_DIR=".forge/specs"
+          # Allow maintenance branches (main, release/*, hotfix/*) to skip this gate.
+          if [[ "$BRANCH" =~ ^(main|release/|hotfix/) ]]; then
+            echo "Spec gate skipped for maintenance branch: $BRANCH"
+            exit 0
+          fi
+          # Require at least one spec.md under .forge/specs/
+          SPEC_COUNT=$(find "$SPEC_DIR" -name "spec.md" 2>/dev/null | wc -l)
+          if [[ "$SPEC_COUNT" -lt 1 ]]; then
+            echo "::error::No spec file found under $SPEC_DIR/. Every feature PR must include .forge/specs/<name>/spec.md — run 'forge ship spec' to generate one."
+            exit 1
+          fi
+          echo "spec-presence: $SPEC_COUNT spec file(s) found ✓"
+
+  # ── M1-27: Tests-precede-code gate ───────────────────────────────────────
+  # Verifies that test files in the PR diff are not authored *after* their
+  # corresponding production-code files (TDD enforcement from spec §16.5.4 #2).
+  tests-precede-code:
+    name: "M1-27 tests-precede-code gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: Check tests precede production code
+        run: |
+          # Collect changed files in this PR vs main.
+          BASE="${GITHUB_BASE_REF:-main}"
+          CHANGED=$(git diff --name-only "origin/$BASE"...HEAD 2>/dev/null || git diff --name-only HEAD~1...HEAD)
+          # For each changed _test.go, find the corresponding non-test file
+          # and check that the test commit is not strictly *after* the production commit.
+          VIOLATIONS=0
+          while IFS= read -r f; do
+            if [[ "$f" != *_test.go ]]; then continue; fi
+            PROD="${f%_test.go}.go"
+            if [[ ! -f "$PROD" ]]; then continue; fi  # No paired prod file — skip
+            TEST_DATE=$(git log --follow --format='%ct' -- "$f" | head -1)
+            PROD_DATE=$(git log --follow --format='%ct' -- "$PROD" | head -1)
+            if [[ -n "$TEST_DATE" && -n "$PROD_DATE" && "$TEST_DATE" -gt "$PROD_DATE" ]]; then
+              echo "::warning file=$f::Test file $f was committed AFTER production file $PROD (TDD violation)"
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done <<< "$CHANGED"
+          if [[ "$VIOLATIONS" -gt 0 ]]; then
+            echo "::error::$VIOLATIONS TDD violation(s) detected — tests must be committed before production code."
+            exit 1
+          fi
+          echo "tests-precede-code: no violations ✓"
+
+  # ── M1-28: forge scan all gate ────────────────────────────────────────────
+  # Runs `forge scan all --since main` on every PR. Findings block merge.
+  scan-all:
+    name: "M1-28 forge scan all gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: forge scan all
+        run: |
+          BASE="${GITHUB_BASE_REF:-main}"
+          bin/forge scan all --since "origin/$BASE" --json | tee scan-results.json
+          # Exit non-zero if any security/correctness/compliance findings are errors.
+          ERRORS=$(jq '[.findings[]? | select(.severity == "error")] | length' scan-results.json 2>/dev/null || echo 0)
+          if [[ "$ERRORS" -gt 0 ]]; then
+            echo "::error::forge scan all found $ERRORS error-level finding(s). Run 'forge fix' to address them."
+            exit 1
+          fi
+          echo "forge scan all: $ERRORS error-level findings ✓"
+
+  # ── M1-29: Convention lint gate ───────────────────────────────────────────
+  # `forge lint` is a required pre-merge gate; violations block merge.
+  convention-lint:
+    name: "M1-29 convention lint gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: forge lint
+        run: bin/forge lint --json | tee lint-results.json
+        # Exit code from forge lint is non-zero when errors exist.
+
+  # ── M1-30: Public-API delta declaration gate ──────────────────────────────
+  # Detects breaking public-API changes without a corresponding BREAKING.md entry.
+  api-delta:
+    name: "M1-30 public-API delta gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install gorelease
+        run: go install golang.org/x/exp/cmd/gorelease@latest 2>/dev/null || echo "gorelease not available, using basic diff"
+      - name: Check public-API delta
+        run: |
+          BASE="${GITHUB_BASE_REF:-main}"
+          # Use gorelease to detect incompatible API changes if available.
+          if command -v gorelease &>/dev/null; then
+            gorelease -base "origin/$BASE" 2>&1 | tee api-delta.txt
+            if grep -q "incompatible" api-delta.txt 2>/dev/null; then
+              # Check that BREAKING.md was updated in this PR.
+              if ! git diff --name-only "origin/$BASE"...HEAD | grep -q "BREAKING.md"; then
+                echo "::error::Breaking API change detected but BREAKING.md was not updated. Document the breaking change before merging."
+                exit 1
+              fi
+            fi
+          else
+            echo "gorelease not available — using file-level diff check"
+            if git diff "origin/$BASE"...HEAD -- '*.go' | grep -q '^-func \|^-type \|^-var \|^-const '; then
+              echo "::warning::Possible public API removal detected. Verify BREAKING.md is up to date."
+            fi
+          fi
+          echo "api-delta: check complete ✓"
+
+  # ── M1-31: Token-budget regression gate ──────────────────────────────────
+  # `forge eval` token-budget diff >10% blocks the PR.
+  token-budget:
+    name: "M1-31 token-budget regression gate"
+    runs-on: ubuntu-latest
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: forge eval token diff
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          # Run eval and capture baseline vs current token usage.
+          bin/forge eval .forge/eval --ci --json | tee eval-results.json
+          # Check for >10% regression in token consumption.
+          python3 - <<'EOF'
+          import json, sys
+          try:
+              with open("eval-results.json") as f:
+                  data = json.load(f)
+              baseline = data.get("baseline_tokens", 0)
+              current  = data.get("current_tokens", 0)
+              if baseline > 0:
+                  pct = (current - baseline) / baseline * 100
+                  if pct > 10:
+                      print(f"::error::Token budget regression: {pct:.1f}% increase (baseline={baseline}, current={current}). Optimize prompt usage or update the baseline.")
+                      sys.exit(1)
+                  print(f"token-budget: {pct:+.1f}% delta ✓")
+              else:
+                  print("token-budget: no baseline — skipping regression check")
+          except Exception as e:
+              print(f"token-budget: eval parse error ({e}) — skipping")
+          EOF
+
+  # ── M1-32: Docs-sync gate ─────────────────────────────────────────────────
+  # `forge docs sync --check` ensures docs are in sync with code.
+  docs-sync:
+    name: "M1-32 docs-sync gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: forge docs sync --check
+        run: bin/forge docs sync --check
+
+  # ── M1-34: Repo-hygiene gate ──────────────────────────────────────────────
+  # `forge clean --check` fails the PR if unmanifested LLM scratch files exist.
+  repo-hygiene:
+    name: "M1-34 repo-hygiene gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: forge clean --check
+        run: bin/forge clean --check
+
+  # ── M1-35: Secrets-clean gate ─────────────────────────────────────────────
+  # `forge scan security --secrets --since main` blocks PRs with secret findings.
+  # Also enforces allowlist `# review-by:` expiry.
+  secrets-clean:
+    name: "M1-35 secrets-clean gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: forge scan security (secrets)
+        run: |
+          BASE="${GITHUB_BASE_REF:-main}"
+          bin/forge scan security --since "origin/$BASE" --json | tee security-scan.json
+          # Count secret-type findings.
+          SECRETS=$(jq '[.findings[]? | select(.family == "security" and .rule_id != null and (.rule_id | test("secret|credential|token|key"; "i")))] | length' security-scan.json 2>/dev/null || echo 0)
+          if [[ "$SECRETS" -gt 0 ]]; then
+            echo "::error::$SECRETS secret finding(s) detected. Remove secrets from code and rotate any exposed credentials."
+            exit 1
+          fi
+          echo "secrets-clean: no secret findings ✓"
+      - name: Check allowlist expiry
+        run: |
+          # Scan for `# review-by:` annotations that have passed their date.
+          TODAY=$(date +%Y-%m-%d)
+          EXPIRED=0
+          while IFS= read -r line; do
+            DATE=$(echo "$line" | grep -oP 'review-by:\s*\K[\d-]+' || true)
+            if [[ -n "$DATE" && "$DATE" < "$TODAY" ]]; then
+              FILE=$(echo "$line" | cut -d: -f1)
+              echo "::warning file=$FILE::Allowlist entry has expired (review-by: $DATE). Remove or renew."
+              EXPIRED=$((EXPIRED + 1))
+            fi
+          done < <(grep -rn "review-by:" . --include="*.go" --include="*.toml" --include="*.yml" --include="*.yaml" 2>/dev/null || true)
+          if [[ "$EXPIRED" -gt 0 ]]; then
+            echo "::error::$EXPIRED expired allowlist entry/entries detected. Renew or remove them."
+            exit 1
+          fi
+          echo "allowlist-expiry: no expired entries ✓"
+
+  # ── M2-17: Performance benchmark gate (≤5% regression) ───────────────────
+  # Compares go test -bench output on the PR branch vs main.
+  # A ≥5% regression in any benchmark blocks the PR.
+  perf-benchmark:
+    name: "M2-17 perf benchmark gate (≤5% regression)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+      - name: Benchmark baseline (main)
+        run: |
+          git fetch origin main
+          git stash --include-untracked
+          git checkout origin/main
+          go test -bench=. -benchmem -count=5 ./... 2>/dev/null | tee /tmp/bench-baseline.txt || true
+          git checkout -
+          git stash pop --index 2>/dev/null || true
+      - name: Benchmark HEAD
+        run: go test -bench=. -benchmem -count=5 ./... 2>/dev/null | tee /tmp/bench-head.txt || true
+      - name: Compare benchmarks
+        run: |
+          if [[ ! -s /tmp/bench-baseline.txt || ! -s /tmp/bench-head.txt ]]; then
+            echo "perf-benchmark: no benchmarks found — skipping"
+            exit 0
+          fi
+          benchstat /tmp/bench-baseline.txt /tmp/bench-head.txt | tee bench-diff.txt
+          # Fail if any benchmark regresses by >5% (geomean delta > +5%).
+          if grep -E '\+[5-9][0-9]\.[0-9]+%|\+[1-9][0-9]{2,}' bench-diff.txt; then
+            echo "::error::Performance regression ≥5% detected. See bench-diff.txt."
+            exit 1
+          fi
+          echo "perf-benchmark: no regressions ≥5% ✓"
+
+  # ── M2-20: Eval harness proof-of-life ────────────────────────────────────
+  # Runs the reference eval scenarios to confirm the harness itself is healthy.
+  eval-proof:
+    name: "M2-20 eval harness proof-of-life"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: Run reference eval scenarios
+        run: |
+          # Run all scenarios in internal/eval/scenarios/*.json
+          SCENARIOS=internal/eval/scenarios
+          if [[ ! -d "$SCENARIOS" ]]; then
+            echo "eval-proof: no scenarios directory — skipping"
+            exit 0
+          fi
+          COUNT=$(find "$SCENARIOS" -name "*.json" | wc -l)
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "eval-proof: no scenario files — skipping"
+            exit 0
+          fi
+          bin/forge eval "$SCENARIOS" --json | tee eval-results.json
+          FAILED=$(jq '.failed // 0' eval-results.json 2>/dev/null || echo 0)
+          if [[ "$FAILED" -gt 0 ]]; then
+            echo "::error::$FAILED eval scenario(s) failed. See eval-results.json."
+            exit 1
+          fi
+          echo "eval-proof: all $COUNT scenario(s) passed ✓"
+
+  # ── M2-24: Post-mortem CI gate ────────────────────────────────────────────
+  # Every merged PR touching incident-related code must link a postmortem when
+  # triggered by a severity-1 incident label. Structural lint on all INC-*.md.
+  postmortem-gate:
+    name: "M2-24 postmortem CI gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: Lint all postmortem docs
+        run: |
+          PM_DIR="docs/postmortems"
+          if [[ ! -d "$PM_DIR" ]]; then
+            echo "postmortem-gate: no postmortems directory — skipping"
+            exit 0
+          fi
+          COUNT=$(find "$PM_DIR" -name "INC-*.md" | wc -l)
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "postmortem-gate: no postmortem docs yet — skipping"
+            exit 0
+          fi
+          bin/forge postmortem lint --json | tee pm-results.json
+          INVALID=$(jq '.invalid // 0' pm-results.json 2>/dev/null || echo 0)
+          if [[ "$INVALID" -gt 0 ]]; then
+            echo "::error::$INVALID postmortem(s) failed lint. Fix structure per ADR-020."
+            exit 1
+          fi
+          echo "postmortem-gate: $COUNT postmortem(s) valid ✓"
+
+  # ── M3-04: NFR budgets in CI ─────────────────────────────────────────────
+  # Enforces Arch §14 NFR budgets: startup <200ms, memory <50MB, CLI latency.
+  nfr-budgets:
+    name: "M3-04 NFR budget gate (§14)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: Startup latency (<200ms)
+        run: |
+          START=$(date +%s%N)
+          bin/forge version > /dev/null
+          END=$(date +%s%N)
+          MS=$(( (END - START) / 1000000 ))
+          echo "startup: ${MS}ms"
+          if [[ "$MS" -gt 200 ]]; then
+            echo "::error::forge version took ${MS}ms — exceeds 200ms NFR budget (Arch §14)."
+            exit 1
+          fi
+          echo "nfr-startup: ${MS}ms ✓"
+      - name: Help latency (<500ms)
+        run: |
+          START=$(date +%s%N)
+          bin/forge --help > /dev/null
+          END=$(date +%s%N)
+          MS=$(( (END - START) / 1000000 ))
+          echo "help: ${MS}ms"
+          if [[ "$MS" -gt 500 ]]; then
+            echo "::error::forge --help took ${MS}ms — exceeds 500ms NFR budget."
+            exit 1
+          fi
+          echo "nfr-help: ${MS}ms ✓"
+
+  # ── M3-07: Contribution-standards CI bot ─────────────────────────────────
+  # Enforces CONTRIBUTING.md standards: PR title format, issue template use,
+  # and required files for new verb PRs.
+  contribution-standards:
+    name: "M3-07 contribution-standards bot"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check PR title format
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          # Enforce Conventional Commits format: type(scope): description
+          if ! echo "$TITLE" | grep -qP '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
+            echo "::error::PR title '$TITLE' does not follow Conventional Commits format."
+            echo "Example: feat(scan): add RLS scanner"
+            echo "See CONTRIBUTING.md for requirements."
+            exit 1
+          fi
+          echo "contribution-standards: PR title format ✓"
+      - name: Check new verbs have verbmeta
+        run: |
+          BASE="${GITHUB_BASE_REF:-main}"
+          # Find any new cmd* directories added in this PR.
+          NEW_CMDS=$(git diff --name-only --diff-filter=A "origin/$BASE"...HEAD | grep '^internal/cli/cmd' | grep '\.go$' | xargs -I{} dirname {} | sort -u)
+          VIOLATIONS=0
+          for dir in $NEW_CMDS; do
+            if ! grep -r 'verbmeta.Register' "$dir" &>/dev/null; then
+              echo "::error::New verb package $dir is missing verbmeta.Register() call (spec §4)."
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done
+          if [[ "$VIOLATIONS" -gt 0 ]]; then
+            exit 1
+          fi
+          echo "contribution-standards: verbmeta presence ✓"

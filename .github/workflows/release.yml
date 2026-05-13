@@ -1,0 +1,103 @@
+# .github/workflows/release.yml — Forge release pipeline
+#
+# Triggered on a version tag (v*.*.*).
+# Steps:
+#   1. Run goreleaser → builds 5 platform binaries + GitHub Release
+#   2. Copy binaries into packages/ → npm publish each platform package
+#   3. npm publish the @forge/cli wrapper last (depends on platform packages)
+#
+# Required repository secrets:
+#   GORELEASER_GITHUB_TOKEN  — fine-grained PAT with contents:write on the repo
+#   NPM_TOKEN                — npm automation token (publish scope)
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]*"
+
+permissions:
+  contents: write   # goreleaser needs this to create the GitHub Release
+  id-token: write   # npm provenance
+
+jobs:
+  goreleaser:
+    name: Build + GitHub Release (goreleaser)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # goreleaser needs full history for changelog
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  npm-publish:
+    name: npm publish
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    env:
+      VERSION: ${{ needs.goreleaser.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Stamp versions + copy binaries
+        run: bash scripts/npm-publish.sh --version "$VERSION" --dry-run false
+
+      - name: Publish platform packages
+        run: |
+          for pkg in \
+            packages/cli-linux-x64 \
+            packages/cli-linux-arm64 \
+            packages/cli-darwin-x64 \
+            packages/cli-darwin-arm64 \
+            packages/cli-win32-x64; do
+            echo "── publishing $pkg ──"
+            npm publish "$pkg" --access public --provenance
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @forge/cli wrapper
+        run: npm publish packages/cli --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

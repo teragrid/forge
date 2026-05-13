@@ -1,0 +1,106 @@
+{
+  "version": "1",
+  "project": "{{.Name}}",
+  "forgeVersion": "{{.ForgeVer}}",
+  "description": "Machine-readable convention registry consumed by forge lint. Add, remove, or adjust entries to reflect your project's agreed conventions.",
+
+  "conventions": [
+    {
+      "id": "no-float-money",
+      "description": "Never use float32/float64 for monetary values — use int64 (cents) in Go and numeric(19,4) in PostgreSQL",
+      "severity": "error",
+      "tags": ["correctness", "financial"]
+    },
+    {
+      "id": "sql-params-only",
+      "description": "SQL queries must use $N placeholders, never string concatenation",
+      "severity": "error",
+      "tags": ["security", "injection"]
+    },
+    {
+      "id": "workspace-id-filter",
+      "description": "Every DB query against a tenant-scoped table must filter by workspace_id",
+      "severity": "error",
+      "tags": ["security", "tenancy", "rls"]
+    },
+    {
+      "id": "no-silent-errors",
+      "description": "Errors must never be silently discarded — _ = err requires a justification comment",
+      "severity": "error",
+      "tags": ["correctness", "reliability"]
+    },
+    {
+      "id": "test-parallel",
+      "description": "Every test function must call t.Parallel() unless a comment explains why it cannot",
+      "severity": "warning",
+      "tags": ["testing", "performance"]
+    },
+    {
+      "id": "test-temp-dir",
+      "description": "Tests that write files must use t.TempDir() for isolation",
+      "severity": "warning",
+      "tags": ["testing", "correctness"]
+    },
+    {
+      "id": "structured-logging",
+      "description": "Use slog for all production logging — no fmt.Println in non-test code",
+      "severity": "error",
+      "tags": ["observability", "dx"]
+    },
+    {
+      "id": "error-wrapping",
+      "description": "Wrap errors with context using fmt.Errorf(\"context: %w\", err)",
+      "severity": "warning",
+      "tags": ["correctness", "observability"]
+    },
+    {
+      "id": "no-secrets-in-source",
+      "description": "Secrets, tokens, and credentials must never appear in source code",
+      "severity": "error",
+      "tags": ["security"]
+    },
+    {
+      "id": "migration-reversible",
+      "description": "Every migration file must contain both -- migrate:up and -- migrate:down sections",
+      "severity": "error",
+      "tags": ["reliability", "deployment"]
+    },
+    {
+      "id": "migration-additive-only",
+      "description": "Forward migrations must be additive — no DROP COLUMN or ALTER TYPE on existing data",
+      "severity": "error",
+      "tags": ["reliability", "deployment", "safety"]
+    },
+    {
+      "id": "rls-test-required",
+      "description": "Every new RLS policy requires a corresponding test in tests/security/",
+      "severity": "error",
+      "tags": ["security", "testing", "tenancy"]
+    },
+    {
+      "id": "webhook-signature",
+      "description": "Webhook handlers must verify HMAC-SHA256 signatures before processing payloads",
+      "severity": "error",
+      "tags": ["security"]
+    },
+    {
+      "id": "pii-tagged",
+      "description": "PII fields in structs must be tagged with // pii:<type> comments",
+      "severity": "warning",
+      "tags": ["compliance", "privacy"]
+    }
+  ],
+
+  "antiPatterns": [
+    {
+      "id": "orm-usage",
+      "description": "Prefer raw SQL with $N placeholders over ORMs — easier to reason about and audit",
+      "tags": ["architecture"]
+    },
+    {
+      "id": "global-state",
+      "description": "Avoid package-level mutable state; pass dependencies via constructor injection",
+      "tags": ["correctness", "testability"]
+    }
+  ]
+}

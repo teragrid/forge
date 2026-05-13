@@ -1,0 +1,94 @@
+{
+  "schema_version": "1",
+  "generated_at": "2024-01-01T00:00:00Z",
+  "entries": [
+    {
+      "name": "forge-scanner-rls",
+      "kind": "scanner",
+      "version": "0.1.0",
+      "author": "forge-community",
+      "summary": "Scans PostgreSQL schemas for missing Row Level Security policies.",
+      "source_url": "https://github.com/forge-community/forge-scanner-rls",
+      "sha256": "",
+      "tags": ["postgres", "rls", "security", "database"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-scanner-secrets",
+      "kind": "scanner",
+      "version": "0.2.0",
+      "author": "forge-community",
+      "summary": "Enhanced secret detection with entropy analysis and custom regex patterns.",
+      "source_url": "https://github.com/forge-community/forge-scanner-secrets",
+      "sha256": "",
+      "tags": ["secrets", "security", "credentials"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-scanner-cost",
+      "kind": "scanner",
+      "version": "0.1.0",
+      "author": "teragrid",
+      "summary": "Scans Go and TypeScript code for LLM token cost anti-patterns (in-tree).",
+      "source_url": "in-tree",
+      "sha256": "",
+      "tags": ["cost", "llm", "tokens", "optimization"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-codemod-import-sort",
+      "kind": "codemod",
+      "version": "0.1.0",
+      "author": "forge-community",
+      "summary": "Automatically sorts and groups Go import statements.",
+      "source_url": "https://github.com/forge-community/forge-codemod-import-sort",
+      "sha256": "",
+      "tags": ["go", "imports", "formatting"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-codemod-error-wrap",
+      "kind": "codemod",
+      "version": "0.1.0",
+      "author": "forge-community",
+      "summary": "Adds %w wrapping to bare fmt.Errorf calls for proper error chain support.",
+      "source_url": "https://github.com/forge-community/forge-codemod-error-wrap",
+      "sha256": "",
+      "tags": ["go", "errors", "best-practices"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-provider-gemini",
+      "kind": "provider",
+      "version": "0.1.0",
+      "author": "teragrid",
+      "summary": "Google Gemini LLM provider for forge (in-tree, requires GEMINI_API_KEY).",
+      "source_url": "in-tree",
+      "sha256": "",
+      "tags": ["llm", "google", "gemini", "ai"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-template-nextjs",
+      "kind": "template",
+      "version": "0.1.0",
+      "author": "forge-community",
+      "summary": "Next.js 14 project template with TypeScript, Tailwind, and Forge conventions.",
+      "source_url": "https://github.com/forge-community/forge-template-nextjs",
+      "sha256": "",
+      "tags": ["nextjs", "typescript", "react", "template"],
+      "forge": ">=0.1.0"
+    },
+    {
+      "name": "forge-template-go-service",
+      "kind": "template",
+      "version": "0.2.0",
+      "author": "teragrid",
+      "summary": "Go microservice template with structured logging, health checks, and OpenTelemetry.",
+      "source_url": "https://github.com/forge-community/forge-template-go-service",
+      "sha256": "",
+      "tags": ["go", "microservice", "otel", "template"],
+      "forge": ">=0.1.0"
+    }
+  ]
+}

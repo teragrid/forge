@@ -1,0 +1,39 @@
+{
+  "name": "@forge/cli",
+  "version": "1.0.0",
+  "description": "Forge CLI — AI-native developer framework. Scaffold, lint, scan, ship.",
+  "keywords": ["forge", "scaffold", "cli", "ai", "developer-tools", "devex"],
+  "homepage": "https://forgeframework.dev",
+  "bugs": {
+    "url": "https://github.com/teragrid/forge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/teragrid/forge.git",
+    "directory": "packages/cli"
+  },
+  "license": "Apache-2.0",
+  "bin": {
+    "forge": "bin/forge.js"
+  },
+  "scripts": {
+    "postinstall": "node bin/forge.js --version 2>/dev/null || true"
+  },
+  "files": [
+    "bin/forge.js",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@forge/cli-linux-x64": "1.0.0",
+    "@forge/cli-linux-arm64": "1.0.0",
+    "@forge/cli-darwin-x64": "1.0.0",
+    "@forge/cli-darwin-arm64": "1.0.0",
+    "@forge/cli-win32-x64": "1.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

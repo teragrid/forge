@@ -1,3 +1,16 @@
+// Copyright 2024 The Forge Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 // Package errcode implements the `FORGE-XXXX` error-code framework
 // (DEV-M0-03 / Arch §11).
 //
@@ -43,10 +56,41 @@ var reservedRanges = []struct {
 	{3600, 3699, "cli/eval"},
 	{3700, 3799, "cli/failure-register"},
 	{3800, 3899, "cli/postmortem"},
-	{3900, 3999, "cli/stats"},
+	{3900, 3999, "cli/insights"},
 	{4000, 4099, "cli/incident"},
 	{4100, 4199, "cli/telemetry"},
 	{4200, 4299, "plugin/wasm"},
+	{4300, 4399, "cli/test"},
+	// New verb ranges added for spec §4 gap-fill (M1).
+	{1600, 1699, "cli/hygiene"},
+	{1700, 1799, "cli/generate"},
+	{1800, 1899, "cli/migrate"},
+	{1900, 1999, "cli/check"},
+	// Infrastructure service packages (DEV-M0-05..M0-09, M0-18).
+	{2500, 2599, "internal/fssandbox"},
+	{2600, 2699, "internal/gitservice"},
+	{2700, 2799, "internal/procspawn"},
+	{2800, 2899, "internal/tokenledger"},
+	{4400, 4499, "cli/fix"},
+	{4500, 4599, "cli/adopt"},
+	{4600, 4699, "cli/eject"},
+	{4700, 4799, "cli/context"},
+	{4800, 4899, "cli/review"},
+	{4900, 4999, "cli/ask"},
+	{5000, 5099, "cli/docs"},
+	{5100, 5199, "cli/init"},
+	// M2/M3 verb ranges added for spec §4 gap-fill.
+	{5200, 5299, "cli/learn"},
+	{5300, 5399, "cli/deploy"},
+	{5400, 5499, "cli/agents"},
+	{5500, 5549, "cli/report"},
+	{5550, 5599, "cli/undo"},
+	{5600, 5699, "cli/optimize"},
+	{5700, 5799, "cli/add"},
+	{5800, 5849, "internal/learningloop"},
+	{5850, 5899, "internal/reviewsla"},
+	{5900, 5949, "internal/airgap"},
+	{5950, 5999, "cli/sla"},
 	{9000, 9099, "internal/test"},
 }
 

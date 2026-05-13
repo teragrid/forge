@@ -48,7 +48,7 @@ Per `always-write-tests.md` and spec §16.5.4:
 | Change type | Required tests |
 |-------------|----------------|
 | Foundation module (config, fs, errors) | Unit + boundary + negative + concurrency |
-| CLI verb addition | Unit (parser) + integration (subprocess) + `--explain` snapshot + `--json` schema test |
+| CLI verb addition | Unit (parser) + integration (subprocess) + `--explain` snapshot + `--json` schema test + **user-journey test** (add a compound step to `internal/cli/journey_test.go`) |
 | LLM provider adapter | Provider compliance suite + cost-ledger assertion + cache hit/miss test |
 | Scanner | Rule unit tests + false-positive guard + confidence-threshold test + perf budget |
 | Workflow checkpoint | Integration (happy + each failure mode) + idempotency (re-run) + resume-from-checkpoint test |
@@ -57,6 +57,29 @@ Per `always-write-tests.md` and spec §16.5.4:
 | Bug fix | Regression test that FAILS on pre-fix code, PASSES on post-fix code |
 | Security-sensitive (auth/RLS/secrets/webhooks) | All of above + threat-model assertion (e.g. "secret never appears in logged context") |
 | Hygiene rule (`forge clean`) | Manifest match/miss test + dry-run identity + `--apply` rollback + LLM-scratch fixture corpus |
+
+### 2a. User-journey tests (multi-verb compound flows)
+
+Every new verb or significant state-transition change **must** be represented in at least one
+compound journey test in `internal/cli/journey_test.go`.  A journey test:
+
+- Chains **two or more verbs** against a shared temp directory so that state
+  written by step N is consumed by step N+1.
+- Covers the **9-point checklist** (happy path, boundary, negative, idempotency,
+  concurrency isolation, cross-journey isolation, regression, data-accuracy,
+  false-positive guard) as documented at the top of `journey_test.go`.
+- Is named `TestJourney_<WorkflowName>` and uses `t.Parallel()`.
+
+Current journeys (M0):
+
+| Journey | Steps | Guard |
+|---------|-------|-------|
+| `TestJourney_DeveloperOnboarding` | `new` → `doctor` → `scan secrets` → `ship --dry-run` (×2 idempotency) | fresh scaffold has no secrets |
+| `TestJourney_IncidentLifecycle` | `incident new` → `update state` → `update note` → `list --open` → `close` → `list --open` | closed incident absent from `--open` |
+| `TestJourney_HygienePipeline` | `new` → `lint` → `scan secrets` → `upgrade list` → `upgrade gitignore-marker` (dry-run) | fresh scaffold has no secrets |
+| `TestJourney_BudgetAndObservability` | `spend set` → `spend status` → `audit append` → `audit show` (×2 idempotency) → `insights` | scan verb appears in rollup |
+| `TestJourney_TelemetryConsent` | `telemetry status` → `enable` → `status` → `rotate-id` → `disable` → `status` | enabled=false after disable |
+| `TestJourney_PluginLifecycle` | `plugin list` → `list --kind scanner` → `show secrets` → `install` → `upgrade` → `remove` → `upgrade` (fails) → `list` (idempotency) | removed plugin cannot be upgraded |
 
 ---
 

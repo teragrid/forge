@@ -1,3 +1,16 @@
+// Copyright 2024 The Forge Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 // Package plugin defines the Forge plugin contract and an in-process
 // loader (M2 scaffold). The wazero-backed WASM runtime is gated behind
 // the `forge_wasm` build tag and arrives in M2.2.

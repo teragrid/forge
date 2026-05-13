@@ -1,3 +1,16 @@
+// Copyright 2024 The Forge Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 // Package cli wires the cobra root command and registers all top-level verbs.
 //
 // Verbs live in subpackages (internal/cli/<verb>) and self-register via
@@ -10,21 +23,43 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/cli/cmdadd"
+	"github.com/teragrid/forge/internal/cli/cmdadopt"
+	"github.com/teragrid/forge/internal/cli/cmdagents"
+	"github.com/teragrid/forge/internal/cli/cmdask"
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
+	"github.com/teragrid/forge/internal/cli/cmdcheck"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
+	"github.com/teragrid/forge/internal/cli/cmdconfig"
+	"github.com/teragrid/forge/internal/cli/cmdcontext"
+	"github.com/teragrid/forge/internal/cli/cmddeploy"
+	"github.com/teragrid/forge/internal/cli/cmddocs"
 	"github.com/teragrid/forge/internal/cli/cmddoctor"
+	"github.com/teragrid/forge/internal/cli/cmdeject"
 	"github.com/teragrid/forge/internal/cli/cmdeval"
 	"github.com/teragrid/forge/internal/cli/cmdexplain"
+	"github.com/teragrid/forge/internal/cli/cmdfix"
+	"github.com/teragrid/forge/internal/cli/cmdgenerate"
+	"github.com/teragrid/forge/internal/cli/cmdhygiene"
 	"github.com/teragrid/forge/internal/cli/cmdincident"
+	"github.com/teragrid/forge/internal/cli/cmdinit"
 	"github.com/teragrid/forge/internal/cli/cmdinsights"
+	"github.com/teragrid/forge/internal/cli/cmdlearn"
 	"github.com/teragrid/forge/internal/cli/cmdlint"
+	"github.com/teragrid/forge/internal/cli/cmdmigrate"
 	"github.com/teragrid/forge/internal/cli/cmdnew"
+	"github.com/teragrid/forge/internal/cli/cmdoptimize"
 	"github.com/teragrid/forge/internal/cli/cmdplugin"
 	"github.com/teragrid/forge/internal/cli/cmdpostmortem"
+	"github.com/teragrid/forge/internal/cli/cmdreport"
+	"github.com/teragrid/forge/internal/cli/cmdreview"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/cli/cmdship"
+	"github.com/teragrid/forge/internal/cli/cmdsla"
 	"github.com/teragrid/forge/internal/cli/cmdspend"
 	"github.com/teragrid/forge/internal/cli/cmdtelemetry"
+	"github.com/teragrid/forge/internal/cli/cmdtest"
+	"github.com/teragrid/forge/internal/cli/cmdundo"
 	"github.com/teragrid/forge/internal/cli/cmdupgrade"
 	"github.com/teragrid/forge/internal/cli/cmdversion"
 	"github.com/teragrid/forge/internal/plugin"
@@ -69,6 +104,7 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdscan.New(),
 		cmdlint.New(),
 		cmdship.New(),
+		cmdtest.New(),
 		cmdupgrade.New(),
 		cmdaudit.New(),
 		cmdplugin.New(),
@@ -78,7 +114,35 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdspend.New(),
 		cmdincident.New(),
 		cmdtelemetry.New(),
+		// New verbs: spec §4 gap fill
+		cmdhygiene.New(),
+		cmdgenerate.New(),
+		cmdmigrate.New(),
+		cmdcheck.New(),
+		cmdfix.New(),
+		cmdadopt.New(),
+		cmdeject.New(),
+		cmdreview.New(),
+		cmdcontext.New(),
+		cmdask.New(),
+		cmddocs.New(),
+		cmdinit.New(version),
+		cmdconfig.New(),
+		// M2 verbs
+		cmdlearn.New(),
+		cmddeploy.New(),
+		cmddeploy.NewRollback(),
+		cmdagents.New(),
+		// M3 verbs
+		cmdundo.New(),
+		cmdoptimize.New(),
+		cmdadd.New(),
+		cmdreport.New(),
+		cmdsla.New(),
 	)
+
+	// Register backward-compat aliases after all canonical commands are added.
+	registerAliases(root)
 
 	return root
 }

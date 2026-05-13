@@ -1,0 +1,58 @@
+{
+  "version": "1",
+  "project": "{{.Name}}",
+  "forgeVersion": "{{.ForgeVer}}",
+  "runtime": "nextjs",
+  "description": "Machine-readable convention registry consumed by forge lint.",
+
+  "conventions": [
+    {
+      "id": "no-secrets-in-source",
+      "description": "Secrets, tokens, and credentials must never appear in source code — use environment variables",
+      "severity": "error",
+      "tags": ["security"]
+    },
+    {
+      "id": "no-any",
+      "description": "Avoid TypeScript any — use unknown and narrow explicitly",
+      "severity": "warning",
+      "tags": ["correctness", "dx"]
+    },
+    {
+      "id": "no-silent-errors",
+      "description": "Errors must never be silently discarded — catch blocks must log or rethrow",
+      "severity": "error",
+      "tags": ["correctness", "reliability"]
+    },
+    {
+      "id": "typed-error-classes",
+      "description": "Always throw typed Error subclasses — never raw strings",
+      "severity": "error",
+      "tags": ["correctness", "dx"]
+    },
+    {
+      "id": "server-components-default",
+      "description": "Next.js App Router components are server components by default — only add 'use client' when required",
+      "severity": "warning",
+      "tags": ["performance", "nextjs"]
+    },
+    {
+      "id": "no-client-env-secrets",
+      "description": "NEXT_PUBLIC_ env vars are exposed to the browser — never use them for secrets",
+      "severity": "error",
+      "tags": ["security", "nextjs"]
+    },
+    {
+      "id": "security-headers-required",
+      "description": "next.config.ts must define security headers (X-Frame-Options, CSP, etc.)",
+      "severity": "error",
+      "tags": ["security", "nextjs"]
+    },
+    {
+      "id": "health-endpoint-required",
+      "description": "App must expose /api/health returning {status: 'ok'} for readiness probes",
+      "severity": "error",
+      "tags": ["reliability", "ops"]
+    }
+  ]
+}

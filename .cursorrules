@@ -1,0 +1,51 @@
+# Cursor Rules — Forge Project
+
+## Project context
+
+Go 1.24+, module `github.com/teragrid/forge`, CGO_ENABLED=0.
+Single binary CLI. Cobra framework. One package per verb under `internal/cli/cmd<verb>/`.
+
+## Code style
+
+- Standard Go formatting (`gofmt`). No goimports aliases.
+- Table-driven tests. No third-party test frameworks.
+- Error wrapping: `fmt.Errorf("context: %w", err)`.
+- Use `errcode.New` / `errcode.Newf` for user-facing errors.
+- Comments on exported symbols only.
+
+## Key constraints
+
+- No `os.Exit` outside `cmd/forge/main.go`
+- No CGO
+- No new third-party dependencies without an ADR
+- All LLM calls via `internal/llmprovider`
+- All subprocesses via `internal/procspawn`
+- All file path access validated via `internal/fssandbox`
+
+## Adding a verb
+
+1. Create `internal/cli/cmd<verb>/<verb>.go` with `New() *cobra.Command`
+2. Add `verbmeta.Register(...)` in `init()`
+3. Register error codes (see `docs/ERROR_CODES.md`)
+4. Add to `internal/cli/root.go`
+
+## Before committing
+
+```
+go build ./...
+go vet ./...
+go test ./...
+```
+
+All three must produce zero errors/failures.
+
+## Error code ranges (quick ref)
+
+- 1000–1999: core verbs (init, new, add, doctor)
+- 2000–2999: scan family
+- 3000–3999: fix / review / explain
+- 4000–4999: LLM / plugin infrastructure
+- 5000–5999: ship / deploy / agents / report
+- 6000–6999: reserved for future use
+
+See `docs/ERROR_CODES.md` for the full registry.

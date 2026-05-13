@@ -1,0 +1,47 @@
+{
+  "name": "{{.Name}}",
+  "version": "0.0.1",
+  "description": "{{.Description}}",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/src/main.js",
+    "dev": "tsx watch src/main.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:security": "vitest run tests/security",
+    "typecheck": "tsc --noEmit",
+    "lint": "forge lint && eslint src",
+    "lint:fix": "eslint src --fix",
+    "migrate:up": "forge migrate up",
+    "migrate:down": "forge migrate down",
+    "migrate:status": "forge migrate status",
+    "doctor": "forge doctor",
+    "scan": "forge scan security",
+    "ship": "forge ship"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "pg-boss": "^10.0.0",
+    "pino": "^9.0.0",
+    "postgres": "^3.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

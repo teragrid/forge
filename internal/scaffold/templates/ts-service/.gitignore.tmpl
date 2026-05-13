@@ -1,0 +1,65 @@
+# .gitignore — {{.Name}}
+# forge-managed: v{{.ForgeVer}} — do not edit between the markers below
+# ─── BEGIN FORGE MANAGED ────────────────────────────────────────────────────
+
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.yarn/cache
+.yarn/unplugged
+.npm
+
+# TypeScript build output
+dist/
+build/
+*.tsbuildinfo
+.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.development
+.env.staging
+.env.production
+!.env.example
+
+# Forge scratch / LLM working files
+.forge/llm-scratch/
+.forge/scratch/
+.forge/cache/
+_*
+patch_*
+fix_*
+*_output.*
+*_SUMMARY*.md
+scratch/
+
+# Test coverage
+coverage/
+.nyc_output/
+lcov.info
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker
+*.pid
+
+# Supabase local dev
+supabase/.branches/
+supabase/.temp/
+
+# ─── END FORGE MANAGED ──────────────────────────────────────────────────────
+# Project-specific entries below this line (forge will not touch them):

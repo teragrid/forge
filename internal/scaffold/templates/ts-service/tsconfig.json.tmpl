@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    /* TypeScript strict mode — required by forge conventions */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    /* Emit */
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    /* Interop */
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    /* Performance */
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
+
+    /* Paths */
+    "baseUrl": ".",
+    "paths": {
+      "@modules/*": ["src/modules/*"],
+      "@shared/*": ["src/shared/*"],
+      "@infra/*": ["src/infrastructure/*"]
+    }
+  },
+  "include": ["src/**/*", "forge.config.ts"],
+  "exclude": ["node_modules", "dist", "build", "tests/**/*.test.ts"]
+}

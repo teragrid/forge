@@ -1,0 +1,119 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 02:00 UTC every day
+  workflow_dispatch:       # allow manual trigger
+
+env:
+  FORGE_LIVE_LLM: "1"
+
+jobs:
+  nightly-eval:
+    name: Nightly LLM eval
+    runs-on: ubuntu-latest
+    # Skip gracefully when no live API key is present (fork PRs / secret-less repos).
+    # The step-level condition checks for a non-empty secret; the job itself always
+    # runs so the summary is always green when keys are absent rather than skipped.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+
+      - name: Run eval (live LLM)
+        if: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '' }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          bin/forge eval .forge/eval --ci --json
+
+      - name: Skip notice (no API keys configured)
+        if: ${{ secrets.ANTHROPIC_API_KEY == '' && secrets.OPENAI_API_KEY == '' }}
+        run: |
+          echo "::notice title=Nightly eval skipped::No ANTHROPIC_API_KEY or OPENAI_API_KEY secret configured. Live eval was not run."
+
+  # ── M1-37: Allowlist-expiry sweeper ─────────────────────────────────────
+  # Scans all allowlist entries for expired `# review-by:` dates and opens
+  # an auto-PR to remove them when any are found.
+  allowlist-sweep:
+    name: Allowlist expiry sweep (M1-37)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+
+      - name: Scan for expired allowlist entries
+        id: sweep
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          EXPIRED_FILES=()
+          while IFS= read -r match; do
+            FILE=$(echo "$match" | cut -d: -f1)
+            DATE=$(echo "$match" | grep -oP 'review-by:\s*\K[\d-]+' || true)
+            if [[ -n "$DATE" && "$DATE" < "$TODAY" ]]; then
+              EXPIRED_FILES+=("$FILE")
+              echo "expired: $FILE (review-by: $DATE)"
+            fi
+          done < <(grep -rn "review-by:" . --include="*.go" --include="*.toml" --include="*.yml" 2>/dev/null || true)
+          if [[ "${#EXPIRED_FILES[@]}" -gt 0 ]]; then
+            echo "expired_count=${#EXPIRED_FILES[@]}" >> "$GITHUB_OUTPUT"
+            echo "has_expired=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_expired=false" >> "$GITHUB_OUTPUT"
+            echo "expired_count=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create PR to remove expired entries
+        if: steps.sweep.outputs.has_expired == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="nightly/allowlist-sweep-$(date +%Y%m%d)"
+          git config user.email "forge-bot@teragrid.io"
+          git config user.name "Forge Bot"
+          git checkout -b "$BRANCH"
+          # Annotate the files; actual removal is a manual review step to avoid silent deletes.
+          TODAY=$(date +%Y-%m-%d)
+          grep -rln "review-by:" . --include="*.go" --include="*.toml" --include="*.yml" 2>/dev/null | while read -r f; do
+            # Add a TODO comment above expired entries (sed in-place).
+            sed -i.bak "/review-by:/{ /$(date +%Y)/! s|review-by:|TODO(forge-sweep): expired review-by:|g }" "$f" && rm -f "$f.bak" || true
+          done
+          git diff --name-only | while read -r f; do git add "$f"; done
+          if git diff --cached --quiet; then
+            echo "No staged changes — nothing to PR"
+            exit 0
+          fi
+          git commit -m "chore: flag expired allowlist entries (nightly sweep $TODAY)"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: expired allowlist entries flagged by nightly sweep ($TODAY)" \
+            --body "Automated PR from the nightly allowlist-expiry sweeper (DEV-M1-37).
+          
+          The following files contain allowlist entries with expired \`review-by:\` dates.
+          Please review each flagged entry and either remove it or extend its expiry date.
+          
+          **Expired count:** ${{ steps.sweep.outputs.expired_count }}
+          
+          > This PR was opened by Forge Bot. See \`.github/workflows/nightly.yml\` for details." \
+            --label "automated,security,allowlist-expiry" \
+            --head "$BRANCH" \
+            --base main || echo "PR already exists or creation failed; check gh output above"

@@ -1,0 +1,65 @@
+api_version: forge.sh/v1
+kind: EvalScenario
+metadata:
+  id: ship-reference
+  description: >
+    Verifies that `forge ship --dry-run` on the reference project completes all
+    five checkpoints without writing any irreversible ops. This is the canonical
+    "it ships" regression gate for every release (DEV-M0-21).
+  owner: quality-wg
+  labels:
+    milestone: M0
+    priority: P0
+spec:
+  inputs:
+    workspace_fixture: fixtures/reference-app
+    forge_version: ">=0.1.0"
+    env:
+      FORGE_LLM_PROVIDER: openai
+      FORGE_LLM_MODEL: gpt-4o-mini
+      FORGE_TELEMETRY_ENABLED: "false"
+  determinism:
+    seed: 42
+    cassette: cassettes/ship-reference.har
+    cassette_sha256: ""   # populated by CI on first record run
+  steps:
+    - id: checkpoint-1-hygiene
+      run: forge clean --dry-run
+      expect:
+        exit_code: 0
+        stdout_contains: ["hygiene ok"]
+    - id: checkpoint-2-scan
+      run: forge scan security --json
+      expect:
+        exit_code: 0
+        stdout_json_schema: schemas/scan-result.schema.json
+    - id: checkpoint-3-doctor
+      run: forge doctor --json
+      expect:
+        exit_code: 0
+        stdout_contains: ["status"]
+    - id: checkpoint-4-plan
+      run: forge ship --dry-run --json
+      expect:
+        exit_code: 0
+        stdout_contains: ["plan ok", "no irreversible ops"]
+        artifacts:
+          - path: .forge/plan.json
+    - id: checkpoint-5-audit-trail
+      run: forge audit --last 1 --json
+      expect:
+        exit_code: 0
+        stdout_json_schema: schemas/audit-entry.schema.json
+  oracles:
+    - name: token-budget
+      max_tokens: 8000
+    - name: latency-budget
+      max_seconds: 300
+    - name: no-credential-leak
+      regex_disallow:
+        - "sk-[A-Za-z0-9]{20,}"
+        - "pk_live_[A-Za-z0-9]{20,}"
+        - "AKIA[0-9A-Z]{16}"
+  quarantine:
+    quorum: 3
+    threshold_disagree: 1

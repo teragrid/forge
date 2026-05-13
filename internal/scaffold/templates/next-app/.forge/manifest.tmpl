@@ -1,0 +1,36 @@
+# forge clean manifest (DEV-M0-15; forge {{.ForgeVer}})
+# `forge clean --check` proposes deletion candidates that match a [scratch]
+# pattern and do not match any [managed] pattern.
+
+[scratch]
+**/.forge/scratch/**
+**/.forge/cache/**
+**/*.tmp.*
+**/_scratch_*
+**/_llm_*
+**/*.llm.bak
+**/.aider*
+**/.next/**
+**/out/**
+**/playwright-report/**
+**/test-results/**
+
+[managed]
+.gitignore
+.gitleaks.toml
+.forge/manifest
+.forge/hygiene.yml
+.forge/conventions.json
+.forge-conventions
+.forge/instructions/**
+AGENTS.md
+CLAUDE.md
+.cursorrules
+.windsurfrules
+README.md
+ROLLBACK.md
+forge.config.ts
+next.config.ts
+tailwind.config.ts
+package.json
+tsconfig.json

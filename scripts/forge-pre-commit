@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# forge-pre-commit — pre-commit hook installer and hook script (DEV-M1-36)
+#
+# Install:   forge install-hook   (runs this script with action=install)
+# Uninstall: forge install-hook --remove
+#
+# When installed as .git/hooks/pre-commit, this script runs:
+#   1. forge scan security --secrets   — block commits with secrets
+#   2. forge lint                      — block commits violating conventions
+#
+# Bypass:
+#   GITLEAKS_BYPASS_REASON="<reason>" git commit ...
+#   The reason is recorded in .forge/audit.log and surfaced in the next PR.
+
+set -euo pipefail
+
+FORGE_BIN="${FORGE_BIN:-forge}"
+AUDIT_LOG=".forge/audit.log"
+
+# ── Bypass token handling ──────────────────────────────────────────────────
+if [[ -n "${GITLEAKS_BYPASS_REASON:-}" ]]; then
+  echo "forge pre-commit: bypass token set — reason: ${GITLEAKS_BYPASS_REASON}"
+  # Record the bypass in the audit log (best-effort; forge may not be on PATH).
+  if command -v "$FORGE_BIN" &>/dev/null; then
+    "$FORGE_BIN" audit append \
+      --verb pre-commit \
+      --action "bypass: ${GITLEAKS_BYPASS_REASON}" 2>/dev/null || true
+  fi
+  exit 0
+fi
+
+# ── Secret scan ────────────────────────────────────────────────────────────
+echo "forge pre-commit: running secret scan…"
+if command -v "$FORGE_BIN" &>/dev/null; then
+  if ! "$FORGE_BIN" scan security --secrets --json 2>&1 | tee /tmp/forge-prescan.json | \
+    python3 -c "
+import json, sys
+data = json.load(open('/tmp/forge-prescan.json'))
+findings = [f for f in data.get('findings', []) if f.get('severity') == 'error']
+if findings:
+    print(f'forge pre-commit: {len(findings)} secret finding(s) detected:')
+    for f in findings:
+        print(f'  [{f.get(\"rule_id\",\"?\")}] {f.get(\"file\",\"?\")}:{f.get(\"line\",0)} — {f.get(\"message\",\"?\")}')
+    print()
+    print('To bypass (with required reason):')
+    print('  GITLEAKS_BYPASS_REASON=\"<reason>\" git commit ...')
+    sys.exit(1)
+" 2>/dev/null; then
+    exit 1
+  fi
+else
+  echo "forge pre-commit: forge not found on PATH — skipping secret scan (install forge to enable)"
+fi
+
+# ── Convention lint ────────────────────────────────────────────────────────
+echo "forge pre-commit: running convention lint…"
+if command -v "$FORGE_BIN" &>/dev/null; then
+  if ! "$FORGE_BIN" lint 2>&1; then
+    echo "forge pre-commit: lint failed — fix violations before committing"
+    exit 1
+  fi
+fi
+
+echo "forge pre-commit: all checks passed ✓"
+exit 0

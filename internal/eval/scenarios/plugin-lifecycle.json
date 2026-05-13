@@ -1,0 +1,15 @@
+{
+  "name": "plugin-lifecycle",
+  "description": "Install, list, and remove a plugin; verify the registry updates.",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "plugin-list",
+      "run": ["forge", "plugin", "list", "--json"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["plugins"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "new-app",
+  "description": "Scaffold a new Go application and verify the forge doctor passes.",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "version",
+      "run": ["forge", "version"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["forge"]
+      }
+    },
+    {
+      "id": "new-go-app",
+      "run": ["forge", "new", "go", "--name", "hello-world", "--apply"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["hello-world"]
+      }
+    },
+    {
+      "id": "doctor",
+      "run": ["forge", "doctor"],
+      "expect": {
+        "exit": 0
+      }
+    }
+  ]
+}

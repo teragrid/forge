@@ -1,0 +1,21 @@
+{
+  "name": "@forge/cli-darwin-x64",
+  "version": "1.0.0",
+  "description": "macOS x64 binary for @forge/cli",
+  "os": ["darwin"],
+  "cpu": ["x64"],
+  "main": "bin/forge",
+  "bin": {
+    "forge": "bin/forge"
+  },
+  "files": ["bin/forge"],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/teragrid/forge.git",
+    "directory": "packages/cli-darwin-x64"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,39 @@
+# Eval Scenario: generate-handler
+# Tests that `forge generate handler <name>` creates the expected files.
+# ADR-005
+
+id: generate-handler
+version: "1"
+verb: generate
+description: |
+  Verify that `forge generate handler user` creates both a handler Go file
+  and a corresponding _test.go file with valid package declarations.
+
+inputs:
+  args:
+    - handler
+    - user
+  flags:
+    - --apply
+  files:
+    - path: go.mod
+      content: |
+        module example.com/myapp
+
+        go 1.22
+
+expect:
+  files_created:
+    - internal/handler/user.go
+    - internal/handler/user_test.go
+  file_content_contains:
+    - path: internal/handler/user.go
+      contains: "func UserHandler"
+    - path: internal/handler/user_test.go
+      contains: "func TestUser"
+  exit_code: 0
+
+tags:
+  - generate
+  - handler
+  - scaffold

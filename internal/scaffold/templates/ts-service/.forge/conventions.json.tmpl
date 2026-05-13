@@ -1,0 +1,70 @@
+{
+  "version": "1",
+  "project": "{{.Name}}",
+  "forgeVersion": "{{.ForgeVer}}",
+  "runtime": "node",
+  "description": "Machine-readable convention registry consumed by forge lint.",
+
+  "conventions": [
+    {
+      "id": "no-float-money",
+      "description": "Never use number for monetary values — use bigint (cents) in TypeScript and NUMERIC(19,4) in PostgreSQL",
+      "severity": "error",
+      "tags": ["correctness", "financial"]
+    },
+    {
+      "id": "sql-params-only",
+      "description": "SQL queries must use $N placeholders — never template literal interpolation",
+      "severity": "error",
+      "tags": ["security", "injection"]
+    },
+    {
+      "id": "workspace-id-filter",
+      "description": "Every DB query against a tenant-scoped table must filter by workspace_id",
+      "severity": "error",
+      "tags": ["security", "tenancy", "rls"]
+    },
+    {
+      "id": "no-silent-errors",
+      "description": "Errors must never be silently discarded — catch blocks must log or rethrow",
+      "severity": "error",
+      "tags": ["correctness", "reliability"]
+    },
+    {
+      "id": "typed-error-classes",
+      "description": "Always throw typed Error subclasses (AppError, AuthError, etc.) — never raw strings",
+      "severity": "error",
+      "tags": ["correctness", "dx"]
+    },
+    {
+      "id": "structured-logging",
+      "description": "Use pino for all production logging — no console.log in non-test code",
+      "severity": "error",
+      "tags": ["observability", "dx"]
+    },
+    {
+      "id": "security-tests-for-rls",
+      "description": "Every new RLS policy or authz guard requires at least one test in tests/security/",
+      "severity": "error",
+      "tags": ["security", "testing"]
+    },
+    {
+      "id": "no-any",
+      "description": "Avoid TypeScript any — use unknown and narrow explicitly",
+      "severity": "warning",
+      "tags": ["correctness", "dx"]
+    },
+    {
+      "id": "no-secrets-in-source",
+      "description": "Secrets, tokens, and credentials must never appear in source code",
+      "severity": "error",
+      "tags": ["security"]
+    },
+    {
+      "id": "migration-bidirectional",
+      "description": "Every migration must have both -- migrate:up and -- migrate:down sections",
+      "severity": "error",
+      "tags": ["correctness", "reliability"]
+    }
+  ]
+}

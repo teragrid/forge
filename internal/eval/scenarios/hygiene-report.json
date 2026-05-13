@@ -1,0 +1,23 @@
+{
+  "name": "hygiene-report",
+  "description": "Run forge hygiene report and verify the hygiene manifest is generated.",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "hygiene-report",
+      "run": ["forge", "hygiene", "report", "--json"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["patterns"]
+      }
+    },
+    {
+      "id": "hygiene-manifest",
+      "run": ["forge", "hygiene", "manifest"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["manifest"]
+      }
+    }
+  ]
+}

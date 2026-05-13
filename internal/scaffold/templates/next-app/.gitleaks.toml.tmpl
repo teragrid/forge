@@ -1,0 +1,55 @@
+# Forge-managed gitleaks rule pack (forge {{.ForgeVer}})
+# Extended for Next.js projects.
+title = "forge gitleaks next-app"
+
+[allowlist]
+description = "Files we never scan"
+paths = [
+  '''(.*?)/?\.forge/cache/''',
+  '''(.*?)/?node_modules/''',
+  '''(.*?)/?.next/''',
+  '''(.*?)/?dist/''',
+  '''(.*?)/?build/''',
+]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key"
+regex = '''(?i)(api[_-]?key|api_secret|secret|token|password)[\"\']?\s*[:=]\s*[\"\']?[A-Za-z0-9_\-]{20,}'''
+tags = ["key", "generic"]
+
+[[rules]]
+id = "private-key-block"
+description = "Private key PEM header"
+regex = '''-----BEGIN ((EC|PGP|DSA|RSA|OPENSSH) )?PRIVATE KEY-----'''
+tags = ["key", "private"]
+
+[[rules]]
+id = "openai-key"
+description = "OpenAI API key"
+regex = '''sk-[A-Za-z0-9]{20,}'''
+tags = ["key", "openai"]
+
+[[rules]]
+id = "anthropic-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[A-Za-z0-9\-_]{20,}'''
+tags = ["key", "anthropic"]
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS access key ID"
+regex = '''AKIA[0-9A-Z]{16}'''
+tags = ["key", "aws"]
+
+[[rules]]
+id = "stripe-live-key"
+description = "Stripe live key"
+regex = '''(sk|pk|rk)_live_[A-Za-z0-9]{20,}'''
+tags = ["key", "stripe", "payment"]
+
+[[rules]]
+id = "next-auth-secret"
+description = "NEXTAUTH_SECRET value exposed"
+regex = '''(?i)NEXTAUTH_SECRET\s*=\s*[A-Za-z0-9+/=]{20,}'''
+tags = ["key", "nextauth"]

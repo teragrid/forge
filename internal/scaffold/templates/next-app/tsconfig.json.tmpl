@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    /* TypeScript strict mode — required by forge conventions */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+
+    /* Next.js target */
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["dom", "dom.iterable", "esnext"],
+
+    /* Emit */
+    "noEmit": true,
+
+    /* JSX */
+    "jsx": "preserve",
+
+    /* Interop */
+    "esModuleInterop": true,
+    "allowJs": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+
+    /* Paths */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@components/*": ["./components/*"],
+      "@lib/*": ["./lib/*"]
+    },
+
+    /* Next.js plug-in */
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

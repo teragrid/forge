@@ -52,7 +52,7 @@ echo ""
 
 # ── 1. formatting ────────────────────────────────────────────────────────────
 echo "[1/7] formatting (gofmt + goimports)"
-FMT_OUT=$(gofmt -s -l . 2>&1)
+FMT_OUT=$(gofmt -s -l . 2>/dev/null || true)
 if [[ -n "$FMT_OUT" ]]; then
   fail "gofmt -s"
   echo "      Files needing formatting:"
@@ -63,7 +63,7 @@ else
 fi
 
 if need goimports; then
-  IMP_OUT=$(goimports -l . 2>&1)
+  IMP_OUT=$(goimports -l . 2>/dev/null || true)
   if [[ -n "$IMP_OUT" ]]; then
     fail "goimports"
     echo "      Files with import issues:"

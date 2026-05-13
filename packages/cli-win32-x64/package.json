@@ -1,0 +1,21 @@
+{
+  "name": "@forge/cli-win32-x64",
+  "version": "1.0.0",
+  "description": "Windows x64 binary for @forge/cli",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "main": "bin/forge.exe",
+  "bin": {
+    "forge": "bin/forge.exe"
+  },
+  "files": ["bin/forge.exe"],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/teragrid/forge.git",
+    "directory": "packages/cli-win32-x64"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

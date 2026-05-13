@@ -82,6 +82,38 @@ tools:
 	$(GO) install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GO) install golang.org/x/tools/cmd/goimports@latest
 	$(GO) install gotest.tools/gotestsum@latest
+	$(GO) install github.com/goreleaser/goreleaser/v2@latest
+
+# ── npm distribution ──────────────────────────────────────────────────────────
+
+# Build a local snapshot with goreleaser (no tag / GitHub token needed).
+# Produces dist/ with all 5 platform binaries.
+.PHONY: release-snapshot
+release-snapshot:
+	goreleaser build --snapshot --clean
+
+# Regenerate CHANGELOG.md from conventional-commit history (DEV-M0-31).
+# Requires goreleaser >=2.0. Optionally scope with TAG=vX.Y.Z.
+# Usage:
+#   make changelog            — regenerate from last tag to HEAD
+#   make changelog TAG=v0.9.0 — regenerate from that tag to HEAD
+.PHONY: changelog
+changelog:
+	goreleaser changelog --output CHANGELOG.md $(if $(TAG),--tag $(TAG),)
+
+# Copy snapshot binaries into packages/ and stamp package.json versions.
+# Does NOT publish — use this for local inspection.
+.PHONY: npm-stage
+npm-stage: release-snapshot
+	bash scripts/npm-publish.sh --version $(VERSION) --dry-run true
+
+# Full release: tag first, then push — CI picks it up and runs goreleaser + npm publish.
+# Usage: make tag VERSION=1.2.3
+.PHONY: tag
+tag:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make tag VERSION=x.y.z" >&2; exit 1; fi
+	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
+	@echo "Tag v$(VERSION) created. Push with: git push origin v$(VERSION)"
 
 # Register the repo's own git hooks (runs once per clone after `make tools`).
 .PHONY: hooks

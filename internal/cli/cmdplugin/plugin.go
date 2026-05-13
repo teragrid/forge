@@ -1,3 +1,16 @@
+// Copyright 2024 The Forge Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 // Package cmdplugin implements `forge plugin` (M2.x).
 // Subcommands:
 //   - list    — enumerate registered plugins (text or JSON)
@@ -73,7 +86,8 @@ func New() *cobra.Command {
 		Use:   "plugin",
 		Short: "Inspect and manage Forge plugins (M2.x).",
 	}
-	cmd.AddCommand(newListCmd(), newShowCmd(), newInstallCmd(), newUpgradeCmd(), newRemoveCmd())
+	cmd.AddCommand(newListCmd(), newShowCmd(), newInstallCmd(), newUpgradeCmd(), newRemoveCmd(),
+		newSearchCmd(), newDocsCmd())
 	return cmd
 }
 
@@ -359,4 +373,86 @@ func splitNameVersion(s string) (name, version string) {
 		return s[:i], s[i+1:]
 	}
 	return s, ""
+}
+
+// newSearchCmd implements `forge plugin search <query>` (spec §4 plugin sub-verb).
+// Full registry search is planned for M2; M1 returns an informative stub.
+func newSearchCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search the Forge plugin registry for plugins matching a query (M2).",
+		Long: "Searches the Forge plugin registry (registry.forgeframework.dev) for plugins\n" +
+			"matching the given keyword or tag.\n\n" +
+			"Note: remote registry search is scheduled for M2. " +
+			"In M1, only locally registered (in-tree) plugins can be found via `forge plugin list`.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			query := strings.TrimSpace(args[0])
+			// M1 stub: search local registry only.
+			plugins := plugin.Default().All()
+			var matches []plugin.Plugin
+			for _, p := range plugins {
+				m := p.Manifest()
+				if strings.Contains(strings.ToLower(m.Name), strings.ToLower(query)) ||
+					strings.Contains(strings.ToLower(m.Summary), strings.ToLower(query)) {
+					matches = append(matches, p)
+				}
+			}
+			if asJSON {
+				out := make([]plugin.Manifest, 0, len(matches))
+				for _, p := range matches {
+					out = append(out, p.Manifest())
+				}
+				if out == nil {
+					out = []plugin.Manifest{}
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+			if len(matches) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "no local plugins matched %q (remote registry search available in M2)\n", query)
+				return nil
+			}
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(w, "NAME\tKIND\tVERSION\tSUMMARY")
+			for _, p := range matches {
+				m := p.Manifest()
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Version, m.Summary)
+			}
+			return w.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	return cmd
+}
+
+// newDocsCmd implements `forge plugin docs <name>` (spec §4 plugin sub-verb).
+func newDocsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "docs <name>",
+		Short: "Show documentation for a plugin.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := strings.TrimSpace(args[0])
+			p, ok := plugin.Default().Lookup(name)
+			if !ok {
+				return errcode.Newf(ErrPluginUnknown, nil,
+					"no plugin named %q; run 'forge plugin list' to see available plugins", name)
+			}
+			m := p.Manifest()
+			fmt.Fprintf(cmd.OutOrStdout(), "plugin: %s\n", m.Name)
+			fmt.Fprintf(cmd.OutOrStdout(), "kind:   %s\n", m.Kind)
+			fmt.Fprintf(cmd.OutOrStdout(), "ver:    %s\n", m.Version)
+			if m.Author != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "author: %s\n", m.Author)
+			}
+			if m.Summary != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "\n%s\n", m.Summary)
+			}
+			return nil
+		},
+	}
+	return cmd
 }

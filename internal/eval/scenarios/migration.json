@@ -1,0 +1,15 @@
+{
+  "name": "migration",
+  "description": "Run forge migrate to plan and apply a schema migration.",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "migrate-status",
+      "run": ["forge", "migrate", "status"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["pending", "applied"]
+      }
+    }
+  ]
+}

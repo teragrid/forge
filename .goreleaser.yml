@@ -1,0 +1,143 @@
+# .goreleaser.yml — Forge release pipeline
+#
+# Produces:
+#   - Cross-compiled binaries for 6 platforms (linux/darwin/windows × amd64/arm64)
+#   - GitHub Release with checksums + SBOM
+#   - Artifacts consumed by scripts/npm-publish.sh to populate platform packages
+#
+# Usage:
+#   goreleaser release --clean           # full release (requires GITHUB_TOKEN)
+#   goreleaser build --snapshot --clean  # local snapshot build
+
+version: 2
+
+project_name: forge
+
+before:
+  hooks:
+    - go mod verify
+    - go generate ./...
+
+builds:
+  - id: forge
+    binary: forge
+    main: ./cmd/forge
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64   # Windows ARM64 CLI distribution via npm not yet planned
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+      - -X main.Commit={{.Commit}}
+      - -X main.Date={{.Date}}
+    mod_timestamp: "{{.CommitTimestamp}}"
+
+archives:
+  - id: default
+    name_template: "forge_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "forge_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+# ── DEV-M0-28 Sigstore / cosign artifact signing ─────────────────────────────
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+
+# ── DEV-M0-29 Homebrew tap ────────────────────────────────────────────────────
+brews:
+  - name: forge
+    repository:
+      owner: teragrid
+      name: homebrew-tap
+    homepage: "https://github.com/teragrid/forge"
+    description: "LLM-native framework CLI for shipping AI-generated code safely."
+    license: "Apache-2.0"
+    folder: Formula
+    install: |
+      bin.install "forge"
+    test: |
+      system "#{bin}/forge", "version"
+
+# ── DEV-M0-29 Scoop bucket ────────────────────────────────────────────────────
+scoops:
+  - repository:
+      owner: teragrid
+      name: scoop-forge
+    homepage: "https://github.com/teragrid/forge"
+    description: "LLM-native framework CLI for shipping AI-generated code safely."
+    license: "Apache-2.0"
+
+sboms:
+  - artifacts: archive
+    args: ["$artifact", "--output", "cyclonedx-json=$document"]
+    id: archive
+
+snapshot:
+  version_template: "{{ .Tag }}-SNAPSHOT-{{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: "Breaking Changes"
+      regexp: "^.*!:.*$"
+      order: 0
+    - title: "New Features"
+      regexp: "^feat"
+      order: 1
+    - title: "Bug Fixes"
+      regexp: "^fix"
+      order: 2
+    - title: "Other"
+      order: 999
+
+release:
+  github:
+    owner: teragrid
+    name: forge
+  draft: false
+  prerelease: auto
+  name_template: "Forge {{.Tag}}"
+  footer: |
+    ## Install via npm
+    ```sh
+    npm install -g @forge/cli
+    # or
+    npx @forge/cli@{{.Tag}} new my-app --template ts-service
+    ```
+    ## Direct download
+    See assets below — pick the archive for your platform.
+    Verify with `forge_{{.Version}}_checksums.txt`.

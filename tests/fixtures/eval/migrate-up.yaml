@@ -1,0 +1,38 @@
+# Eval Scenario: migrate-up
+# Tests that `forge migrate up` applies pending SQL migrations.
+# ADR-005
+
+id: migrate-up
+version: "1"
+verb: migrate
+description: |
+  Verify that `forge migrate up` detects and applies pending SQL migrations
+  from the migrations/ directory. The scenario uses a SQLite-backed DSN.
+
+inputs:
+  flags:
+    - up
+  files:
+    - path: migrations/001_create_users.up.sql
+      content: |
+        CREATE TABLE IF NOT EXISTS users (
+          id   TEXT PRIMARY KEY,
+          name TEXT NOT NULL
+        );
+    - path: migrations/001_create_users.down.sql
+      content: |
+        DROP TABLE IF EXISTS users;
+
+env:
+  FORGE_DB_DSN: ":memory:"
+
+expect:
+  output_contains:
+    - "applied"
+    - "001_create_users"
+  exit_code: 0
+
+tags:
+  - migrate
+  - database
+  - sql

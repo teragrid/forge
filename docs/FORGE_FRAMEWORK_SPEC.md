@@ -1209,6 +1209,72 @@ Locally enforced via `pnpm prepush`:
 - Type check, lint, unit tests, integration tests, RLS tests
 - **Never push without green local tests** — institutional rule
 
+### 13.5 `forge test` — CLI Test Runner Verb
+
+`forge test` is the CLI-first entry point for running any of the 13 test families
+without leaving the terminal.  It pairs directly with `forge ship test` (Checkpoint 2)
+and is designed to be composed in pipelines, run in CI, and operated by AI agents.
+
+#### 13.5.1 The 13 Test Families
+
+| Family | Subcommand | Purpose | Typical tooling |
+|--------|------------|---------|-----------------|
+| Smoke | `forge test smoke` | Minimal post-deploy liveness check | curl / RPC ping |
+| Unit | `forge test unit` | Fast in-process unit tests | `go test ./...` |
+| Regression | `forge test regression` | Guards against previously-fixed bugs | `go test -run Regression` |
+| Snapshot | `forge test snapshot` | Golden-file / snapshot diffs | testdata golden files |
+| Contract | `forge test contract` | Consumer-driven contract tests | Pact / OpenAPI conformance |
+| Integration | `forge test integration` | Tests calling real databases/services | `go test -tags=integration` |
+| Journey | `forge test journey` | Multi-step user-journey flows | `journey_test.go` patterns |
+| E2E | `forge test e2e` | Full CLI/API end-to-end exercisers | subprocess execution |
+| Perf | `forge test perf` | Throughput and latency benchmarks | `go test -bench` |
+| Load | `forge test load` | Sustained concurrency load test | k6 / hey / bombardier |
+| Chaos | `forge test chaos` | Fault-injection / resilience drills | chaos harness (ADR-015) |
+| Soak | `forge test soak` | Extended-duration stability test | soak runner |
+| Mutation | `forge test mutation` | Mutation testing (suite quality) | go-mutesting |
+
+Run all families in one command:
+
+```bash
+forge test all --json          # runs smoke→unit→regression→…→mutation in order
+forge test all --fail-fast     # stop after first failing family
+```
+
+#### 13.5.2 Integration with `forge ship`
+
+`forge ship test` (Checkpoint 2) internally delegates to `forge test` — specifically
+it runs `smoke` + `unit` + `regression` against the feature branch before any code is
+generated.  After code generation (Checkpoint 4) it runs the full `all` family.
+
+This means every `forge ship` run implicitly gates on the test families:
+
+```
+forge ship <feature>
+  └── Checkpoint 2 (Test gate)
+        ├── forge test smoke   — liveness
+        ├── forge test unit    — fast gate
+        └── forge test regression — anti-regression guard
+
+  └── Checkpoint 5 (Verify gate)
+        ├── forge test integration
+        ├── forge test contract
+        └── forge test e2e
+```
+
+#### 13.5.3 User-Journey Test Convention (`forge test journey`)
+
+`TestJourney_*` tests in `internal/cli/journey_test.go` are the canonical source for
+multi-step user-journey validation.  Each journey:
+
+- Owns an isolated `t.TempDir()` — no shared state between journeys.
+- Uses `jStep()` / `jStepErr()` helpers that capture combined stdout/stderr.
+- Exercises multiple verbs in sequence (e.g. `forge test smoke` → `forge test unit`
+  → `forge ship spec` → `forge ship verify`).
+- Validates cross-verb state: state written in step N is asserted in step N+1.
+
+The `TestJourney_ForgeTest` journey exercises all 13 families and their flags.
+The `TestJourney_ShipCheckpoints` journey exercises all 5 ship checkpoints.
+
 ---
 
 ## 14. Deployment Strategy
