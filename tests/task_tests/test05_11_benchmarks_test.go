@@ -37,7 +37,6 @@ func BenchmarkTC0501_ColdStartVersion(b *testing.B) {
 
 // TC-05-02 (boundary): benchmark with N=1 still produces a valid ns/op (no div-by-zero).
 func BenchmarkTC0502_SingleIteration(b *testing.B) {
-	b.N = 1
 	for i := 0; i < b.N; i++ {
 		_, _ = execForgeB(b, "--version")
 	}
@@ -59,19 +58,19 @@ func TestTC0504_BenchmarkMeasurementStability(t *testing.T) {
 		}
 	}
 	// Find min/max.
-	min, max := durations[0], durations[0]
+	minDur, maxDur := durations[0], durations[0]
 	for _, d := range durations[1:] {
-		if d < min {
-			min = d
+		if d < minDur {
+			minDur = d
 		}
-		if d > max {
-			max = d
+		if d > maxDur {
+			maxDur = d
 		}
 	}
 	// max should not be more than 10× min (very loose stability bound for CI).
-	if min > 0 && max > 10*min {
+	if minDur > 0 && maxDur > 10*minDur {
 		t.Logf("durations: %v", durations)
-		t.Errorf("measurement unstable: max=%v is >10× min=%v", max, min)
+		t.Errorf("measurement unstable: max=%v is >10× min=%v", maxDur, minDur)
 	}
 }
 

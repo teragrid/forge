@@ -101,7 +101,7 @@ func (r *Rewriter) Rewrite(text string) Result {
 				return m[:groupStart] + placeholder(rule.label)
 			})
 		} else {
-			out = rule.re.ReplaceAllStringFunc(out, func(m string) string {
+			out = rule.re.ReplaceAllStringFunc(out, func(_ string) string {
 				replaced++
 				return placeholder(rule.label)
 			})

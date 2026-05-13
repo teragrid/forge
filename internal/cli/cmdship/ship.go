@@ -15,11 +15,11 @@
 //
 // Subcommands (each runs a single pipeline checkpoint in isolation):
 //
-//	spec        – checkpoint 1: validate / generate the feature spec
-//	test        – checkpoint 2: generate failing tests (TDD gate)
-//	breakdown   – checkpoint 3: decompose spec into AI-friendly tasks
-//	code        – checkpoint 4: generate / iterate code until tests are green
-//	verify      – checkpoint 5: hygiene + scan + lint readiness check
+//	spec        â€“ checkpoint 1: validate / generate the feature spec
+//	test        â€“ checkpoint 2: generate failing tests (TDD gate)
+//	breakdown   â€“ checkpoint 3: decompose spec into AI-friendly tasks
+//	code        â€“ checkpoint 4: generate / iterate code until tests are green
+//	verify      â€“ checkpoint 5: hygiene + scan + lint readiness check
 //
 // Running `forge ship` (no subcommand) runs all five checkpoints in sequence.
 //
@@ -81,7 +81,7 @@ func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb: "ship",
 		Summary: "Deploy a change through the 5-checkpoint pipeline " +
-			"(spec → test → breakdown → code → verify). " +
+			"(spec â†’ test â†’ breakdown â†’ code â†’ verify). " +
 			"Each checkpoint requires reviewer approval before the next runs (interactive mode). " +
 			"Use --yolo to skip all approval gates. " +
 			"Run a single checkpoint with: forge ship spec|test|breakdown|code|verify. " +
@@ -90,14 +90,14 @@ func init() {
 			"[subcommand]: spec | test | breakdown | code | verify (optional; runs all when omitted)",
 			"--dry-run (validate checkpoints without executing; default in MVP)",
 			"--description <msg> (what this change does; required for full pipeline in M1)",
-			"--yolo (skip all approval gates — activates 6-role self-debate for quality polishing)",
+			"--yolo (skip all approval gates â€” activates 6-role self-debate for quality polishing)",
 			"--json (machine-readable output; also disables interactive prompts)",
 		},
 		Outputs: []string{"stdout: checkpoint status (text or JSON)"},
 		SideEffects: []string{
 			"--dry-run has no side effects; full workflow (M1) will commit, tag, and deploy",
 		},
-		GatesTouched: []string{"§16.5.2 ship workflow", "§4 5-checkpoint pipeline"},
+		GatesTouched: []string{"Â§16.5.2 ship workflow", "Â§4 5-checkpoint pipeline"},
 		ErrorCodes:   []errcode.Code{ErrShipFailed},
 	})
 }
@@ -106,19 +106,19 @@ func init() {
 // prompts to out. It is called between checkpoints (never after the last one).
 func makeInteractiveGate(scanner *bufio.Scanner, out io.Writer) Gate {
 	return func(idx, total int, cp Checkpoint) bool {
-		marker := "○"
+		marker := "â—‹"
 		switch cp.Status {
 		case "ok":
-			marker = "✓"
+			marker = "âœ“"
 		case "fail":
-			marker = "✗"
+			marker = "âœ—"
 		case "warning":
-			marker = "⚠"
+			marker = "âš "
 		}
-		fmt.Fprintf(out, "\n  [%d/%d] %s %s — %s\n", idx+1, total, marker, cp.Name, cp.Detail)
-		fmt.Fprintf(out, "       → Approve and continue to checkpoint %d/%d? [y/N] ", idx+2, total)
+		fmt.Fprintf(out, "\n  [%d/%d] %s %s â€” %s\n", idx+1, total, marker, cp.Name, cp.Detail)
+		fmt.Fprintf(out, "       â†’ Approve and continue to checkpoint %d/%d? [y/N] ", idx+2, total)
 		if !scanner.Scan() {
-			return true // EOF / closed stdin → auto-approve (non-interactive caller)
+			return true // EOF / closed stdin â†’ auto-approve (non-interactive caller)
 		}
 		return strings.ToLower(strings.TrimSpace(scanner.Text())) == "y"
 	}
@@ -136,6 +136,7 @@ func New() *cobra.Command {
 		from           string // --from: resume from a named checkpoint
 		skipCheckpoint string // --skip-checkpoint: skip a named checkpoint
 		pr             bool   // --pr: create a draft GitHub PR after all checkpoints pass
+		rootDir        string // --root: project root (default: cwd); primarily for testing
 	)
 
 	// bindFlags attaches shared flags to a subcommand or the parent.
@@ -149,13 +150,18 @@ func New() *cobra.Command {
 		c.Flags().StringVar(&from, "from", "", "resume pipeline from this checkpoint (e.g. --from=code)")
 		c.Flags().StringVar(&skipCheckpoint, "skip-checkpoint", "", "skip a specific checkpoint by name")
 		c.Flags().BoolVar(&pr, "pr", false, "create a draft GitHub PR after all checkpoints pass (requires gh CLI)")
+		c.Flags().StringVar(&rootDir, "root", "", "project root (default: cwd)")
 	}
 
 	// runCheckpoint is the shared body: run only the named checkpoint(s).
 	runCheckpoint := func(cmd *cobra.Command, names []string) error {
-		root, err := os.Getwd()
-		if err != nil {
-			return errcode.New(ErrShipFailed, "getwd", err)
+		root := rootDir
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return errcode.New(ErrShipFailed, "getwd", err)
+			}
 		}
 
 		// --yes is an alias for --yolo (more approachable for non-YOLO users).
@@ -246,11 +252,11 @@ func New() *cobra.Command {
 		Use:   "ship [spec|test|breakdown|code|verify] [flags]",
 		Short: "Deploy a change through the 5-checkpoint pipeline.",
 		Long: "forge ship walks a change through 5 checkpoints:\n" +
-			"  (1) spec      — validate or generate the feature spec\n" +
-			"  (2) test      — generate failing tests (TDD gate)\n" +
-			"  (3) breakdown — decompose spec into AI-friendly tasks\n" +
-			"  (4) code      — generate / iterate code until tests pass\n" +
-			"  (5) verify    — hygiene + scan + lint readiness check\n\n" +
+			"  (1) spec      â€” validate or generate the feature spec\n" +
+			"  (2) test      â€” generate failing tests (TDD gate)\n" +
+			"  (3) breakdown â€” decompose spec into AI-friendly tasks\n" +
+			"  (4) code      â€” generate / iterate code until tests pass\n" +
+			"  (5) verify    â€” hygiene + scan + lint readiness check\n\n" +
 			"Run a single checkpoint with: forge ship spec|test|breakdown|code|verify\n" +
 			"Run all five checkpoints with: forge ship (no subcommand)\n\n" +
 			"The --dry-run flag (default in MVP) validates checkpoints without executing.",
@@ -261,7 +267,7 @@ func New() *cobra.Command {
 	}
 	bindFlags(cmd)
 
-	// ── Checkpoint subcommands ───────────────────────────────────────────────
+	// â”€â”€ Checkpoint subcommands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 	makeCheckpointCmd := func(name, short string) *cobra.Command {
 		c := &cobra.Command{
@@ -289,7 +295,7 @@ func New() *cobra.Command {
 			"Checkpoint 5: hygiene + scan + lint ship-readiness check"),
 	)
 
-	// ── Status + resume subcommands (spec §4 ship sub-verbs) ─────────────────
+	// â”€â”€ Status + resume subcommands (spec Â§4 ship sub-verbs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 	statusCmd := &cobra.Command{
 		Use:   "status [feature]",
@@ -312,7 +318,7 @@ func New() *cobra.Command {
 			if feature == "" {
 				// List all in-flight features
 				entries, err := os.ReadDir(specsDir)
-				if err != nil {
+				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else //nolint:gocritic // ifElseChain: clearer as if/else
 					fmt.Fprintln(cmd.OutOrStdout(), "no in-flight features found (.forge/specs/ not present or empty)")
 					return nil
 				}
@@ -336,12 +342,12 @@ func New() *cobra.Command {
 			checkpoints := []string{"spec", "test", "breakdown", "code", "verify"}
 			fmt.Fprintf(cmd.OutOrStdout(), "forge ship status: %s\n", feature)
 			for i, cp := range checkpoints {
-				marker := "○ pending"
+				marker := "â—‹ pending"
 				cpFile := filepath.Join(featureDir, cp+".md")
 				if _, err := os.Stat(cpFile); err == nil {
-					marker = "✓ done"
+					marker = "âœ“ done"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/5] %s — %s\n", i+1, cp, marker)
+				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/5] %s â€” %s\n", i+1, cp, marker)
 			}
 			return nil
 		},
@@ -376,10 +382,10 @@ func New() *cobra.Command {
 				}
 			}
 			if resumeFrom == "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "forge ship resume: %s — all checkpoints complete\n", feature)
+				fmt.Fprintf(cmd.OutOrStdout(), "forge ship resume: %s â€” all checkpoints complete\n", feature)
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "forge ship resume: %s — resuming from checkpoint %q\n", feature, resumeFrom)
+			fmt.Fprintf(cmd.OutOrStdout(), "forge ship resume: %s â€” resuming from checkpoint %q\n", feature, resumeFrom)
 			description = feature
 			from = resumeFrom
 			return runCheckpoint(cmd, nil)
@@ -397,7 +403,7 @@ func Run(root, description string) *ShipResult {
 	return RunCheckpoints(root, description, nil)
 }
 
-// ── Per-checkpoint evaluators ─────────────────────────────────────────────────
+// â”€â”€ Per-checkpoint evaluators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // checkSpec validates or generates the feature spec.
 // With an LLMPipe: if the spec already exists it is reviewed and enhanced;
@@ -410,7 +416,7 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 		slug := slugify(description)
 		specFile := filepath.Join(specsDir, slug, "spec.md")
 		if _, err := os.Stat(specFile); err == nil {
-			// Spec exists — attempt LLM review.
+			// Spec exists â€” attempt LLM review.
 			if pipe != nil {
 				existing, _ := os.ReadFile(specFile)
 				reviewed, err := pipe.Invoke(
@@ -421,14 +427,14 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 					fmt.Sprintf("Feature: %s\n\nCurrent spec:\n%s", description, string(existing)),
 					2000,
 				)
-				if err != nil {
+				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else //nolint:gocritic // ifElseChain: clearer as if/else
 					cp.Status = "ok"
-					cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md [LLM:%s — %s]",
+					cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md [LLM:%s â€” %s]",
 						slug, pipe.ProviderName(), llmErrNote(err))
 					return cp
 				}
 				if reviewed != "" {
-					_ = os.WriteFile(specFile, []byte(reviewed), 0o644)
+					_ = os.WriteFile(specFile, []byte(reviewed), 0o600)
 					cp.Status = "ok"
 					cp.Detail = fmt.Sprintf("spec reviewed and enhanced by %s: .forge/specs/%s/spec.md",
 						pipe.ProviderName(), slug)
@@ -439,7 +445,7 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 			cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md", slug)
 			return cp
 		}
-		// Spec does not exist — generate via LLM or write a stub.
+		// Spec does not exist â€” generate via LLM or write a stub.
 		if err := os.MkdirAll(filepath.Join(specsDir, slug), 0o755); err == nil {
 			specContent := ""
 			if pipe != nil {
@@ -451,10 +457,10 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 					fmt.Sprintf("Generate a complete feature specification for: %s", description),
 					2000,
 				)
-				if err != nil {
+				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else
 					specContent = specStub(description)
 					cp.Detail = fmt.Sprintf(
-						"spec stub created (LLM:%s — %s): .forge/specs/%s/spec.md — edit before continuing",
+						"spec stub created (LLM:%s â€” %s): .forge/specs/%s/spec.md â€” edit before continuing",
 						pipe.ProviderName(), llmErrNote(err), slug)
 				} else if generated != "" {
 					specContent = generated
@@ -462,26 +468,26 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 						pipe.ProviderName(), slug)
 				} else {
 					specContent = specStub(description)
-					cp.Detail = fmt.Sprintf("spec stub created: .forge/specs/%s/spec.md — edit before continuing", slug)
+					cp.Detail = fmt.Sprintf("spec stub created: .forge/specs/%s/spec.md â€” edit before continuing", slug)
 				}
 			} else {
 				specContent = specStub(description)
 				cp.Detail = fmt.Sprintf(
-					"spec stub created: .forge/specs/%s/spec.md — edit before continuing "+
+					"spec stub created: .forge/specs/%s/spec.md â€” edit before continuing "+
 						"(set ANTHROPIC_API_KEY to auto-generate via LLM)",
 					slug)
 			}
-			if err := os.WriteFile(specFile, []byte(specContent), 0o644); err == nil {
+			if err := os.WriteFile(specFile, []byte(specContent), 0o600); err == nil {
 				cp.Status = "ok"
 				return cp
 			}
 		}
-		// .forge/ not writable — still ok for dry-run; record the description.
+		// .forge/ not writable â€” still ok for dry-run; record the description.
 		cp.Status = "ok"
 		cp.Detail = fmt.Sprintf("description: %q (write .forge/specs/ to persist)", description)
 		return cp
 	}
-	// No description — look for any existing spec.
+	// No description â€” look for any existing spec.
 	entries, err := os.ReadDir(specsDir)
 	if err == nil && len(entries) > 0 {
 		cp.Status = "ok"
@@ -511,7 +517,7 @@ func slugify(s string) string {
 
 // checkTest verifies existing test files and (when an LLMPipe is available)
 // generates failing test stubs via the configured LLM provider.
-// M1-03: git timestamp guard — test files must predate or match their
+// M1-03: git timestamp guard â€” test files must predate or match their
 // corresponding production files. If any prod file is newer than its test
 // file by more than 60 seconds the checkpoint is marked as a failure.
 func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
@@ -522,7 +528,7 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 	if violations := testTimestampGuard(root); len(violations) > 0 {
 		cp.Status = "fail"
 		cp.Detail = fmt.Sprintf(
-			"tests-precede-code violation: %d production file(s) were modified more than 60s before their test file — write failing tests first: %s",
+			"tests-precede-code violation: %d production file(s) were modified more than 60s before their test file â€” write failing tests first: %s",
 			len(violations), strings.Join(violations[:min3(len(violations))], ", "),
 		)
 		return cp
@@ -534,7 +540,7 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 		if pipe != nil {
 			stub, err := generateTestStubs(root, description, pipe)
 			if err != nil {
-				cp.Detail += fmt.Sprintf(" [LLM:%s — %s]", pipe.ProviderName(), llmErrNote(err))
+				cp.Detail += fmt.Sprintf(" [LLM:%s â€” %s]", pipe.ProviderName(), llmErrNote(err))
 			} else if stub != "" {
 				cp.Detail = fmt.Sprintf("%d test file(s) found; test stubs written by %s to .forge/specs/%s/test-stubs.md",
 					len(testFiles), pipe.ProviderName(), slugify(description))
@@ -542,24 +548,24 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 		}
 		return cp
 	}
-	// No test files — attempt LLM generation.
+	// No test files â€” attempt LLM generation.
 	if pipe != nil {
 		stub, err := generateTestStubs(root, description, pipe)
 		if err != nil {
 			cp.Status = "warning"
-			cp.Detail = fmt.Sprintf("no test files found [LLM:%s — %s] — write failing tests before forge ship code",
+			cp.Detail = fmt.Sprintf("no test files found [LLM:%s â€” %s] â€” write failing tests before forge ship code",
 				pipe.ProviderName(), llmErrNote(err))
 			return cp
 		}
 		if stub != "" {
 			cp.Status = "ok"
-			cp.Detail = fmt.Sprintf("test stubs generated by %s (see .forge/specs/%s/test-stubs.md) — complete before forge ship code",
+			cp.Detail = fmt.Sprintf("test stubs generated by %s (see .forge/specs/%s/test-stubs.md) â€” complete before forge ship code",
 				pipe.ProviderName(), slugify(description))
 			return cp
 		}
 	}
 	cp.Status = "warning"
-	cp.Detail = "no test files found — write failing tests before running forge ship code"
+	cp.Detail = "no test files found â€” write failing tests before running forge ship code"
 	if pipe == nil {
 		cp.Detail += " (set ANTHROPIC_API_KEY to auto-generate stubs)"
 	}
@@ -594,7 +600,7 @@ func testTimestampGuard(root string) []string {
 		}
 		testInfo, err := os.Stat(testPath)
 		if err != nil {
-			// No test file at all — not a timestamp violation (handled elsewhere).
+			// No test file at all â€” not a timestamp violation (handled elsewhere).
 			return nil
 		}
 		diff := prodInfo.ModTime().UnixNano() - testInfo.ModTime().UnixNano()
@@ -606,7 +612,7 @@ func testTimestampGuard(root string) []string {
 	return violations
 }
 
-// min3 returns min(n, 3) — used to cap violation list display.
+// min3 returns min(n, 3) â€” used to cap violation list display.
 func min3(n int) int {
 	if n > 3 {
 		return 3
@@ -652,12 +658,12 @@ func checkBreakdown(root, description string, pipe *LLMPipe) Checkpoint {
 			cp.Detail = fmt.Sprintf("breakdown found: .forge/specs/%s/breakdown.md", slug)
 			return cp
 		}
-		// Breakdown does not exist — attempt LLM generation.
+		// Breakdown does not exist â€” attempt LLM generation.
 		if pipe != nil {
 			generated, err := generateBreakdown(root, description, pipe)
 			if err != nil {
 				cp.Status = "warning"
-				cp.Detail = fmt.Sprintf("no breakdown.md [LLM:%s — %s] — run forge ship breakdown to generate",
+				cp.Detail = fmt.Sprintf("no breakdown.md [LLM:%s â€” %s] â€” run forge ship breakdown to generate",
 					pipe.ProviderName(), llmErrNote(err))
 				return cp
 			}
@@ -672,13 +678,13 @@ func checkBreakdown(root, description string, pipe *LLMPipe) Checkpoint {
 	// Structural fallback.
 	if _, err := os.Stat(filepath.Join(root, ".forge", "specs")); err == nil {
 		cp.Status = "warning"
-		cp.Detail = "no breakdown.md found — run forge ship breakdown to generate"
+		cp.Detail = "no breakdown.md found â€” run forge ship breakdown to generate"
 		if pipe == nil {
 			cp.Detail += " (set ANTHROPIC_API_KEY to auto-generate)"
 		}
 	} else {
 		cp.Status = "warning"
-		cp.Detail = "no .forge/specs/ directory — run forge ship spec first"
+		cp.Detail = "no .forge/specs/ directory â€” run forge ship spec first"
 	}
 	return cp
 }
@@ -694,11 +700,11 @@ func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
 		if err != nil {
 			if changedFiles > 0 {
 				cp.Status = "ok"
-				cp.Detail = fmt.Sprintf("%d modified file(s) [LLM:%s — %s]",
+				cp.Detail = fmt.Sprintf("%d modified file(s) [LLM:%s â€” %s]",
 					changedFiles, pipe.ProviderName(), llmErrNote(err))
 			} else {
 				cp.Status = "warning"
-				cp.Detail = fmt.Sprintf("no code changes detected [LLM:%s — %s]",
+				cp.Detail = fmt.Sprintf("no code changes detected [LLM:%s â€” %s]",
 					pipe.ProviderName(), llmErrNote(err))
 			}
 			return cp
@@ -710,7 +716,7 @@ func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
 					changedFiles, pipe.ProviderName(), slugify(description))
 			} else {
 				cp.Status = "ok"
-				cp.Detail = fmt.Sprintf("code plan written by %s (see .forge/specs/%s/code-plan.md) — implement then rerun",
+				cp.Detail = fmt.Sprintf("code plan written by %s (see .forge/specs/%s/code-plan.md) â€” implement then rerun",
 					pipe.ProviderName(), slugify(description))
 			}
 			return cp
@@ -724,7 +730,7 @@ func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
 		return cp
 	}
 	cp.Status = "warning"
-	cp.Detail = "no code changes detected in working tree — implement tasks then rerun forge ship code"
+	cp.Detail = "no code changes detected in working tree â€” implement tasks then rerun forge ship code"
 	if pipe == nil {
 		cp.Detail += " (set ANTHROPIC_API_KEY to auto-generate a code plan)"
 	}
@@ -740,7 +746,7 @@ func countChangedFiles(root string) int {
 	}
 	// Walk for any modified files (a fast approximation without exec)
 	count := 0
-	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			if d != nil && d.IsDir() {
 				n := d.Name()
@@ -774,15 +780,15 @@ func checkVerify(root string) Checkpoint {
 	}
 	if len(scanRes.Findings) > 0 {
 		cp.Status = "fail"
-		cp.Detail = fmt.Sprintf("security scan: %d finding(s) — fix before shipping (run: forge scan security)", len(scanRes.Findings))
+		cp.Detail = fmt.Sprintf("security scan: %d finding(s) â€” fix before shipping (run: forge scan security)", len(scanRes.Findings))
 		return cp
 	}
 
-	// M1-10: forge clean --check — block ship if unmanaged scratch files exist.
+	// M1-10: forge clean --check â€” block ship if unmanaged scratch files exist.
 	cleanRes, cleanErr := cmdclean.Run(root, false /* check mode */)
 	if cleanErr != nil {
 		cp.Status = "warning"
-		cp.Detail = fmt.Sprintf("clean check error: %v — run `forge clean --check` manually", cleanErr)
+		cp.Detail = fmt.Sprintf("clean check error: %v â€” run `forge clean --check` manually", cleanErr)
 		return cp
 	}
 	if len(cleanRes.Candidates) > 0 || len(cleanRes.TrackedSecrets) > 0 {
@@ -791,7 +797,7 @@ func checkVerify(root string) Checkpoint {
 			detail += fmt.Sprintf("; %d tracked secret(s)", len(cleanRes.TrackedSecrets))
 		}
 		cp.Status = "fail"
-		cp.Detail = detail + " — run `forge clean --apply` to remove, then re-run forge ship verify"
+		cp.Detail = detail + " â€” run `forge clean --apply` to remove, then re-run forge ship verify"
 		return cp
 	}
 
@@ -924,17 +930,17 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	w := cmd.OutOrStdout()
 	mode := "--dry-run"
 	if r.Yolo {
-		mode += " [YOLO — approval gates disabled]"
+		mode += " [YOLO â€” approval gates disabled]"
 	}
 	fmt.Fprintf(w, "forge ship %s\n", mode)
 	fmt.Fprintf(w, "%s\n", r.Message)
 	fmt.Fprintln(w, "\n5-checkpoint pipeline:")
 	for i, cp := range r.Checkpoints {
-		marker := "⊘ "
+		marker := "âŠ˜ "
 		if cp.Status == "ok" {
-			marker = "✓ "
+			marker = "âœ“ "
 		} else if cp.Status == "fail" {
-			marker = "✗ "
+			marker = "âœ— "
 		}
 		approval := ""
 		if cp.Approved != nil {
@@ -944,21 +950,21 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 				approval = " [rejected]"
 			}
 		}
-		fmt.Fprintf(w, "  [%d] %s%s — %s%s\n", i+1, marker, cp.Name, cp.Detail, approval)
+		fmt.Fprintf(w, "  [%d] %s%s â€” %s%s\n", i+1, marker, cp.Name, cp.Detail, approval)
 		if d := cp.Debate; d != nil {
-			consensusIcon := "✓"
+			consensusIcon := "âœ“"
 			if !d.Consensus {
-				consensusIcon = "✗"
+				consensusIcon = "âœ—"
 			}
-			fmt.Fprintf(w, "      ✦ self-debate [%d roles · %d rounds · consensus %s · %d improvement(s)]\n",
+			fmt.Fprintf(w, "      âœ¦ self-debate [%d roles Â· %d rounds Â· consensus %s Â· %d improvement(s)]\n",
 				len(d.Roles), len(d.Rounds), consensusIcon, len(d.Improvements))
 			for j, imp := range d.Improvements {
 				if j >= 3 {
-					fmt.Fprintf(w, "        ⋯ and %d more (--json for full debate output)\n",
+					fmt.Fprintf(w, "        â‹¯ and %d more (--json for full debate output)\n",
 						len(d.Improvements)-3)
 					break
 				}
-				fmt.Fprintf(w, "        • %s\n", imp)
+				fmt.Fprintf(w, "        â€¢ %s\n", imp)
 			}
 		}
 	}

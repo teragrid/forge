@@ -84,7 +84,7 @@ func FuzzScannerScan(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(t *testing.T, root string) {
+	f.Fuzz(func(_ *testing.T, root string) {
 		plugins := Default().All()
 		for _, p := range plugins {
 			if s, ok := p.(Scanner); ok {
@@ -109,9 +109,9 @@ func FuzzCapabilityString(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(_ *testing.T, cap string) {
+	f.Fuzz(func(_ *testing.T, capStr string) {
 		// Simulate what the permission model does: split on ':' and validate segments.
-		parts := strings.SplitN(cap, ":", 2)
+		parts := strings.SplitN(capStr, ":", 2)
 		if len(parts) < 2 {
 			return
 		}

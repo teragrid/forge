@@ -20,11 +20,11 @@
 // Instead, a panel of eight role personas (PO, BA, SA, DL, QE, Sec, Ops, CPO)
 // independently reviews each checkpoint deliverable over three rounds:
 //
-//   Round 1 — Independent review: each role raises concerns from its own lens.
-//   Round 2 — Cross-challenge: roles respond to each other's concerns;
-//             minor concerns are resolved, cross-role synthesis items added.
-//   Round 3 — Synthesis: remaining major concerns become named improvements;
-//             a polished summary is produced.
+//	Round 1 — Independent review: each role raises concerns from its own lens.
+//	Round 2 — Cross-challenge: roles respond to each other's concerns;
+//	          minor concerns are resolved, cross-role synthesis items added.
+//	Round 3 — Synthesis: remaining major concerns become named improvements;
+//	          a polished summary is produced.
 //
 // In MVP (dry-run), all concerns are capped at SeverityMajor and consensus is
 // always reached. In M1, real LLM calls drive each role using the instruction
@@ -762,7 +762,8 @@ func SelfDebate(opts DebateOptions) *DebateResult {
 	}
 	// Add cross-role synthesis items.
 	cross := crossItems(opts.Deliverable)
-	round2.Concerns = append(updated, cross...)
+	updated = append(updated, cross...)
+	round2.Concerns = updated
 	round2.Summary = fmt.Sprintf(
 		"Cross-challenge: %d minor concern(s) resolved; %d cross-role synthesis item(s) added",
 		resolvedMinor, len(cross),

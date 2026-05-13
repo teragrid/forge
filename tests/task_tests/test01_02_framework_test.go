@@ -38,7 +38,7 @@ func TestTC0101_FrameworkHappy(t *testing.T) {
 // TC-01-02 (boundary): empty subtest produces no crash (no-tests-in-subtest is fine).
 func TestTC0102_FrameworkEmptySubtest(t *testing.T) {
 	t.Parallel()
-	t.Run("empty", func(t *testing.T) {
+	t.Run("empty", func(_ *testing.T) {
 		// intentionally no assertions — must not panic or crash
 	})
 }
@@ -83,7 +83,7 @@ func TestTC0104_FrameworkDataAccuracy(t *testing.T) {
 func TestTC0105_FrameworkFalsePositiveGuard(t *testing.T) {
 	t.Parallel()
 	called := false
-	t.Run("probe", func(t *testing.T) {
+	t.Run("probe", func(_ *testing.T) {
 		called = true
 		// This subtest must complete; if the runner silently skips it, called stays false.
 	})

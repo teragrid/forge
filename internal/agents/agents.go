@@ -103,7 +103,7 @@ func (r *Runtime) save(agents []Agent) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(r.storePath(), data, 0o644)
+	return os.WriteFile(r.storePath(), data, 0o600)
 }
 
 // upsert replaces the record with the same Name or appends a new one.
@@ -186,13 +186,10 @@ func (r *Runtime) Stop(name string) error {
 			return fmt.Errorf("agents: stop %q: %w", name, err)
 		}
 		delete(r.live, name)
-	} else {
-		// Process started in a previous CLI invocation; kill by PID.
-		if target.PID > 0 {
-			proc, err := os.FindProcess(target.PID)
-			if err == nil {
-				_ = proc.Kill()
-			}
+	} else if target.PID > 0 {
+		proc, err := os.FindProcess(target.PID)
+		if err == nil {
+			_ = proc.Kill()
 		}
 	}
 

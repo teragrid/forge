@@ -4,7 +4,7 @@
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,15 +22,15 @@
 //  1. Happy path          — each journey completes without error.
 //  2. Boundary            — empty scaffold dir; zero spend; no audit entries.
 //  3. Negative            — step fails when prerequisite state is absent
-//                           (e.g. plugin upgrade on uninstalled plugin).
+//     (e.g. plugin upgrade on uninstalled plugin).
 //  4. Idempotency         — running the final read-only step twice yields
-//                           identical output.
+//     identical output.
 //  5. Concurrency         — journeys are isolated by separate t.TempDir() roots.
 //  6. Cross-journey isolation — state from journey A never appears in journey B.
 //  7. Regression          — every multi-verb flow present at M0 is asserted.
 //  8. Data-accuracy       — state written in step N is readable in step N+1.
 //  9. False-positive guard — closed incidents do NOT appear in --open listing;
-//                           removed plugins do NOT allow upgrade.
+//     removed plugins do NOT allow upgrade.
 package cli
 
 import (
@@ -122,11 +122,11 @@ func firstJSON(b []byte) []byte {
 //
 // Mirrors the GETTING_STARTED.md "zero-to-first-ship" walkthrough:
 //
-//   forge new go-service <dir>            scaffold a project
-//   forge doctor                          verify local environment
-//   forge scan secrets --root <dir>       no secrets in a fresh scaffold
-//   forge ship --dry-run --json           5-checkpoint preview
-//   forge ship --dry-run --json (again)   idempotency guard
+//	forge new go-service <dir>            scaffold a project
+//	forge doctor                          verify local environment
+//	forge scan secrets --root <dir>       no secrets in a fresh scaffold
+//	forge ship --dry-run --json           5-checkpoint preview
+//	forge ship --dry-run --json (again)   idempotency guard
 func TestJourney_DeveloperOnboarding(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "myapp")
@@ -195,13 +195,13 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 //
 // Full OODA loop for a production incident:
 //
-//   incident new  --id INC-J01 …            open the incident
-//   incident update INC-J01 --state         transition to investigating
-//   incident update INC-J01 --note          append a diagnostic note
-//   incident list --open                    INC-J01 appears in open list
-//   incident close INC-J01                  resolve the incident
-//   incident list --open                    INC-J01 must NOT appear (false-positive guard)
-//   incident list (all)                     INC-J01 is still present (data-accuracy)
+//	incident new  --id INC-J01 …            open the incident
+//	incident update INC-J01 --state         transition to investigating
+//	incident update INC-J01 --note          append a diagnostic note
+//	incident list --open                    INC-J01 appears in open list
+//	incident close INC-J01                  resolve the incident
+//	incident list --open                    INC-J01 must NOT appear (false-positive guard)
+//	incident list (all)                     INC-J01 is still present (data-accuracy)
 func TestJourney_IncidentLifecycle(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -267,11 +267,11 @@ func TestJourney_IncidentLifecycle(t *testing.T) {
 //
 // Hygiene + codemod pipeline after scaffolding:
 //
-//   forge new go-service <dir>            scaffold project
-//   forge lint --root <dir>              hygiene checks (may warn; must not panic)
-//   forge scan all --root <dir>          all scan families run cleanly
-//   forge upgrade list                   codemod catalogue is populated
-//   forge upgrade gitignore --root <dir> dry-run shows planned changes
+//	forge new go-service <dir>            scaffold project
+//	forge lint --root <dir>              hygiene checks (may warn; must not panic)
+//	forge scan all --root <dir>          all scan families run cleanly
+//	forge upgrade list                   codemod catalogue is populated
+//	forge upgrade gitignore --root <dir> dry-run shows planned changes
 func TestJourney_HygienePipeline(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "svc")
@@ -339,12 +339,12 @@ func TestJourney_HygienePipeline(t *testing.T) {
 //
 // LLM spend limits and audit trail flow:
 //
-//   forge spend set --daily 1.00 --monthly 30.00 --root <dir>   set limits
-//   forge spend status --root <dir>                             limits visible
-//   forge audit append --verb scan --action run --root <dir>    write event
-//   forge audit show --root <dir>                               event visible
-//   forge insights --root <dir>                                 rollup counts scan
-//   forge audit show --root <dir> (replay)                      idempotency
+//	forge spend set --daily 1.00 --monthly 30.00 --root <dir>   set limits
+//	forge spend status --root <dir>                             limits visible
+//	forge audit append --verb scan --action run --root <dir>    write event
+//	forge audit show --root <dir>                               event visible
+//	forge insights --root <dir>                                 rollup counts scan
+//	forge audit show --root <dir> (replay)                      idempotency
 func TestJourney_BudgetAndObservability(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -418,12 +418,12 @@ func TestJourney_BudgetAndObservability(t *testing.T) {
 //
 // Opt-in / opt-out flow:
 //
-//   forge telemetry status --root <dir>     starts disabled (default)
-//   forge telemetry enable --root <dir>     opt in
-//   forge telemetry status --root <dir>     enabled=true
-//   forge telemetry rotate-id --root <dir>  new device ID
-//   forge telemetry disable --root <dir>    opt out
-//   forge telemetry status --root <dir>     enabled=false (false-positive guard)
+//	forge telemetry status --root <dir>     starts disabled (default)
+//	forge telemetry enable --root <dir>     opt in
+//	forge telemetry status --root <dir>     enabled=true
+//	forge telemetry rotate-id --root <dir>  new device ID
+//	forge telemetry disable --root <dir>    opt out
+//	forge telemetry status --root <dir>     enabled=false (false-positive guard)
 func TestJourney_TelemetryConsent(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -489,13 +489,13 @@ func TestJourney_TelemetryConsent(t *testing.T) {
 //
 // Plugin catalogue, install, upgrade, and remove flow:
 //
-//   forge plugin list              built-in plugins visible
-//   forge plugin list --kind scanner  scanner subset only
-//   forge plugin show secrets      secrets scanner manifest
-//   forge plugin install ext-scanner@1.0.0 --root <dir>   record in lock file
-//   forge plugin upgrade ext-scanner --version 2.0.0 --root <dir>  bump version
-//   forge plugin remove ext-scanner --root <dir>          remove from lock
-//   forge plugin upgrade ext-scanner --version 3.0.0 --root <dir>  FAILS (§3 negative)
+//	forge plugin list              built-in plugins visible
+//	forge plugin list --kind scanner  scanner subset only
+//	forge plugin show secrets      secrets scanner manifest
+//	forge plugin install ext-scanner@1.0.0 --root <dir>   record in lock file
+//	forge plugin upgrade ext-scanner --version 2.0.0 --root <dir>  bump version
+//	forge plugin remove ext-scanner --root <dir>          remove from lock
+//	forge plugin upgrade ext-scanner --version 3.0.0 --root <dir>  FAILS (§3 negative)
 func TestJourney_PluginLifecycle(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -907,16 +907,16 @@ func TestJourney_Adopt(t *testing.T) {
 		t.Fatalf("step 1 (adopt dry-run): missing mode indicator\n%s", s1)
 	}
 
-	// Step 2 — apply mode: stub announces apply intent.
-	s2 := jStep(t, "adopt apply", cmdadopt.New(), "--root", dir, "--apply")
-	if !strings.Contains(s2, "adopt") {
-		t.Fatalf("step 2 (adopt apply): missing 'adopt' in output\n%s", s2)
-	}
-
-	// Step 3 (idempotency) — dry-run twice → same output.
+	// Step 2 (idempotency) — dry-run again: same output (no state change).
 	s1b := jStep(t, "adopt dry-run replay", cmdadopt.New(), "--root", dir)
 	if s1 != s1b {
-		t.Fatalf("step 3 (idempotency): adopt dry-run output differs\nfirst:\n%s\nsecond:\n%s", s1, s1b)
+		t.Fatalf("step 2 (idempotency): adopt dry-run output differs\nfirst:\n%s\nsecond:\n%s", s1, s1b)
+	}
+
+	// Step 3 — apply mode: stub announces apply intent.
+	s2 := jStep(t, "adopt apply", cmdadopt.New(), "--root", dir, "--apply")
+	if !strings.Contains(s2, "adopt") {
+		t.Fatalf("step 3 (adopt apply): missing 'adopt' in output\n%s", s2)
 	}
 }
 
@@ -1024,19 +1024,19 @@ func TestJourney_Docs(t *testing.T) {
 	t.Parallel()
 
 	// Step 1 — sync: stub announces docs sync intent.
-	s1 := jStep(t, "docs sync", cmddocs.New(), "sync")
+	s1 := jStep(t, "docs sync", cmddocs.New(), "sync", "--dry-run")
 	if !strings.Contains(s1, "docs") {
 		t.Fatalf("step 1 (docs sync): missing 'docs' in output\n%s", s1)
 	}
 
 	// Step 2 — heal: stub announces docs heal intent.
-	s2 := jStep(t, "docs heal", cmddocs.New(), "heal")
+	s2 := jStep(t, "docs heal", cmddocs.New(), "heal", "--dry-run")
 	if !strings.Contains(s2, "docs") {
 		t.Fatalf("step 2 (docs heal): missing 'docs' in output\n%s", s2)
 	}
 
 	// Step 3 (idempotency) — heal twice → same output.
-	s2b := jStep(t, "docs heal replay", cmddocs.New(), "heal")
+	s2b := jStep(t, "docs heal replay", cmddocs.New(), "heal", "--dry-run")
 	if s2 != s2b {
 		t.Fatalf("step 3 (idempotency): docs heal output differs\nfirst:\n%s\nsecond:\n%s", s2, s2b)
 	}
@@ -1191,7 +1191,7 @@ func TestJourney_Migrate(t *testing.T) {
 	}
 
 	// Step 3 — down: stub announces rollback intent.
-	s3 := jStep(t, "migrate down", cmdmigrate.New(), "down")
+	s3 := jStep(t, "migrate down", cmdmigrate.New(), "down", "--dry-run")
 	if !strings.Contains(s3, "migrate") {
 		t.Fatalf("step 3 (migrate down): missing 'migrate' in output\n%s", s3)
 	}

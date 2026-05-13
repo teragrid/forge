@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmdreport implements `forge report` — a structured project health
+// Package cmdreport implements `forge report` â€” a structured project health
 // report that aggregates scan findings, token spend, test coverage, hygiene
 // status, and incident history into a single human- or machine-readable
-// summary (DEV-M3 §18.1).
+// summary (DEV-M3 Â§18.1).
 //
 // Subcommands:
 //
-//	forge report            — full project report (default: text)
-//	forge report --json     — same report as JSON
-//	forge report --since    — limit findings/spend to a time window (e.g. "7d")
-//	forge report --out <f>  — write to file instead of stdout
+//	forge report            â€” full project report (default: text)
+//	forge report --json     â€” same report as JSON
+//	forge report --since    â€” limit findings/spend to a time window (e.g. "7d")
+//	forge report --out <f>  â€” write to file instead of stdout
 package cmdreport
 
 import (
@@ -55,7 +55,7 @@ func init() {
 		},
 		Outputs:      []string{"stdout: health report (text or JSON)"},
 		SideEffects:  []string{"none"},
-		GatesTouched: []string{"§18.1 — observability / reporting"},
+		GatesTouched: []string{"Â§18.1 â€” observability / reporting"},
 	})
 }
 
@@ -138,7 +138,7 @@ output suitable for dashboards or CI artefact upload.`,
 			}
 
 			if outFile != "" {
-				if err := os.WriteFile(outFile, out, 0o644); err != nil {
+				if err := os.WriteFile(outFile, out, 0o600); err != nil {
 					return errcode.New(ErrReportFailed, "failed to write report file", err)
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "Report written to %s\n", outFile)
@@ -166,7 +166,7 @@ func buildReport(root, since string) (*Report, error) {
 		Period:      since,
 	}
 
-	// ── Scan findings ──────────────────────────────────────────────────────
+	// â”€â”€ Scan findings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	scanFile := filepath.Join(root, ".forge", "scan-results.json")
 	if data, err := os.ReadFile(scanFile); err == nil {
 		var payload struct {
@@ -189,7 +189,7 @@ func buildReport(root, since string) (*Report, error) {
 		}
 	}
 
-	// ── Token spend ────────────────────────────────────────────────────────
+	// â”€â”€ Token spend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	ledgerFile := filepath.Join(root, ".forge", "token-ledger.json")
 	if data, err := os.ReadFile(ledgerFile); err == nil {
 		var entries []struct {
@@ -204,7 +204,7 @@ func buildReport(root, since string) (*Report, error) {
 		}
 	}
 
-	// ── Hygiene ────────────────────────────────────────────────────────────
+	// â”€â”€ Hygiene â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	hygieneFile := filepath.Join(root, ".forge", "hygiene-results.json")
 	if data, err := os.ReadFile(hygieneFile); err == nil {
 		var results []struct {
@@ -224,7 +224,7 @@ func buildReport(root, since string) (*Report, error) {
 		}
 	}
 
-	// ── Incidents ──────────────────────────────────────────────────────────
+	// â”€â”€ Incidents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	incDir := filepath.Join(root, ".forge", "incidents")
 	if entries, err := os.ReadDir(incDir); err == nil {
 		for _, e := range entries {
@@ -253,9 +253,9 @@ func buildReport(root, since string) (*Report, error) {
 
 // formatText produces a human-readable report.
 func formatText(r *Report) string {
-	out := "╔══════════════════════════════════════════════════════════╗\n"
-	out += "║            forge — Project Health Report                 ║\n"
-	out += "╚══════════════════════════════════════════════════════════╝\n"
+	out := "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n"
+	out += "â•‘            forge â€” Project Health Report                 â•‘\n"
+	out += "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n"
 	out += fmt.Sprintf("Generated: %s\n", r.GeneratedAt.Format(time.RFC3339))
 	out += fmt.Sprintf("Root:      %s\n", r.ProjectRoot)
 	if r.Period != "" {
@@ -263,22 +263,22 @@ func formatText(r *Report) string {
 	}
 	out += "\n"
 
-	out += "── Scan Findings ──────────────────────────────────────────\n"
+	out += "â”€â”€ Scan Findings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n"
 	out += fmt.Sprintf("  Total:    %d\n", r.ScanFindings.Total)
 	out += fmt.Sprintf("  Errors:   %d\n", r.ScanFindings.Errors)
 	out += fmt.Sprintf("  Warnings: %d\n", r.ScanFindings.Warnings)
 	out += fmt.Sprintf("  Infos:    %d\n", r.ScanFindings.Infos)
 
-	out += "\n── Token Spend ────────────────────────────────────────────\n"
+	out += "\nâ”€â”€ Token Spend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n"
 	out += fmt.Sprintf("  Total tokens: %d\n", r.TokenSpend.TotalTokens)
 	out += fmt.Sprintf("  Total cost:   $%.4f\n", r.TokenSpend.TotalCostUS)
 
-	out += "\n── Hygiene ────────────────────────────────────────────────\n"
+	out += "\nâ”€â”€ Hygiene â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n"
 	out += fmt.Sprintf("  Passed:  %d\n", r.HygieneScore.Passed)
 	out += fmt.Sprintf("  Failed:  %d\n", r.HygieneScore.Failed)
 	out += fmt.Sprintf("  Skipped: %d\n", r.HygieneScore.Skipped)
 
-	out += "\n── Incidents ──────────────────────────────────────────────\n"
+	out += "\nâ”€â”€ Incidents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€\n"
 	out += fmt.Sprintf("  Open:   %d\n", r.Incidents.Open)
 	out += fmt.Sprintf("  Closed: %d\n", r.Incidents.Closed)
 	out += "\n"

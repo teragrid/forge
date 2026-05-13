@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// llmpipe.go — LLM integration layer wiring llmprovider, secretrewriter, and
+// llmpipe.go â€” LLM integration layer wiring llmprovider, secretrewriter, and
 // tokenledger into a single callable unit for the forge ship checkpoint pipeline.
 //
 // Design
-// ──────
+// â”€â”€â”€â”€â”€â”€
 // Each forge ship checkpoint that benefits from AI assistance calls
 // (*LLMPipe).Invoke. The pipe transparently:
 //
@@ -29,9 +29,9 @@
 //
 // Provider selection (via llmprovider.Detect):
 //
-//	ANTHROPIC_API_KEY → AnthropicAdapter (Claude models)
-//	OPENAI_API_KEY    → OpenAIAdapter (GPT models)
-//	neither           → nil *LLMPipe (dry-run mode)
+//	ANTHROPIC_API_KEY â†’ AnthropicAdapter (Claude models)
+//	OPENAI_API_KEY    â†’ OpenAIAdapter (GPT models)
+//	neither           â†’ nil *LLMPipe (dry-run mode)
 package cmdship
 
 import (
@@ -66,7 +66,7 @@ func newLLMPipe(root string) *LLMPipe {
 }
 
 // newLLMPipeWithProvider creates an LLMPipe backed by the given provider.
-// Intended for tests — inject a *llmprovider.MockProvider to exercise LLM
+// Intended for tests â€” inject a *llmprovider.MockProvider to exercise LLM
 // code paths without network calls.
 func newLLMPipeWithProvider(p llmprovider.Provider, root string) *LLMPipe {
 	return &LLMPipe{
@@ -101,7 +101,7 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 	if err != nil {
 		return "", err
 	}
-	// Best-effort ledger append — a write failure never blocks the pipeline.
+	// Best-effort ledger append â€” a write failure never blocks the pipeline.
 	_ = p.ledger.Append(tokenledger.Entry{
 		Model:        resp.Model,
 		InputTokens:  resp.InputTokens,
@@ -150,7 +150,7 @@ func llmErrNote(err error) string {
 }
 
 // estimateCost returns an approximate USD cost for a completion call.
-// Values are indicative only — intended for token-budget awareness, not billing.
+// Values are indicative only â€” intended for token-budget awareness, not billing.
 func estimateCost(model string, inputTokens, outputTokens int) float64 {
 	type rate struct{ in, out float64 } // USD per 1M tokens
 	rates := map[string]rate{
@@ -168,7 +168,7 @@ func estimateCost(model string, inputTokens, outputTokens int) float64 {
 	return (float64(inputTokens)*r.in + float64(outputTokens)*r.out) / 1_000_000
 }
 
-// ── LLM generation helpers ────────────────────────────────────────────────────
+// â”€â”€ LLM generation helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // specStub returns a template spec Markdown file for the given description.
 func specStub(description string) string {
@@ -229,7 +229,7 @@ func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) 
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return content, nil // content available but can't write; not a hard error
 	}
-	_ = os.WriteFile(filepath.Join(specsDir, "test-stubs.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(specsDir, "test-stubs.md"), []byte(content), 0o600)
 	return content, nil
 }
 
@@ -265,7 +265,7 @@ func generateBreakdown(root, description string, pipe *LLMPipe) (string, error) 
 	content, err := pipe.Invoke(
 		"ship:breakdown:generate", "",
 		"You are a delivery lead decomposing a feature spec into an atomic task list "+
-			"for a development team. Each task should be completable in ≤ 1 day.",
+			"for a development team. Each task should be completable in â‰¤ 1 day.",
 		userPrompt.String(),
 		3000,
 	)
@@ -278,7 +278,7 @@ func generateBreakdown(root, description string, pipe *LLMPipe) (string, error) 
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return content, nil
 	}
-	_ = os.WriteFile(filepath.Join(specsDir, "breakdown.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(specsDir, "breakdown.md"), []byte(content), 0o600)
 	return content, nil
 }
 
@@ -326,6 +326,6 @@ func generateCodePlan(root, description string, pipe *LLMPipe) (string, error) {
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return content, nil
 	}
-	_ = os.WriteFile(filepath.Join(specsDir, "code-plan.md"), []byte(content), 0o644)
+	_ = os.WriteFile(filepath.Join(specsDir, "code-plan.md"), []byte(content), 0o600)
 	return content, nil
 }

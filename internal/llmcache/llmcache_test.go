@@ -130,8 +130,8 @@ func TestZeroProviderCallOnHit(t *testing.T) {
 		_ = c.Store(key, "m", resp, nil)
 	}
 	// Second call: hit → provider NOT called.
-	if _, ok := c.Get(key, nil); ok {
-		// no-op; provider not called
+	if _, ok := c.Get(key, nil); !ok {
+		t.Fatal("second call: expected cache hit but got miss")
 	}
 
 	if providerCalls != 1 {

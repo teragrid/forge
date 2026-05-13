@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// lifecycle.go — four-phase test lifecycle for `forge test`.
+// lifecycle.go â€” four-phase test lifecycle for `forge test`.
 //
 // Phases:
 //
-//	create  — LLM generates test scaffolding for a named feature.
-//	approve — vibe-coder reviews and accepts the generated tests.
-//	run     — run the approved tests locally across selected families.
-//	ci      — trigger (or guide setup of) a CI/CD pipeline run on a non-prod env.
+//	create  â€” LLM generates test scaffolding for a named feature.
+//	approve â€” vibe-coder reviews and accepts the generated tests.
+//	run     â€” run the approved tests locally across selected families.
+//	ci      â€” trigger (or guide setup of) a CI/CD pipeline run on a non-prod env.
 //
 // In MVP every phase is a dry-run planner: it validates inputs, resolves paths,
 // describes what will happen, and emits a structured result. Actual LLM calls,
@@ -39,7 +39,7 @@ import (
 	"github.com/teragrid/forge/internal/errcode"
 )
 
-// ── Phase 1: Create ───────────────────────────────────────────────────────────
+// â”€â”€ Phase 1: Create â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // CreateOptions parameterises a test-generation run.
 type CreateOptions struct {
@@ -129,7 +129,7 @@ func estimatedLines(testCount int) int {
 }
 
 // CreateTests generates (or dry-run plans) test scaffolding for a feature.
-// It is the testable core — no cobra I/O.
+// It is the testable core â€” no cobra I/O.
 func CreateTests(opts CreateOptions) *CreateResult {
 	if opts.Feature == "" {
 		return &CreateResult{
@@ -209,7 +209,7 @@ func CreateTests(opts CreateOptions) *CreateResult {
 		}
 		pendingPath := filepath.Join(outputDir, "pending.json")
 		data, _ := json.MarshalIndent(res, "", "  ")
-		if err := os.WriteFile(pendingPath, data, 0o640); err != nil {
+		if err := os.WriteFile(pendingPath, data, 0o600); err != nil {
 			res.Ready = false
 			res.Message = fmt.Sprintf("write pending.json: %v", err)
 			return res
@@ -257,7 +257,7 @@ func specStatus(found bool, path string) string {
 	return fmt.Sprintf("not found at %s (LLM will use --description instead)", path)
 }
 
-// ── Phase 2: Approve ──────────────────────────────────────────────────────────
+// â”€â”€ Phase 2: Approve â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // ApproveOptions parameterises an approval run.
 type ApproveOptions struct {
@@ -309,7 +309,7 @@ func ApproveTests(opts ApproveOptions) *ApproveResult {
 		outputDir = filepath.Join(root, ".forge", "tests", opts.Feature)
 	}
 
-	// In dry-run we don't need an existing pending.json — simulate approval.
+	// In dry-run we don't need an existing pending.json â€” simulate approval.
 	var files []GeneratedFile
 	pendingPath := filepath.Join(outputDir, "pending.json")
 	if data, err := os.ReadFile(pendingPath); err == nil {
@@ -351,7 +351,7 @@ func ApproveTests(opts ApproveOptions) *ApproveResult {
 		}
 		data, _ := json.MarshalIndent(res, "", "  ")
 		approvedPath := filepath.Join(outputDir, "approved.json")
-		if err := os.WriteFile(approvedPath, data, 0o640); err != nil {
+		if err := os.WriteFile(approvedPath, data, 0o600); err != nil {
 			res.Ready = false
 			res.Message = fmt.Sprintf("write approved.json: %v", err)
 			return res
@@ -373,7 +373,7 @@ func ApproveTests(opts ApproveOptions) *ApproveResult {
 	return res
 }
 
-// ── Phase 3: Run (feature-scoped) ─────────────────────────────────────────────
+// â”€â”€ Phase 3: Run (feature-scoped) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // RunFeatureOptions parameterises a feature-scoped local test run.
 type RunFeatureOptions struct {
@@ -485,14 +485,14 @@ func RunFeatureTests(opts RunFeatureOptions) *RunFeatureResult {
 	return res
 }
 
-// ── Phase 4: CI ───────────────────────────────────────────────────────────────
+// â”€â”€ Phase 4: CI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // CIOptions parameterises a CI/CD trigger run.
 type CIOptions struct {
 	// Feature is the feature slug.
 	Feature string
 
-	// Env is the target non-prod environment (staging, preview, dev, …).
+	// Env is the target non-prod environment (staging, preview, dev, â€¦).
 	Env string
 
 	// Root is the project root.
@@ -601,7 +601,7 @@ func RunCI(opts CIOptions) *CIResult {
 		}
 	}
 
-	// CI is (now) available — describe the trigger.
+	// CI is (now) available â€” describe the trigger.
 	res.TriggerCmd = ciTriggerCmd(provider, opts.Feature, env)
 	res.Ready = true
 	if opts.DryRun {
@@ -704,7 +704,7 @@ func generateGitHubActionsConfig(root, feature string) error {
 		return err
 	}
 	path := filepath.Join(dir, "forge-test.yml")
-	content := fmt.Sprintf(`# Generated by forge test ci — edit as needed.
+	content := fmt.Sprintf(`# Generated by forge test ci â€” edit as needed.
 name: forge test (%s)
 
 on:
@@ -741,12 +741,12 @@ jobs:
       - name: forge test e2e
         run: forge test e2e --dry-run=false
 `, feature, feature)
-	return os.WriteFile(path, []byte(content), 0o640)
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
-// ── Full lifecycle orchestrator ───────────────────────────────────────────────
+// â”€â”€ Full lifecycle orchestrator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// LifecycleOptions drives the full create→approve→run→ci pipeline.
+// LifecycleOptions drives the full createâ†’approveâ†’runâ†’ci pipeline.
 type LifecycleOptions struct {
 	Feature        string
 	Families       []Family
@@ -827,12 +827,12 @@ func RunLifecycle(opts LifecycleOptions) *LifecycleResult {
 		GenerateConfig: opts.GenerateConfig,
 	})
 	res.CI = cir
-	// CI not-ready is non-fatal — it means the user needs to set up CI first.
+	// CI not-ready is non-fatal â€” it means the user needs to set up CI first.
 	// We still complete the lifecycle with guidance.
 	res.Ready = rr.Ready // local tests passed = lifecycle succeeded
 	if !cir.Ready {
 		res.Message = fmt.Sprintf(
-			"local tests passed for %q; CI/CD setup required — follow guidance in ci phase",
+			"local tests passed for %q; CI/CD setup required â€” follow guidance in ci phase",
 			opts.Feature,
 		)
 	} else {
@@ -929,7 +929,7 @@ func emitLifecycleResult(cmd *cobra.Command, res *LifecycleResult, asJSON bool) 
 	return nil
 }
 
-// ── Text renderers ────────────────────────────────────────────────────────────
+// â”€â”€ Text renderers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func renderCreate(cmd *cobra.Command, r *CreateResult) {
 	w := cmd.OutOrStdout()
@@ -960,7 +960,7 @@ func renderApprove(cmd *cobra.Command, r *ApproveResult) {
 	}
 	fmt.Fprintf(w, "forge test approve (%s)  feature: %s\n\n", mode, r.Feature)
 	for _, gf := range r.Files {
-		fmt.Fprintf(w, "  ✓ %-12s  %3d tests  %s\n", gf.Family, gf.TestCount, gf.Path)
+		fmt.Fprintf(w, "  âœ“ %-12s  %3d tests  %s\n", gf.Family, gf.TestCount, gf.Path)
 	}
 	fmt.Fprintf(w, "\napproved: %d  rejected: %d\n\n%s\n", r.Approved, r.Rejected, r.Message)
 	if r.Ready {
@@ -998,7 +998,7 @@ func renderCI(cmd *cobra.Command, r *CIResult) {
 		fmt.Fprintf(w, "  Workflow:     %s\n", r.WorkflowFile)
 		fmt.Fprintf(w, "  Trigger:      %s\n\n", r.TriggerCmd)
 	} else {
-		fmt.Fprintf(w, "  ⚠ No CI/CD configuration found. Setup steps:\n\n")
+		fmt.Fprintf(w, "  âš  No CI/CD configuration found. Setup steps:\n\n")
 		for _, s := range r.SetupSteps {
 			req := ""
 			if s.Required {
@@ -1020,39 +1020,39 @@ func renderLifecycle(cmd *cobra.Command, r *LifecycleResult) {
 	if !r.DryRun {
 		mode = "live"
 	}
-	fmt.Fprintf(w, "forge test %s (%s) — full lifecycle\n\n", r.Feature, mode)
+	fmt.Fprintf(w, "forge test %s (%s) â€” full lifecycle\n\n", r.Feature, mode)
 	if r.Create != nil {
-		icon := "✓"
+		icon := "âœ“"
 		if !r.Create.Ready {
-			icon = "✗"
+			icon = "âœ—"
 		}
 		fmt.Fprintf(w, "  %s create   %d file(s) planned\n", icon, len(r.Create.Generated))
 	}
 	if r.Approve != nil {
-		icon := "✓"
+		icon := "âœ“"
 		if !r.Approve.Ready {
-			icon = "✗"
+			icon = "âœ—"
 		}
 		fmt.Fprintf(w, "  %s approve  %d file(s)\n", icon, r.Approve.Approved)
 	}
 	if r.Run != nil {
-		icon := "✓"
+		icon := "âœ“"
 		if !r.Run.Ready {
-			icon = "✗"
+			icon = "âœ—"
 		}
 		fmt.Fprintf(w, "  %s run      passed=%d failed=%d skipped=%d\n",
 			icon, r.Run.Passed, r.Run.Failed, r.Run.Skipped)
 	}
 	if r.CI != nil {
-		icon := "✓"
+		icon := "âœ“"
 		if !r.CI.Ready {
-			icon = "⚠"
+			icon = "âš "
 		}
 		ciSummary := r.CI.CIProvider
 		if ciSummary == "" {
 			ciSummary = "not configured"
 		}
-		fmt.Fprintf(w, "  %s ci       %s → %s\n", icon, ciSummary, r.CI.Env)
+		fmt.Fprintf(w, "  %s ci       %s â†’ %s\n", icon, ciSummary, r.CI.Env)
 	}
 	fmt.Fprintf(w, "\n%s\n", r.Message)
 }

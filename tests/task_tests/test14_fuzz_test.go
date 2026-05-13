@@ -77,7 +77,7 @@ func FuzzTC1401_PluginManifestValidate(f *testing.F) {
 	f.Add("x", "1.0.0", "")
 	f.Add("x", "1.0.0", "unknown-kind")
 
-	f.Fuzz(func(t *testing.T, name, version, kind string) {
+	f.Fuzz(func(_ *testing.T, name, version, kind string) {
 		m := plugin.Manifest{Name: name, Version: version, Kind: plugin.Kind(kind)}
 		// Validate must never panic regardless of input.
 		_ = m.Validate()

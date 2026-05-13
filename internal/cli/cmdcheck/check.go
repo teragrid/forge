@@ -288,7 +288,7 @@ func renderText(cmd *cobra.Command, r CheckResult) {
 		if g.Message != "" {
 			suffix = " — " + g.Message
 		}
-		fmt.Fprintf(w, "  %s %-18s (%dms)%s\n", icon, g.Gate, g.DurationMs, suffix)
+		fmt.Fprintf(w, "  %s %-18s%s\n", icon, g.Gate, suffix)
 	}
 	fmt.Fprintf(w, "\npass: %d  fail: %d  warn: %d\n", r.Passed, r.Failed, r.Warned)
 }

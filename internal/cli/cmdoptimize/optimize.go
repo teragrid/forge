@@ -20,10 +20,10 @@
 //
 // Sub-commands:
 //
-//	tokens   — audit LLM context window usage (prompt sizes)
-//	bundle   — audit frontend bundle size contributions
-//	profile  — suggest hot-path refactors from pprof data
-//	plan     — generate a full optimisation roadmap (LLM-assisted)
+//	tokens   â€” audit LLM context window usage (prompt sizes)
+//	bundle   â€” audit frontend bundle size contributions
+//	profile  â€” suggest hot-path refactors from pprof data
+//	plan     â€” generate a full optimisation roadmap (LLM-assisted)
 package cmdoptimize
 
 import (
@@ -64,16 +64,16 @@ func init() {
 		Verb:    "optimize",
 		Summary: "Analyse and optimise LLM costs, bundle size, and runtime performance (M3).",
 		Inputs: []string{
-			"tokens   — audit LLM context window usage",
-			"bundle   — audit frontend bundle size",
-			"profile  — suggest hot-path refactors",
-			"plan     — LLM-assisted optimisation roadmap",
+			"tokens   â€” audit LLM context window usage",
+			"bundle   â€” audit frontend bundle size",
+			"profile  â€” suggest hot-path refactors",
+			"plan     â€” LLM-assisted optimisation roadmap",
 			"--root <path>",
 			"--json",
 		},
 		Outputs:      []string{"stdout: optimization report or JSON"},
 		SideEffects:  []string{"plan: writes .forge/optimize-plan.md via LLM"},
-		GatesTouched: []string{"§14 NFR budgets"},
+		GatesTouched: []string{"Â§14 NFR budgets"},
 		ErrorCodes:   []errcode.Code{ErrOptimizeFailed},
 	})
 }
@@ -90,10 +90,10 @@ func New() *cobra.Command {
 		Long: "forge optimize provides targeted analysis for common cost and performance\n" +
 			"concerns in AI-assisted applications.\n\n" +
 			"Sub-commands:\n" +
-			"  tokens  — measure LLM prompt sizes and flag overlong contexts\n" +
-			"  bundle  — check for oversized frontend bundles\n" +
-			"  profile — suggest hot-path refactors (reads pprof output)\n" +
-			"  plan    — generate a full optimisation roadmap via LLM",
+			"  tokens  â€” measure LLM prompt sizes and flag overlong contexts\n" +
+			"  bundle  â€” check for oversized frontend bundles\n" +
+			"  profile â€” suggest hot-path refactors (reads pprof output)\n" +
+			"  plan    â€” generate a full optimisation roadmap via LLM",
 	}
 	cmd.PersistentFlags().StringVar(&root, "root", "", "Project root (default: cwd)")
 	cmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "Emit JSON output")
@@ -162,12 +162,12 @@ func newProfileCmd(root *string, jsonOut *bool) *cobra.Command {
 			}
 			pprofPath := filepath.Join(r, "cpu.prof")
 			if _, err := os.Stat(pprofPath); os.IsNotExist(err) {
-				fmt.Fprintln(cmd.OutOrStdout(), "optimize profile: no cpu.prof found — run `go test -cpuprofile cpu.prof` first")
+				fmt.Fprintln(cmd.OutOrStdout(), "optimize profile: no cpu.prof found â€” run `go test -cpuprofile cpu.prof` first")
 				return nil
 			}
 			res := OptimizeResult{
 				Target:  pprofPath,
-				Summary: "pprof analysis wiring in M3 — run `go tool pprof cpu.prof` for now",
+				Summary: "pprof analysis wiring in M3 â€” run `go tool pprof cpu.prof` for now",
 			}
 			if *jsonOut {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
@@ -189,7 +189,7 @@ func newPlanCmd(root *string, jsonOut *bool) *cobra.Command {
 			}
 			provider, err := llmprovider.Detect()
 			if err != nil {
-				fmt.Fprintln(cmd.OutOrStdout(), "optimize plan: no LLM provider — set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+				fmt.Fprintln(cmd.OutOrStdout(), "optimize plan: no LLM provider â€” set ANTHROPIC_API_KEY or OPENAI_API_KEY")
 				return nil
 			}
 			tokens := auditTokens(r)
@@ -207,7 +207,7 @@ func newPlanCmd(root *string, jsonOut *bool) *cobra.Command {
 				return errcode.New(ErrOptimizeFailed, "LLM plan generation", err)
 			}
 			planPath := filepath.Join(r, ".forge", "optimize-plan.md")
-			_ = os.WriteFile(planPath, []byte(resp.Content), 0o644)
+			_ = os.WriteFile(planPath, []byte(resp.Content), 0o600)
 			if *jsonOut {
 				res := OptimizeResult{Target: planPath, Summary: resp.Content}
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(res)
@@ -240,7 +240,7 @@ func auditTokens(root string) OptimizeResult {
 				Category: "tokens",
 				Impact:   impact,
 				File:     f,
-				Message:  fmt.Sprintf("~%d estimated tokens — consider trimming to under 32k", tokens),
+				Message:  fmt.Sprintf("~%d estimated tokens â€” consider trimming to under 32k", tokens),
 			})
 		}
 	}
@@ -261,7 +261,7 @@ func auditBundle(root string) OptimizeResult {
 					Category: "bundle",
 					Impact:   "medium",
 					File:     "dist/",
-					Message:  fmt.Sprintf("dist/ is %.1f MB — consider code splitting or tree shaking", float64(size)/(1024*1024)),
+					Message:  fmt.Sprintf("dist/ is %.1f MB â€” consider code splitting or tree shaking", float64(size)/(1024*1024)),
 				})
 			}
 		}

@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmdgenerate implements `forge generate` (DEV-M1-45, spec §4).
+// Package cmdgenerate implements `forge generate` (DEV-M1-45, spec Â§4).
 //
 // Generates boilerplate code from inline templates:
 //
-//	handler   — HTTP handler + test skeleton (Go)
-//	migration — SQL migration up/down pair
-//	model     — domain model with validation stubs
-//	test      — Go test file skeleton
-//	fixture   — JSON test fixture
+//	handler   â€” HTTP handler + test skeleton (Go)
+//	migration â€” SQL migration up/down pair
+//	model     â€” domain model with validation stubs
+//	test      â€” Go test file skeleton
+//	fixture   â€” JSON test fixture
 //
 // Supports --dry-run (default) and --output-dir override.
 package cmdgenerate
@@ -66,19 +66,19 @@ var validKinds = []string{"handler", "migration", "model", "test", "fixture"}
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb:    "generate",
-		Summary: "Generate boilerplate: handlers, migrations, models, tests (DEV-M1-45, spec §4).",
+		Summary: "Generate boilerplate: handlers, migrations, models, tests (DEV-M1-45, spec Â§4).",
 		Inputs: []string{
 			"<kind>: handler | migration | model | test | fixture",
 			"<name>: identifier for the generated artefact",
 			"--root <path>",
-			"--output-dir <dir> — override output directory",
-			"--dry-run          — preview without writing (default)",
-			"--apply            — write files",
-			"--json             — machine-readable output",
+			"--output-dir <dir> â€” override output directory",
+			"--dry-run          â€” preview without writing (default)",
+			"--apply            â€” write files",
+			"--json             â€” machine-readable output",
 		},
 		Outputs:      []string{"stdout: confirmation + file paths written"},
 		SideEffects:  []string{"with --apply: writes generated files to project"},
-		GatesTouched: []string{"§4 generate"},
+		GatesTouched: []string{"Â§4 generate"},
 		ErrorCodes:   []errcode.Code{ErrGenerateFailed},
 	})
 }
@@ -96,11 +96,11 @@ func New() *cobra.Command {
 		Short: "Generate boilerplate: handlers, migrations, models, tests.",
 		Long: "Generates project artefacts from Forge templates.\n\n" +
 			"Kinds:\n" +
-			"  handler   — HTTP handler + test skeleton\n" +
-			"  migration — SQL migration file pair (up/down)\n" +
-			"  model     — domain model with validation stubs\n" +
-			"  test      — test file skeleton\n" +
-			"  fixture   — test fixture JSON file\n\n" +
+			"  handler   â€” HTTP handler + test skeleton\n" +
+			"  migration â€” SQL migration file pair (up/down)\n" +
+			"  model     â€” domain model with validation stubs\n" +
+			"  test      â€” test file skeleton\n" +
+			"  fixture   â€” test fixture JSON file\n\n" +
 			"Safe by default: --dry-run previews without writing. Use --apply to write.",
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -157,11 +157,11 @@ func Run(root, kind, name, mode, outputDir string) (GenerateResult, error) {
 				return result, fmt.Errorf("mkdir: %w", err)
 			}
 			if _, err := os.Stat(fullPath); err == nil {
-				// File already exists — skip.
+				// File already exists â€” skip.
 				result.Files = append(result.Files, GeneratedFile{Path: gf.Path, Created: false})
 				continue
 			}
-			if err := os.WriteFile(fullPath, []byte(gf.content), 0o644); err != nil {
+			if err := os.WriteFile(fullPath, []byte(gf.content), 0o600); err != nil {
 				return result, fmt.Errorf("write %s: %w", gf.Path, err)
 			}
 			gf.GeneratedFile.Created = true
@@ -188,7 +188,7 @@ func generateFiles(root, kind, name, outputDirOverride string) ([]genFile, error
 	case "handler":
 		dir = filepath.Join("internal", pkg)
 	case "migration":
-		dir = filepath.Join("migrations")
+		dir = "migrations"
 	case "model":
 		dir = filepath.Join("internal", pkg)
 	case "test":

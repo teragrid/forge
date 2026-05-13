@@ -55,7 +55,7 @@ func TestCmd_Text(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs(nil)
+	cmd.SetArgs([]string{"--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestCmd_JSON(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--json"})
+	cmd.SetArgs([]string{"--json", "--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestRunCheckpointsGated_NilGate_YOLO(t *testing.T) {
 func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 	t.Parallel()
 	gateCalls := 0
-	gate := Gate(func(idx, total int, cp Checkpoint) bool {
+	gate := Gate(func(_, _ int, _ Checkpoint) bool {
 		gateCalls++
 		return true
 	})
@@ -266,7 +266,7 @@ func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 // Only the first checkpoint should be in the result, Ready=false.
 func TestRunCheckpointsGated_RejectAtFirst(t *testing.T) {
 	t.Parallel()
-	gate := Gate(func(idx, total int, cp Checkpoint) bool { return false })
+	gate := Gate(func(_, _ int, _ Checkpoint) bool { return false })
 	res := RunCheckpointsGated(t.TempDir(), "", nil, gate)
 	if len(res.Checkpoints) != 1 {
 		t.Fatalf("reject-first: expected 1 checkpoint, got %d", len(res.Checkpoints))
@@ -284,7 +284,7 @@ func TestRunCheckpointsGated_RejectAtFirst(t *testing.T) {
 func TestRunCheckpointsGated_RejectAtSecond(t *testing.T) {
 	t.Parallel()
 	calls := 0
-	gate := Gate(func(idx, total int, cp Checkpoint) bool {
+	gate := Gate(func(_, _ int, _ Checkpoint) bool {
 		calls++
 		return calls == 1 // approve first, reject second
 	})
@@ -310,7 +310,7 @@ func TestRunCheckpointsGated_RejectAtSecond(t *testing.T) {
 func TestRunCheckpointsGated_SingleCheckpoint_GateNotCalled(t *testing.T) {
 	t.Parallel()
 	gateCalls := 0
-	gate := Gate(func(idx, total int, cp Checkpoint) bool {
+	gate := Gate(func(_, _ int, _ Checkpoint) bool {
 		gateCalls++
 		return true
 	})
@@ -348,7 +348,7 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--yolo", "--json"})
+	cmd.SetArgs([]string{"--yolo", "--json", "--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--yolo --json: %v\n%s", err, out.String())
 	}
@@ -379,7 +379,7 @@ func TestCmd_Yolo_Text(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--yolo"})
+	cmd.SetArgs([]string{"--yolo", "--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--yolo text: %v\n%s", err, out.String())
 	}
@@ -399,7 +399,7 @@ func TestCmd_JSON_DisablesGate(t *testing.T) {
 	cmd.SetErr(&out)
 	// Provide no stdin data — if the gate fired it would block / return false.
 	cmd.SetIn(strings.NewReader(""))
-	cmd.SetArgs([]string{"--json"})
+	cmd.SetArgs([]string{"--json", "--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--json gate-disabled: %v\n%s", err, out.String())
 	}
@@ -425,7 +425,7 @@ func TestCmd_Interactive_AllApproved(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetIn(strings.NewReader("y\ny\ny\ny\n"))
-	cmd.SetArgs(nil) // full pipeline, no --yolo, no --json → interactive
+	cmd.SetArgs([]string{"--root", t.TempDir()}) // full pipeline, no --yolo, no --json → interactive
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("interactive all-approved: %v\n%s", err, out.String())
 	}

@@ -13,17 +13,18 @@
 // limitations under the License.
 
 // Test design (per always-write-tests.md):
-//   Happy: init in empty dir with ts-service (default) creates package.json + forge.config.ts
-//   Happy: init with --template go-service creates go.mod
-//   Auto-detect: package.json in cwd → ts-service chosen
-//   Auto-detect: go.mod in cwd → go-service chosen
-//   Auto-detect: empty dir → ts-service (default)
-//   Negative: unknown --template → error with FORGE-5101
-//   Negative: non-empty dir without --force → error with FORGE-2201
-//   Force: non-empty dir + --force → succeeds
-//   Idempotency: init twice with --force → consistent output
-//   False-positive guard: ts-service init must NOT create go.mod
-//   False-positive guard: go-service init must NOT create forge.config.ts
+//
+//	Happy: init in empty dir with ts-service (default) creates package.json + forge.config.ts
+//	Happy: init with --template go-service creates go.mod
+//	Auto-detect: package.json in cwd → ts-service chosen
+//	Auto-detect: go.mod in cwd → go-service chosen
+//	Auto-detect: empty dir → ts-service (default)
+//	Negative: unknown --template → error with FORGE-5101
+//	Negative: non-empty dir without --force → error with FORGE-2201
+//	Force: non-empty dir + --force → succeeds
+//	Idempotency: init twice with --force → consistent output
+//	False-positive guard: ts-service init must NOT create go.mod
+//	False-positive guard: go-service init must NOT create forge.config.ts
 package cmdinit
 
 import (

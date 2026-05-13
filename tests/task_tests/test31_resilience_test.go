@@ -36,7 +36,7 @@ func TestTC3101_CircuitBreakerInitiallyClosed(t *testing.T) {
 	}
 	// A successful call should remain closed.
 	ctx := context.Background()
-	result, err := cb.Do(ctx, func(ctx context.Context) (string, error) {
+	result, err := cb.Do(ctx, func(_ context.Context) (string, error) {
 		return "ok", nil
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func TestTC3102_CircuitBreakerOpensAfterThreshold(t *testing.T) {
 	})
 	ctx := context.Background()
 	for i := 0; i < threshold; i++ {
-		_, _ = cb.Do(ctx, func(ctx context.Context) (string, error) {
+		_, _ = cb.Do(ctx, func(_ context.Context) (string, error) {
 			return "", errFakeDownstream
 		})
 	}
@@ -68,7 +68,7 @@ func TestTC3102_CircuitBreakerOpensAfterThreshold(t *testing.T) {
 		t.Errorf("state after %d failures = %v, want StateOpen", threshold, cb.State())
 	}
 	// Next call should be rejected with ErrCircuitOpen.
-	_, err := cb.Do(ctx, func(ctx context.Context) (string, error) {
+	_, err := cb.Do(ctx, func(_ context.Context) (string, error) {
 		return "should not be called", nil
 	})
 	if !errors.Is(err, resilience.ErrCircuitOpen) {
@@ -84,7 +84,7 @@ func TestTC3103_CircuitBreakerThresholdOne(t *testing.T) {
 		OpenDuration: 10 * time.Minute,
 	})
 	ctx := context.Background()
-	_, _ = cb.Do(ctx, func(ctx context.Context) (string, error) {
+	_, _ = cb.Do(ctx, func(_ context.Context) (string, error) {
 		return "", errFakeDownstream
 	})
 	if cb.State() != resilience.StateOpen {
@@ -99,7 +99,7 @@ func TestTC3104_CircuitBreakerIndependence(t *testing.T) {
 	cb2 := resilience.NewCircuitBreaker(resilience.CBConfig{Threshold: 5})
 	ctx := context.Background()
 	// Trip cb1.
-	_, _ = cb1.Do(ctx, func(ctx context.Context) (string, error) {
+	_, _ = cb1.Do(ctx, func(_ context.Context) (string, error) {
 		return "", errFakeDownstream
 	})
 	if cb1.State() != resilience.StateOpen {
@@ -116,7 +116,7 @@ func TestTC3107_BulkheadAllowsCall(t *testing.T) {
 	t.Parallel()
 	bh := resilience.NewBulkhead("test-bh", 5, 10)
 	ctx := context.Background()
-	result, err := bh.Do(ctx, func(ctx context.Context) (string, error) {
+	result, err := bh.Do(ctx, func(_ context.Context) (string, error) {
 		return "bulkhead-ok", nil
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ func TestTC3108_RetryExhaustedReturnsTypedError(t *testing.T) {
 		MaxAttempts:  2,
 		InitialDelay: 1 * time.Millisecond,
 		MaxDelay:     5 * time.Millisecond,
-	}, func(ctx context.Context) (string, error) {
+	}, func(_ context.Context) (string, error) {
 		return "", errFakeDownstream
 	})
 	if err == nil {

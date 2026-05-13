@@ -148,6 +148,6 @@ func resolveRoot(root string) (string, error) {
 // writeTrashSnapshot is a thin wrapper around the undo trash mechanism.
 // It mirrors cmdundo.WriteTrashSnapshot but avoids a circular import by
 // re-implementing the minimal needed logic inline.
-func writeTrashSnapshot(root, verb string, paths []string) (string, error) {
+func writeTrashSnapshot(_, _ string, _ []string) (string, error) {
 	return "", nil // wired to cmdundo.WriteTrashSnapshot via the binary entrypoint
 }

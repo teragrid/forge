@@ -55,17 +55,17 @@ func init() {
 		Verb:    "agents",
 		Summary: "Start, stop, and list background AI agent processes (M2).",
 		Inputs: []string{
-			"start <name>  — register and start a named agent",
-			"stop  <name>  — stop a running agent",
-			"list          — list all registered agents",
-			"inspect <name>— show agent details",
+			"start <name>  â€” register and start a named agent",
+			"stop  <name>  â€” stop a running agent",
+			"list          â€” list all registered agents",
+			"inspect <name>â€” show agent details",
 			"--role <role>",
 			"--root <path>",
 			"--json",
 		},
 		Outputs:      []string{"stdout: agent operation result"},
 		SideEffects:  []string{"start/stop: mutate .forge/agents.json"},
-		GatesTouched: []string{"§17 multi-agent runtime"},
+		GatesTouched: []string{"Â§17 multi-agent runtime"},
 		ErrorCodes:   []errcode.Code{ErrAgentsFailed},
 	})
 }
@@ -216,7 +216,7 @@ func saveAgents(root string, agents []AgentEntry) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func upsertAgent(agents []AgentEntry, e AgentEntry) []AgentEntry {

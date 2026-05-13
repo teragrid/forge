@@ -24,7 +24,7 @@ import (
 
 // TC-02-01: each layer overrides the layer below it.
 func TestLoad_LayerPrecedence(t *testing.T) {
-	t.Parallel()
+	// t.Parallel() intentionally omitted: test uses t.Setenv
 
 	// 1. Default → provider = "auto"
 	root := t.TempDir()

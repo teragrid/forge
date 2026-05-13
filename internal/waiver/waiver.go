@@ -43,7 +43,7 @@ var ErrWaiverExpired = errors.New("waiver: entry has expired")
 
 // WaiverSpec is the on-disk YAML schema for a single waiver file.
 // A file may contain multiple specs as a YAML list.
-type WaiverSpec struct {
+type WaiverSpec struct { //nolint:revive // WaiverSpec is intentional: avoids ambiguity with other Spec types
 	// ID is a stable human-assigned identifier (e.g. W-001).
 	ID string `yaml:"id"`
 

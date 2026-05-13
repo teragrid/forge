@@ -19,12 +19,12 @@
 //
 // Supported primitives:
 //
-//	middleware   — HTTP middleware function with test
-//	repository   — data-access repository with interface + stub
-//	service      — service layer with interface + stub
-//	worker       — background worker with graceful shutdown
-//	schema       — database schema file (SQL) with migration pair
-//	config       — typed configuration struct + loader
+//	middleware   â€” HTTP middleware function with test
+//	repository   â€” data-access repository with interface + stub
+//	service      â€” service layer with interface + stub
+//	worker       â€” background worker with graceful shutdown
+//	schema       â€” database schema file (SQL) with migration pair
+//	config       â€” typed configuration struct + loader
 package cmdadd
 
 import (
@@ -65,16 +65,16 @@ func init() {
 		Verb:    "add",
 		Summary: "Scaffold a project primitive (middleware, repository, service, worker, schema, config) (M3).",
 		Inputs: []string{
-			"<primitive>  — one of: middleware, repository, service, worker, schema, config",
-			"<name>       — name for the new primitive",
-			"--apply      — write files (default: dry-run preview)",
-			"--output-dir — override output directory",
+			"<primitive>  â€” one of: middleware, repository, service, worker, schema, config",
+			"<name>       â€” name for the new primitive",
+			"--apply      â€” write files (default: dry-run preview)",
+			"--output-dir â€” override output directory",
 			"--root <path>",
 			"--json",
 		},
 		Outputs:      []string{"stdout: list of files created / preview"},
 		SideEffects:  []string{"with --apply: writes new files to project"},
-		GatesTouched: []string{"§4 scaffold"},
+		GatesTouched: []string{"Â§4 scaffold"},
 		ErrorCodes:   []errcode.Code{ErrAddFailed},
 	})
 }
@@ -91,12 +91,12 @@ func New() *cobra.Command {
 		Use:   "add <primitive> <name>",
 		Short: "Scaffold a project primitive into an existing project (M3).",
 		Long: "forge add generates well-defined project primitives:\n\n" +
-			"  middleware   — HTTP middleware with test\n" +
-			"  repository   — data-access repository interface + stub\n" +
-			"  service      — service layer interface + stub\n" +
-			"  worker       — background worker with graceful shutdown\n" +
-			"  schema       — SQL schema + up/down migration pair\n" +
-			"  config       — typed config struct + loader\n\n" +
+			"  middleware   â€” HTTP middleware with test\n" +
+			"  repository   â€” data-access repository interface + stub\n" +
+			"  service      â€” service layer interface + stub\n" +
+			"  worker       â€” background worker with graceful shutdown\n" +
+			"  schema       â€” SQL schema + up/down migration pair\n" +
+			"  config       â€” typed config struct + loader\n\n" +
 			"Default is dry-run. Pass --apply to write files.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -135,7 +135,7 @@ func New() *cobra.Command {
 			for _, f := range files {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", verb, f)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "\nadd: %s %s/%s — %d files %s\n",
+			fmt.Fprintf(cmd.OutOrStdout(), "\nadd: %s %s/%s â€” %d files %s\n",
 				primitive, primitive, name, len(files), verb)
 			return nil
 		},
@@ -175,7 +175,7 @@ func scaffoldPrimitive(root, primitive, name, outputDirOverride string, apply bo
 			if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
 				return nil, err
 			}
-			if err := os.WriteFile(t.path, []byte(t.content), 0o644); err != nil {
+			if err := os.WriteFile(t.path, []byte(t.content), 0o600); err != nil {
 				return nil, err
 			}
 		}

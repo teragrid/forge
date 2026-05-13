@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmddocs implements `forge docs` (spec §4).
+// Package cmddocs implements `forge docs` (spec Â§4).
 //
 // Synchronises and heals project documentation from code and ADRs.
 // Sub-commands: sync, heal.
@@ -43,16 +43,16 @@ var (
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb:    "docs",
-		Summary: "Synchronise and heal project documentation from code and ADRs (spec §4).",
+		Summary: "Synchronise and heal project documentation from code and ADRs (spec Â§4).",
 		Inputs: []string{
-			"sync  — regenerate docs from code comments and ADRs",
-			"heal  — fix broken internal links and stale section headers",
+			"sync  â€” regenerate docs from code comments and ADRs",
+			"heal  â€” fix broken internal links and stale section headers",
 			"--root <path>",
 			"--dry-run",
 		},
 		Outputs:      []string{"stdout: sync/heal report"},
 		SideEffects:  []string{"sync/heal: writes to docs/ directory"},
-		GatesTouched: []string{"§4 docs"},
+		GatesTouched: []string{"Â§4 docs"},
 		ErrorCodes:   []errcode.Code{ErrDocsFailed},
 	})
 }
@@ -68,8 +68,8 @@ func New() *cobra.Command {
 		Short: "Sync and heal project documentation (M2).",
 		Long: "forge docs manages project documentation derived from code and ADRs.\n\n" +
 			"Sub-commands:\n" +
-			"  sync  — regenerate docs from code comments, error codes, and ADRs\n" +
-			"  heal  — fix broken internal links and stale section headers",
+			"  sync  â€” regenerate docs from code comments, error codes, and ADRs\n" +
+			"  heal  â€” fix broken internal links and stale section headers",
 	}
 	cmd.PersistentFlags().StringVar(&root, "root", "", "Project root (default: cwd)")
 	cmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
@@ -101,7 +101,7 @@ func newSyncCmd(root *string, dryRun *bool) *cobra.Command {
 			if *dryRun {
 				fmt.Fprintf(out, "docs sync (dry-run): would write %s (%d bytes)\n", relOrAbs(r, apiPath), len(apiMd))
 			} else {
-				if err := os.WriteFile(apiPath, []byte(apiMd), 0o644); err != nil {
+				if err := os.WriteFile(apiPath, []byte(apiMd), 0o600); err != nil {
 					return errcode.New(ErrDocsFailed, "write API_REFERENCE.md", err)
 				}
 				fmt.Fprintf(out, "docs sync: wrote %s\n", relOrAbs(r, apiPath))
@@ -151,7 +151,7 @@ func newHealCmd(root *string, dryRun *bool) *cobra.Command {
 				fmt.Fprintf(out, "broken link: %s: %s\n", relOrAbs(r, b.file), b.link)
 			}
 			if *dryRun {
-				fmt.Fprintf(out, "docs heal (dry-run): %d broken links — re-run without --dry-run to remove stale links\n", len(broken))
+				fmt.Fprintf(out, "docs heal (dry-run): %d broken links â€” re-run without --dry-run to remove stale links\n", len(broken))
 			} else {
 				fixed, err := removeStaleLinks(broken)
 				if err != nil {
@@ -257,14 +257,14 @@ func writeADRIndex(path string, entries []adrEntry) error {
 	for _, e := range entries {
 		b.WriteString(fmt.Sprintf("- [ADR-%s: %s](%s)\n", e.num, e.title, e.file))
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	return os.WriteFile(path, []byte(b.String()), 0o600)
 }
 
 type brokenLink struct{ file, link string }
 
 var mdLinkRe = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
-func findBrokenLinks(root, dir string) ([]brokenLink, error) {
+func findBrokenLinks(_, dir string) ([]brokenLink, error) {
 	var result []brokenLink
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
@@ -314,7 +314,7 @@ func removeStaleLinks(links []brokenLink) (int, error) {
 			content = re.ReplaceAllString(content, "$1")
 			total++
 		}
-		if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 			return total, err
 		}
 	}

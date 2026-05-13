@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// gen_endpoint_proof.go — M1-22: in-tree generator-plugin proof.
+// gen_endpoint_proof.go â€” M1-22: in-tree generator-plugin proof.
 //
 // Demonstrates the plugin.Generator contract with an HTTP endpoint
 // scaffold generator registered as an in-process plugin. In M2 this
@@ -124,7 +124,7 @@ func Test{{.Pascal}}Handler(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
 				return GenerateResult{}, err
 			}
-			if err := os.WriteFile(f.path, []byte(content), 0o644); err != nil {
+			if err := os.WriteFile(f.path, []byte(content), 0o600); err != nil {
 				return GenerateResult{}, err
 			}
 		}
