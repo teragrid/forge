@@ -31,7 +31,7 @@ permissions:
 # TODO: revert runs-on to ubuntu-latest and restore bash steps when budget resets.
 
 env:
-  GO_VERSION: '1.25'
+  GO_VERSION: '1.26'
   CGO_ENABLED: '0'
 
 jobs:
