@@ -6,19 +6,33 @@
 #
 # Install (one-time):
 #   git config core.hooksPath .githooks
+#   — or —
+#   make hooks
 #
 # Skip (emergency only – do NOT make a habit of this):
 #   SKIP_PRE_PUSH=1 git push
 #
+# Per-stage skips (emergency only – recorded to .forge/audit.log):
+#   FORGE_SKIP_SCAN=1   git push   # skip forge scan security
+#   FORGE_SKIP_LINT=1   git push   # skip forge lint
+#   FORGE_SKIP_CHECK=1  git push   # skip forge check
+#
 # Checks (in order – fail-fast per section):
-#   1. gofmt / goimports — formatting
-#   2. go vet            — correctness
-#   3. golangci-lint     — static analysis (gocritic, staticcheck, gosec, errcheck, …)
-#   4. go build          — compilation
-#   5. go test           — unit tests (no -race here because CGO may be off on the
-#                          developer machine; CI runs -race on Linux where CGO is on)
-#   6. govulncheck       — known CVEs in deps
-#   7. go mod verify     — tamper-check downloaded module zips
+#   1.  gofmt / goimports — formatting
+#   2.  go vet            — correctness
+#   3.  golangci-lint     — static analysis (gocritic, staticcheck, gosec, errcheck, …)
+#   4.  go build          — compilation
+#   5.  go test           — unit tests (no -race here because CGO may be off on the
+#                           developer machine; CI runs -race on Linux where CGO is on)
+#   6.  govulncheck       — known CVEs in deps
+#   7.  go mod verify     — tamper-check downloaded module zips
+#   8.  (reserved)
+#   9.  forge scan security --secrets  — secret / credential leak detection
+#   10. forge lint                     — Forge convention violations
+#   11. forge check                    — pre-flight: typecheck + lint + test fast path
+#
+# Stages 9-11 are ADVISORY when the forge binary is not on PATH (warn + skip).
+# They become BLOCKING once `forge` is present.
 #
 # Each check prints a "✓ <name>" on success or "✗ <name>" + details on failure.
 
@@ -27,6 +41,10 @@ set -euo pipefail
 # ── emergency bypass ────────────────────────────────────────────────────────
 if [[ "${SKIP_PRE_PUSH:-}" == "1" ]]; then
   echo "⚠ SKIP_PRE_PUSH=1: all pre-push checks skipped — use only in emergencies"
+  _AUDIT_DIR=".forge"
+  if [[ -d "$_AUDIT_DIR" ]]; then
+    echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"hook\":\"pre-push\",\"bypass\":\"SKIP_PRE_PUSH\",\"reason\":\"${SKIP_REASON:-<no reason given>}\"}" >> "$_AUDIT_DIR/audit.log"
+  fi
   exit 0
 fi
 
@@ -46,12 +64,21 @@ need() {
   return 0
 }
 
+# Record a bypass to the audit log (best-effort, non-blocking).
+audit_bypass() {
+  local stage="$1" reason="${SKIP_REASON:-<no reason given>}"
+  local audit_dir=".forge"
+  if [[ -d "$audit_dir" ]]; then
+    echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"hook\":\"pre-push\",\"bypass\":\"$stage\",\"reason\":\"$reason\"}" >> "$audit_dir/audit.log"
+  fi
+}
+
 echo ""
 echo "━━━  forge pre-push quality gate  ━━━"
 echo ""
 
 # ── 1. formatting ────────────────────────────────────────────────────────────
-echo "[1/7] formatting (gofmt + goimports)"
+echo "[1/11] formatting (gofmt + goimports)"
 FMT_OUT=$(gofmt -s -l . 2>/dev/null || true)
 if [[ -n "$FMT_OUT" ]]; then
   fail "gofmt -s"
@@ -76,7 +103,7 @@ fi
 
 # ── 2. go vet ────────────────────────────────────────────────────────────────
 echo ""
-echo "[2/7] go vet"
+echo "[2/11] go vet"
 if VET_OUT=$(go vet ./... 2>&1); then
   pass "go vet"
 else
@@ -86,7 +113,7 @@ fi
 
 # ── 3. golangci-lint ─────────────────────────────────────────────────────────
 echo ""
-echo "[3/7] golangci-lint"
+echo "[3/11] golangci-lint"
 if need golangci-lint; then
   if LINT_OUT=$(golangci-lint run ./... 2>&1); then
     pass "golangci-lint"
@@ -98,7 +125,7 @@ fi
 
 # ── 4. build ─────────────────────────────────────────────────────────────────
 echo ""
-echo "[4/7] go build"
+echo "[4/11] go build"
 if BUILD_OUT=$(CGO_ENABLED=0 go build ./... 2>&1); then
   pass "go build"
 else
@@ -108,7 +135,7 @@ fi
 
 # ── 5. tests ─────────────────────────────────────────────────────────────────
 echo ""
-echo "[5/7] go test"
+echo "[5/11] go test"
 # -count=1 disables the test cache so we always exercise the full suite.
 if TEST_OUT=$(go test -count=1 ./... 2>&1); then
   pass "go test"
@@ -120,7 +147,7 @@ fi
 
 # ── 6. govulncheck ───────────────────────────────────────────────────────────
 echo ""
-echo "[6/7] govulncheck (known CVEs)"
+echo "[6/11] govulncheck (known CVEs)"
 if need govulncheck; then
   if VULN_OUT=$(govulncheck ./... 2>&1); then
     pass "govulncheck"
@@ -132,12 +159,71 @@ fi
 
 # ── 7. module integrity ───────────────────────────────────────────────────────
 echo ""
-echo "[7/7] go mod verify"
+echo "[7/11] go mod verify"
 if VERIFY_OUT=$(go mod verify 2>&1); then
   pass "go mod verify"
 else
   fail "go mod verify"
   echo "$VERIFY_OUT" | sed 's/^/      /'
+fi
+
+# ── 8. (reserved for future gate) ───────────────────────────────────────────
+
+# ── 9. forge scan security ───────────────────────────────────────────────────
+echo ""
+echo "[9/11] forge scan security --secrets"
+if [[ "${FORGE_SKIP_SCAN:-}" == "1" ]]; then
+  warn "FORGE_SKIP_SCAN=1: forge scan security skipped"
+  audit_bypass "FORGE_SKIP_SCAN"
+elif ! command -v forge &>/dev/null; then
+  warn "forge binary not on PATH — skipping scan (run 'make build' to install)"
+else
+  if SCAN_OUT=$(forge scan security --secrets --json 2>&1); then
+    pass "forge scan security"
+  else
+    fail "forge scan security"
+    echo "$SCAN_OUT" | sed 's/^/      /'
+    echo "      Secrets found — resolve before pushing (FORGE-6200)"
+    echo "      Emergency bypass: FORGE_SKIP_SCAN=1 SKIP_REASON='...' git push"
+  fi
+fi
+
+# ── 10. forge lint ───────────────────────────────────────────────────────────
+echo ""
+echo "[10/11] forge lint"
+if [[ "${FORGE_SKIP_LINT:-}" == "1" ]]; then
+  warn "FORGE_SKIP_LINT=1: forge lint skipped"
+  audit_bypass "FORGE_SKIP_LINT"
+elif ! command -v forge &>/dev/null; then
+  warn "forge binary not on PATH — skipping lint (run 'make build' to install)"
+else
+  if FLINT_OUT=$(forge lint 2>&1); then
+    pass "forge lint"
+  else
+    fail "forge lint"
+    echo "$FLINT_OUT" | sed 's/^/      /'
+    echo "      Convention violations found — resolve before pushing (FORGE-3100)"
+    echo "      Emergency bypass: FORGE_SKIP_LINT=1 SKIP_REASON='...' git push"
+  fi
+fi
+
+# ── 11. forge check ──────────────────────────────────────────────────────────
+echo ""
+echo "[11/11] forge check"
+if [[ "${FORGE_SKIP_CHECK:-}" == "1" ]]; then
+  warn "FORGE_SKIP_CHECK=1: forge check skipped"
+  audit_bypass "FORGE_SKIP_CHECK"
+elif ! command -v forge &>/dev/null; then
+  warn "forge binary not on PATH — skipping check (run 'make build' to install)"
+else
+  if FCHECK_OUT=$(forge check 2>&1); then
+    pass "forge check"
+  else
+    fail "forge check"
+    echo "$FCHECK_OUT" | sed 's/^/      /'
+    echo "      Pre-flight check failed — resolve before pushing"
+    echo "      Emergency bypass: FORGE_SKIP_CHECK=1 SKIP_REASON='...' git push"
+  fi
 fi
 
 # ── summary ──────────────────────────────────────────────────────────────────
