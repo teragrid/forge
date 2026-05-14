@@ -46,13 +46,37 @@ jobs:
           version: latest
           args: --timeout=5m
 
+  # ubuntu runs on every push and PR (cheapest; Linux is the production target).
   test:
+    name: test (go test -race) on ubuntu-latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+          cache: true
+      - name: go mod verify
+        run: go mod verify
+      - name: install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+      - name: run tests
+        env:
+          # -race requires cgo; the production binary is still built with CGO_ENABLED=0
+          # in the cross-compile matrix below.
+          CGO_ENABLED: '1'
+        run: gotestsum --format pkgname -- -race -count=1 ./...
+
+  # macOS and Windows are expensive — only run on pull requests and version tags.
+  test-cross-os:
     name: test (go test -race) on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -74,6 +98,8 @@ jobs:
   vuln:
     name: govulncheck
     runs-on: ubuntu-latest
+    # govulncheck is slow (~1 min) — skip on push-to-main, run on PRs and tags only.
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -91,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only run cross-compile on PRs and version tags; skip push-to-main to save minutes.
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
-    needs: [lint, test]
+    needs: [lint, test, test-cross-os]
     strategy:
       fail-fast: false
       matrix:
