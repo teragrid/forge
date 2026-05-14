@@ -29,6 +29,7 @@
 | `forge spend` | Track and cap LLM token spend | `FORGE-2400..2499` |
 | `forge fixtures` | Generate JSON test fixture files | `FORGE-6000..6099` |
 | `forge backup` | Create a point-in-time backup snapshot before risky operations | `FORGE-6100..6199` |
+| `forge ci` | Post-push CI monitor: watch, fix, and record lessons from CI runs | `FORGE-6200..6299` |
 
 For the full error-code catalogue see [`docs/ERROR_CODES.md`](ERROR_CODES.md).
 
@@ -588,3 +589,49 @@ Generate a local rollup of telemetry data for the current project.
 forge insights           # human-readable summary
 forge insights --json    # machine-readable JSON
 ```
+
+---
+
+### `forge ci`
+
+Post-push CI monitor — watch, fix, and record lessons from GitHub Actions runs
+(spec §13.6, DEV-M3-31).  Usually invoked automatically by `.githooks/post-push`,
+but all sub-commands are available directly for agents and manual use.
+
+```bash
+# Watch CI for the current HEAD commit (polls until pass/fail or timeout):
+forge ci watch
+
+# Watch a specific SHA in an explicit repo:
+forge ci watch --sha abc1234 --repo org/myrepo --timeout 10m
+
+# Propose an LLM-assisted fix for a failed run:
+forge ci fix --run-id 12345678
+
+# Record a CI failure as a lesson to .forge/learned/gotchas.jsonl:
+forge ci gotcha --run-id 12345678 --note "forgot to run go mod tidy"
+
+# All sub-commands support --json for machine-readable output:
+forge ci watch --json
+forge ci gotcha --run-id 12345678 --json
+```
+
+**Environment variables:**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GITHUB_TOKEN` | — | GitHub API token (falls back to `gh auth token`) |
+| `FORGE_CI_DISABLE` | `0` | Set to `1` to disable post-push hook entirely |
+| `FORGE_CI_TIMEOUT` | `300` | Max seconds to wait for CI in `.githooks/post-push` |
+| `FORGE_CI_POLL_INTERVAL` | `10` | Poll interval in seconds |
+| `FORGE_AUTOFIX` | `0` | Set to `1` to auto-invoke `forge ci fix` on failure |
+
+**Exit codes for `forge ci watch`:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | CI passed |
+| `1` | CI failed |
+| `2` | Timed out waiting for CI to complete |
+
+**Error codes:** `FORGE-6200..6299`

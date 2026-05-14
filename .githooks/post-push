@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# .githooks/post-push
+#
+# Forge post-push CI monitor.
+# Runs automatically after every successful `git push` (non-blocking — runs in
+# the background so the shell prompt returns immediately).
+#
+# Install (one-time):
+#   make hooks   # sets git config core.hooksPath .githooks
+#
+# Opt out entirely:
+#   FORGE_CI_DISABLE=1 git push
+#
+# Configuration (env vars):
+#   FORGE_CI_TIMEOUT       — max seconds to wait for CI to complete (default: 300)
+#   FORGE_CI_POLL_INTERVAL — polling interval in seconds (default: 10)
+#   FORGE_CI_DISABLE       — set to 1 to skip this hook entirely
+#   FORGE_AUTOFIX          — set to 1 to auto-invoke `forge ci fix` on failure
+#   GITHUB_TOKEN           — GitHub API token; falls back to `gh auth token`
+#
+# What this hook does:
+#   1. Resolve the SHA and remote URL of the push.
+#   2. Detect `gh` CLI / GITHUB_TOKEN availability.
+#   3. Poll GitHub Actions for the workflow run triggered by the pushed SHA.
+#   4. On CI success: print a summary line.
+#   5. On CI failure:
+#      a. If FORGE_AUTOFIX=1: invoke `forge ci fix --run-id <id>`.
+#      b. Otherwise:          invoke `forge ci gotcha --run-id <id>` to record to
+#                             .forge/learned/gotchas.jsonl.
+#   6. On timeout:            print advisory + URL for manual check.
+
+# ── opt-out ──────────────────────────────────────────────────────────────────
+if [[ "${FORGE_CI_DISABLE:-}" == "1" ]]; then
+  exit 0
+fi
+
+# ── fire-and-forget: run the rest in background ───────────────────────────────
+# The git hook waits for this script to exit; we immediately fork to background
+# so the developer's shell prompt returns without delay.
+if [[ "${_FORGE_POST_PUSH_BG:-}" != "1" ]]; then
+  _FORGE_POST_PUSH_BG=1 "$0" "$@" &>/tmp/forge-post-push-$$.log 2>&1 &
+  disown
+  exit 0
+fi
+
+# ── configuration ─────────────────────────────────────────────────────────────
+TIMEOUT="${FORGE_CI_TIMEOUT:-300}"
+POLL_INTERVAL="${FORGE_CI_POLL_INTERVAL:-10}"
+AUTOFIX="${FORGE_AUTOFIX:-0}"
+LEARNED_DIR=".forge/learned"
+AUDIT_LOG=".forge/audit.log"
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RESET='\033[0m'
+
+log()  { echo -e "${CYAN}[post-push]${RESET} $*"; }
+ok()   { echo -e "${GREEN}[post-push] ✓${RESET} $*"; }
+err()  { echo -e "${RED}[post-push] ✗${RESET} $*"; }
+warn() { echo -e "${YELLOW}[post-push] ⚠${RESET} $*"; }
+
+# ── resolve pushed SHA + remote ───────────────────────────────────────────────
+SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "")
+
+if [[ -z "$SHA" || -z "$BRANCH" ]]; then
+  warn "could not resolve SHA/branch — CI monitor skipped"
+  exit 0
+fi
+
+# Extract owner/repo from remote URL (https or ssh).
+# e.g. https://github.com/org/repo.git  or  git@github.com:org/repo.git
+REPO=""
+if [[ "$REMOTE_URL" =~ github\.com[:/]([^/]+/[^/]+?)(\.git)?$ ]]; then
+  REPO="${BASH_REMATCH[1]}"
+fi
+
+if [[ -z "$REPO" ]]; then
+  warn "remote is not a GitHub URL (${REMOTE_URL:-<none>}) — CI polling not available"
+  exit 0
+fi
+
+# ── resolve GitHub token ──────────────────────────────────────────────────────
+GH_TOKEN="${GITHUB_TOKEN:-}"
+if [[ -z "$GH_TOKEN" ]] && command -v gh &>/dev/null; then
+  GH_TOKEN=$(gh auth token 2>/dev/null || echo "")
+fi
+
+if [[ -z "$GH_TOKEN" ]]; then
+  warn "no GitHub token found (set GITHUB_TOKEN or run 'gh auth login') — CI polling skipped"
+  exit 0
+fi
+
+log "monitoring CI for ${REPO}@${SHA:0:8} (branch: ${BRANCH})"
+log "timeout: ${TIMEOUT}s, poll interval: ${POLL_INTERVAL}s"
+
+# ── poll GitHub Actions ───────────────────────────────────────────────────────
+API_BASE="https://api.github.com"
+RUN_ID=""
+CONCLUSION=""
+RUN_URL=""
+ELAPSED=0
+
+while true; do
+  # List workflow runs for this commit SHA.
+  RESPONSE=$(curl -sf \
+    -H "Authorization: Bearer ${GH_TOKEN}" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "${API_BASE}/repos/${REPO}/actions/runs?head_sha=${SHA}&per_page=5" \
+    2>/dev/null || echo "")
+
+  if [[ -n "$RESPONSE" ]]; then
+    # Parse the first (most recent) run's status/conclusion.
+    # Use python3 for JSON parsing (available on most dev machines; no jq dependency).
+    PARSED=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    runs = d.get('workflow_runs', [])
+    if runs:
+        r = runs[0]
+        print(r.get('id', ''))
+        print(r.get('status', ''))
+        print(r.get('conclusion', '') or '')
+        print(r.get('html_url', ''))
+    else:
+        print('NO_RUNS')
+except Exception as e:
+    print('ERROR: ' + str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null || echo "")
+
+    if [[ "$PARSED" == "NO_RUNS" ]]; then
+      : # No runs yet — keep polling
+    elif [[ -n "$PARSED" ]]; then
+      RUN_ID=$(echo "$PARSED" | sed -n '1p')
+      STATUS=$(echo "$PARSED" | sed -n '2p')
+      CONCLUSION=$(echo "$PARSED" | sed -n '3p')
+      RUN_URL=$(echo "$PARSED" | sed -n '4p')
+
+      if [[ "$STATUS" != "in_progress" && "$STATUS" != "queued" && "$STATUS" != "waiting" ]]; then
+        break  # run has a terminal status
+      fi
+
+      log "CI ${STATUS} (run #${RUN_ID}) — waiting…"
+    fi
+  fi
+
+  # Check timeout.
+  ELAPSED=$(( ELAPSED + POLL_INTERVAL ))
+  if [[ $ELAPSED -ge $TIMEOUT ]]; then
+    warn "CI still running after ${TIMEOUT}s — check manually: ${RUN_URL:-https://github.com/${REPO}/actions}"
+    exit 2
+  fi
+
+  sleep "$POLL_INTERVAL"
+done
+
+# ── handle final status ───────────────────────────────────────────────────────
+case "$CONCLUSION" in
+  success|skipped)
+    ok "CI passed (run #${RUN_ID}) — ${RUN_URL}"
+    exit 0
+    ;;
+  failure|action_required|timed_out|startup_failure)
+    err "CI FAILED (run #${RUN_ID}) — ${RUN_URL}"
+
+    if [[ "${AUTOFIX:-0}" == "1" ]] && command -v forge &>/dev/null; then
+      log "FORGE_AUTOFIX=1 — invoking 'forge ci fix --run-id ${RUN_ID}'"
+      forge ci fix --run-id "${RUN_ID}" || true
+    elif command -v forge &>/dev/null; then
+      log "recording gotcha to ${LEARNED_DIR}/gotchas.jsonl"
+      forge ci gotcha \
+        --run-id "${RUN_ID}" \
+        --branch "${BRANCH}" \
+        --sha "${SHA}" \
+        --url "${RUN_URL}" \
+        --conclusion "${CONCLUSION}" \
+        2>/dev/null || true
+    else
+      # forge binary not available — write the gotcha directly.
+      mkdir -p "${LEARNED_DIR}"
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+      echo "{\"ts\":\"${TS}\",\"branch\":\"${BRANCH}\",\"sha\":\"${SHA}\",\"run_id\":\"${RUN_ID}\",\"conclusion\":\"${CONCLUSION}\",\"url\":\"${RUN_URL}\"}" \
+        >> "${LEARNED_DIR}/gotchas.jsonl"
+      log "gotcha saved to ${LEARNED_DIR}/gotchas.jsonl"
+    fi
+
+    # Log to audit.log.
+    if [[ -d ".forge" ]]; then
+      TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+      echo "{\"ts\":\"${TS}\",\"hook\":\"post-push\",\"event\":\"ci_failure\",\"run_id\":\"${RUN_ID}\",\"branch\":\"${BRANCH}\",\"sha\":\"${SHA}\",\"url\":\"${RUN_URL}\"}" \
+        >> "${AUDIT_LOG}"
+    fi
+
+    echo ""
+    echo "  Review the failure: ${RUN_URL}"
+    echo "  Run: forge ci fix --run-id ${RUN_ID}   (proposes an LLM-assisted fix)"
+    echo "  Run: forge ci gotcha --run-id ${RUN_ID} (record a lesson to memory)"
+    echo ""
+    exit 1
+    ;;
+  cancelled|neutral)
+    warn "CI was ${CONCLUSION} (run #${RUN_ID}) — ${RUN_URL}"
+    exit 0
+    ;;
+  *)
+    warn "CI concluded with unknown status '${CONCLUSION}' (run #${RUN_ID}) — ${RUN_URL:-<no URL>}"
+    exit 0
+    ;;
+esac

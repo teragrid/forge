@@ -31,6 +31,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdask"
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
 	"github.com/teragrid/forge/internal/cli/cmdcheck"
+	"github.com/teragrid/forge/internal/cli/cmdci"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmdconfig"
 	"github.com/teragrid/forge/internal/cli/cmdcontext"
@@ -155,6 +156,8 @@ func NewRootCommand(version string) *cobra.Command {
 		// spec §4 gap-fill: fixtures + backup
 		cmdfixtures.New(),
 		cmdbackup.New(),
+		// DEV-M3-31: post-push CI monitor
+		cmdci.New(),
 	)
 
 	// Register backward-compat aliases after all canonical commands are added.

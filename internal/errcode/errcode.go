@@ -94,6 +94,8 @@ var reservedRanges = []struct {
 	// spec §4 gap-fill: fixtures + backup.
 	{6000, 6099, "cli/fixtures"},
 	{6100, 6199, "cli/backup"},
+	// DEV-M3-30/M3-31: pre-push gate + post-push CI monitor.
+	{6200, 6299, "cli/ci"},
 	{9000, 9099, "internal/test"},
 }
 
