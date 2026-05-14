@@ -51,13 +51,15 @@ jobs:
       - name: gofmt + goimports
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
-          # Capture only stdout (list of files needing format changes).
-          # Stderr (parse errors from fixture stubs) is NOT captured, matching
-          # the original bash `$(gofmt -s -l .)` behaviour which ignores stderr.
+          # Capture stdout only (list of files needing reformatting).
+          # gofmt exits non-zero for parse errors in fixture stubs (stderr),
+          # but we only care about stdout. Explicit exit 0 resets $LASTEXITCODE
+          # so the runner does not fail the step on fixture parse errors.
           $fmt = gofmt -s -l .
-          if ($fmt) { Write-Host "gofmt issues:"; $fmt; exit 1 }
           $imp = goimports -l .
-          if ($imp) { Write-Host "goimports issues:"; $imp; exit 1 }
+          if ($fmt) { Write-Host "gofmt issues:"; $fmt; exit 1 }
+          if ($imp)  { Write-Host "goimports issues:"; $imp; exit 1 }
+          exit 0
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
