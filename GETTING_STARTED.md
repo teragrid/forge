@@ -1,7 +1,7 @@
 # Getting Started with Forge
 
 <p align="center">
-  <img src="forge-logo.png" alt="Forge logo" width="180" />
+  <img src="forge-logo.png" alt="Forge logo" width="600" />
 </p>
 
 > **Goal:** zero to your first `forge ship` in under 10 minutes.

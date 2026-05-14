@@ -27,6 +27,8 @@
 | `forge incident` | Manage the incident lifecycle | `FORGE-4000..4099` |
 | `forge telemetry` | Opt in/out and rotate telemetry ID | `FORGE-4100..4199` |
 | `forge spend` | Track and cap LLM token spend | `FORGE-2400..2499` |
+| `forge fixtures` | Generate JSON test fixture files | `FORGE-6000..6099` |
+| `forge backup` | Create a point-in-time backup snapshot before risky operations | `FORGE-6100..6199` |
 
 For the full error-code catalogue see [`docs/ERROR_CODES.md`](ERROR_CODES.md).
 

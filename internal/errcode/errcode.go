@@ -91,6 +91,9 @@ var reservedRanges = []struct {
 	{5850, 5899, "internal/reviewsla"},
 	{5900, 5949, "internal/airgap"},
 	{5950, 5999, "cli/sla"},
+	// spec §4 gap-fill: fixtures + backup.
+	{6000, 6099, "cli/fixtures"},
+	{6100, 6199, "cli/backup"},
 	{9000, 9099, "internal/test"},
 }
 
