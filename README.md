@@ -1,7 +1,7 @@
 # forge
 
 <p align="center">
-  <img src="forge-logo.jpg" alt="Forge logo" width="200" />
+  <img src="forge-logo.png" alt="Forge logo" width="500" />
 </p>
 
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
