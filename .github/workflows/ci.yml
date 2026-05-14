@@ -26,6 +26,12 @@ concurrency:
 permissions:
   contents: read
 
+# Use Git Bash so all `run:` steps work identically to ubuntu-latest.
+# Switch back to ubuntu-latest once the monthly Actions budget resets.
+defaults:
+  run:
+    shell: bash
+
 env:
   GO_VERSION: '1.25'
   CGO_ENABLED: '0'
@@ -33,7 +39,7 @@ env:
 jobs:
   lint:
     name: lint (golangci-lint + gofmt + goimports)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -53,8 +59,8 @@ jobs:
           args: --timeout=5m
 
   test:
-    name: test (go test -race) on ubuntu-latest
-    runs-on: ubuntu-latest
+    name: test (go test) on self-hosted
+    runs-on: [self-hosted, Windows, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -67,15 +73,13 @@ jobs:
       - name: install gotestsum
         run: go install gotest.tools/gotestsum@latest
       - name: run tests
-        env:
-          # -race requires cgo; the production binary is still built with CGO_ENABLED=0
-          # in the cross-compile matrix below.
-          CGO_ENABLED: '1'
-        run: gotestsum --format pkgname -- -race -count=1 ./...
+        # -race requires CGO / gcc; omitted here since self-hosted runner is Windows.
+        # Race detection runs in nightly.yml on GitHub-hosted ubuntu-latest.
+        run: gotestsum --format pkgname -- -count=1 ./...
 
   vuln:
     name: govulncheck
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, x64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -90,7 +94,7 @@ jobs:
 
   build:
     name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, x64]
     # cross-OS tests moved to nightly.yml to avoid macOS/Windows minute costs on every PR
     needs: [lint, test]
     strategy:
