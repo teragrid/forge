@@ -1,137 +1,142 @@
-# forge
+﻿# forge
 
 <p align="center">
   <img src="forge-logo.png" alt="Forge logo" width="500" />
 </p>
 
-> The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
+<p align="center">
+  <strong>The LLM-native framework that makes AI-generated code survive production.</strong><br/>
+  Security, multi-tenancy, audit, and observability — built in, not bolted on.
+</p>
 
-**Status:** M3 Preview — **18 verbs available** (`version`, `doctor`, `new`, `init`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`, `postmortem`, `insights`, `spend`, `incident`, `telemetry`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue.
+<p align="center">
+  <a href="https://github.com/teragrid/forge/releases"><img src="https://img.shields.io/github/v/release/teragrid/forge?color=orange&label=latest" alt="Latest release"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0"/></a>
+  <a href="https://github.com/teragrid/forge/actions"><img src="https://img.shields.io/github/actions/workflow/status/teragrid/forge/ci.yml?label=CI" alt="CI"/></a>
+</p>
 
-**Install (no Go required):**
+---
+
+## What is Forge?
+
+Forge is a single-binary CLI that closes the gap between "vibe-coded" AI output and production-grade software. It wraps your existing project with the checks, fixes, and workflows that LLMs forget to include:
+
+- **Scan** for secrets, prompt-injection, and supply-chain risks before they ship
+- **Clean** LLM cruft from your codebase automatically
+- **Ship** through a validated 5-checkpoint pipeline
+- **Audit** every change in a tamper-evident ledger
+- **Evaluate** LLM regression scenarios in CI
+- **Monitor** spend, telemetry, and incidents — all from one tool
+
+> *Vibe it and ship it. Built to last.*
+
+---
+
+## Install
+
+### npm (recommended — no Go required)
+
 ```sh
 npm install -g @forge/cli
 ```
 
-## Spec-driven repo
+### npx (try without installing)
 
-This repo is **spec-first**. Every feature lands as: `spec` → ADR → red test → green code → docs.
-
-| Doc | Purpose |
-|-----|---------|
-| [docs/FORGE_FRAMEWORK_SPEC.md](docs/FORGE_FRAMEWORK_SPEC.md) | Product specification (v0.10.6). |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture (tier model, NFRs, ADR index). |
-| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) | STRIDE threat model + mitigations. |
-| [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) | Per-milestone delivery plan (M0–M3). |
-| [docs/TEST_PLAN.md](docs/TEST_PLAN.md) | Test strategy + coverage gates. |
-| [docs/GO_TO_COMMUNITY_PLAN.md](docs/GO_TO_COMMUNITY_PLAN.md) | OSS launch + governance plan. |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute (DCO, gates, review flow). |
-| [docs/SECURITY.md](docs/SECURITY.md) | Private vulnerability disclosure. |
-| [adr/](adr/) | Accepted/Proposed Architecture Decision Records. |
-| [tasks/](tasks/) | Task trackers (ARCHITECTURE_TASKS, DEVELOPMENT_TASKS, TEST_TASKS, LAUNCH_TASKS). |
-
-## Tech stack (resolved)
-
-Per [ADR-001](adr/ADR-001-implementation-language.md), [ADR-002](adr/ADR-002-plugin-runtime.md), and [ADR-008](adr/ADR-008-license.md):
-
-- **Language:** Go (`go 1.24`, `CGO_ENABLED=0` default)
-- **CLI:** [`cobra`](https://github.com/spf13/cobra) + [`viper`](https://github.com/spf13/viper)
-- **WASM plugin host:** [`wazero`](https://github.com/tetratelabs/wazero) (pure-Go); `wasmtime-go` reserved as `-tags forge_wasmtime` escape hatch
-- **Logging/tracing:** `log/slog` + OpenTelemetry-Go
-- **Tests:** `go test` + [`gotestsum`](https://github.com/gotestyourself/gotestsum) + golden files; `-race` mandatory in CI
-- **Lint:** [`golangci-lint`](https://golangci-lint.run/) (staticcheck, govet, gosec, errcheck, ineffassign, gocritic) + `gofmt` + `goimports`
-- **Supply-chain:** `govulncheck` + `go mod verify` + `syft` SBOM at release; `go-licenses` audit
-
-## Quickstart
-
-### Option A — npm (recommended, no Go required)
-
-```bash
-npm install -g @forge/cli
-# or use without installing:
+```sh
 npx @forge/cli new my-app --template ts-service
 ```
 
-Scaffold a TypeScript service:
-```bash
+### Homebrew
+
+```sh
+brew install teragrid/tap/forge
+```
+
+### Download a binary
+
+Pre-built binaries for Linux, macOS, and Windows are on the [Releases page](https://github.com/teragrid/forge/releases). Each release includes checksums and an SBOM.
+
+### Go install
+
+```sh
+go install github.com/teragrid/forge/cmd/forge@latest
+```
+
+---
+
+## Quick start
+
+```sh
+# Scaffold a new TypeScript service
 forge new ts-service my-app
 cd my-app && npm install && npm run dev
-```
 
-Scaffold a Go HTTP service:
-```bash
+# Or scaffold a Go service
 forge new go-service my-app
 cd my-app && go run ./...
-```
 
-Initialise an existing directory (like `git init`):
-```bash
+# Adopt an existing project (like git init)
 cd my-existing-project
-forge init           # auto-detects ts-service or go-service from package.json / go.mod
+forge init
 ```
 
-### Option B — `go install`
+Then run your first scan:
 
-```bash
-go install github.com/teragrid/forge/cmd/forge@latest
-forge version
+```sh
+forge scan all          # secrets, prompt-injection, supply-chain
+forge doctor            # check your environment
+forge ship --dry-run    # preview the full ship pipeline
 ```
 
-### Option C — Download a pre-built binary
+---
 
-Pre-built archives for all 5 platforms are attached to every [GitHub release](https://github.com/teragrid/forge/releases). Checksums and SBOM are included.
+## Commands
 
-### Contributor setup
+| Command | What it does |
+|---------|-------------|
+| `forge new <template> <path>` | Scaffold a new project (`go-service`, `ts-service`) |
+| `forge init` | Adopt an existing directory as a Forge project |
+| `forge doctor` | Check your environment (git, Go, OS, permissions) |
+| `forge scan <family>` | Scan for `secrets`, `rls`, `prompt-injection`, `supply-chain`, or `all` |
+| `forge clean` | Remove LLM cruft based on your project manifest |
+| `forge lint` | Check hygiene (manifest, `.gitignore` markers, gitleaks config) |
+| `forge ship [--dry-run]` | Run the 5-checkpoint ship pipeline |
+| `forge upgrade <codemod>` | Apply a codemod — `gitignore-marker`, `gitleaks-baseline`, `list` |
+| `forge audit <show\|verify>` | Inspect the tamper-evident audit ledger |
+| `forge eval [path]` | Run LLM scenario regression suites |
+| `forge explain <verb>` | Print what a command does, its inputs and side-effects |
+| `forge spend <status\|set>` | Track and enforce LLM API spend limits |
+| `forge incident <new\|list>` | Manage incident lifecycle (identified → fixed) |
+| `forge insights` | Summarise activity from the local audit log |
+| `forge telemetry <enable\|disable>` | Control opt-in local telemetry (no PII ever leaves your machine) |
+| `forge version` | Print version and build metadata |
 
-```bash
-make tools     # one-time: golangci-lint, govulncheck, goimports, gotestsum, goreleaser
-make all       # lint + test + build
-```
+Run `forge --help` or `forge <command> --help` for full flag documentation.
 
-## Verbs available in the MVP
+---
 
-| Verb | Purpose | Status |
-|------|---------|--------|
-| `forge version` | Print version + build metadata. | ✅ M0 |
-| `forge doctor` | Check env (git, go, OS, write perms). `--json` supported. | ✅ M0 |
-| `forge new <template> <path>` | Scaffold a project into a new directory (`go-service`, `ts-service`). | ✅ M0 |
-| `forge init [path]` | Initialise an existing directory as a Forge project (like `git init`/`npm init`). Auto-detects template. | ✅ M3 |
-| `forge clean [--check\|--apply]` | Manifest-based scratch / LLM-cruft sweeper. | ✅ M0 |
-| `forge explain <verb>` | Print the verb manifest (inputs, outputs, side-effects). `--json` supported. | ✅ M0 |
-| `forge scan <family>` | Scanner: `secrets`, `rls`, `prompt-injection`, `supply-chain`, `all`. Built-in regex engine + optional gitleaks. Exit non-zero on findings. | ✅ M1 |
-| `forge lint [--root]` | Hygiene checker (manifest, .gitignore markers, .gitleaks.toml). | ✅ M1 |
-| `forge ship [--dry-run]` | Validates 5-checkpoint pipeline without executing. | ✅ M1 preview |
-| `forge upgrade <codemod>` [`--apply`] | Run a codemod (default dry-run): `gitignore-marker`, `gitleaks-baseline`, or `list`. | ✅ M2 preview |
-| `forge audit <show\|verify\|append>` | Tamper-evident hash-chained ledger at `.forge/audit.log`. | ✅ M2 preview |
-| `forge plugin <list\|show>` | Enumerate / inspect in-tree plugins (scanners + codemods). `--kind` filter, `--json`. | ✅ M2 preview |
-| `forge eval [path]` | Run scenario regression suites (JSON `*.scenario.json` files). `--json`, `--ci`. | ✅ M2 preview |
-| `forge postmortem [path]` | Lint post-mortem docs in `docs/postmortems/INC-*.md`. CI gate, `--json`. | ✅ M3 preview |
-| `forge insights` | Local telemetry rollup from `.forge/audit.log`. `--since YYYY-MM-DD`, `--json`. | ✅ M3 preview |
-| `forge spend <status\|set\|reset>` | Track and enforce LLM API spend limits (`.forge/llm-budget.json`). `--daily`, `--monthly`, `--json`. | ✅ M3 preview |
-| `forge incident <new\|update\|list\|close>` | ADR-021 incident lifecycle (state machine: identified→fixed). `--json`, `--open`. | ✅ M3 preview |
-| `forge telemetry <enable\|disable\|status\|rotate-id>` | Opt-in file-based spans (ADR-006) at `.forge/telemetry.jsonl`. No PII. | ✅ M3 preview |
+## Why Forge?
 
-## Layout
+| Without Forge | With Forge |
+|---------------|------------|
+| Secrets committed by LLM hallucinations | `forge scan secrets` catches them before push |
+| No audit trail of AI-generated changes | `forge audit` logs every change in a hash-chained ledger |
+| LLM output breaks in CI | `forge ship` validates the full pipeline before you push |
+| Runaway API costs | `forge spend` enforces daily and monthly LLM budget limits |
+| Incidents lost in chat threads | `forge incident` tracks full lifecycle with structured state |
 
-```
-cmd/forge/        # CLI entry point (main package)
-internal/         # Internal packages (not importable by consumers)
-  cli/            #   cobra command tree + per-verb subpackages (cmd<verb>/)
-  errcode/        #   FORGE-NNNN error code registry
-  logobs/         #   slog wrapper with secret redaction
-  manifest/       #   .forge/manifest reader (scratch/managed patterns)
-  scaffold/       #   embedded template renderer (go-service, ...)
-  verbmeta/       #   verb manifests powering `forge explain`
-pkg/              # (reserved) Public Go API surface
-adr/              # Architecture Decision Records
-docs/             # Spec, plans, threat model, contributor docs
-tasks/            # Task trackers per role
-.github/          # CI/CD workflows
-```
+---
 
-## Contributing
+## Community
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). All commits must be DCO-signed (`git commit -s`).
+- **Discussions** — [GitHub Discussions](https://github.com/teragrid/forge/discussions) for questions and ideas
+- **Issues** — [Bug reports and feature requests](https://github.com/teragrid/forge/issues)
+- **Security** — Please read [docs/SECURITY.md](docs/SECURITY.md) before reporting vulnerabilities
+- **Contributing** — See [CONTRIBUTING.md](CONTRIBUTING.md). All commits must be DCO-signed (`git commit -s`)
+
+We follow the [Contributor Covenant](CODE_OF_CONDUCT.md). Everyone is welcome.
+
+---
 
 ## License
 
