@@ -172,7 +172,7 @@ jobs:
   token-budget:
     name: "M1-31 token-budget regression gate"
     runs-on: ubuntu-latest
-    if: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '' }}
+    # Note: secrets context is not available in job-level if; skip check is done at step runtime.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,6 +187,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          # Skip gracefully when no LLM API keys are configured.
+          if [[ -z "$ANTHROPIC_API_KEY" && -z "$OPENAI_API_KEY" ]]; then
+            echo "token-budget: no LLM API keys configured — skipping"
+            exit 0
+          fi
           # Run eval and capture baseline vs current token usage.
           bin/forge eval .forge/eval --ci --json | tee eval-results.json
           # Check for >10% regression in token consumption.
@@ -439,11 +444,12 @@ jobs:
         with:
           fetch-depth: 0
       - name: Check PR title format
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
           # Enforce Conventional Commits format: type(scope): description
-          if ! echo "$TITLE" | grep -qP '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
-            echo "::error::PR title '$TITLE' does not follow Conventional Commits format."
+          if ! echo "$PR_TITLE" | grep -qP '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
+            echo "::error::PR title '$PR_TITLE' does not follow Conventional Commits format."
             echo "Example: feat(scan): add RLS scanner"
             echo "See CONTRIBUTING.md for requirements."
             exit 1

@@ -28,17 +28,15 @@ jobs:
         run: go build -o bin/forge ./cmd/forge
 
       - name: Run eval (live LLM)
-        if: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.OPENAI_API_KEY != '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          if [[ -z "$ANTHROPIC_API_KEY" && -z "$OPENAI_API_KEY" ]]; then
+            echo "::notice title=Nightly eval skipped::No ANTHROPIC_API_KEY or OPENAI_API_KEY secret configured. Live eval was not run."
+            exit 0
+          fi
           bin/forge eval .forge/eval --ci --json
-
-      - name: Skip notice (no API keys configured)
-        if: ${{ secrets.ANTHROPIC_API_KEY == '' && secrets.OPENAI_API_KEY == '' }}
-        run: |
-          echo "::notice title=Nightly eval skipped::No ANTHROPIC_API_KEY or OPENAI_API_KEY secret configured. Live eval was not run."
 
   # ── M1-37: Allowlist-expiry sweeper ─────────────────────────────────────
   # Scans all allowlist entries for expired `# review-by:` dates and opens
