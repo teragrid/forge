@@ -194,7 +194,8 @@ func Run(root string, apply bool) (*Result, error) {
 	sort.Strings(res.Candidates)
 
 	// Secret guard: detect files that should never be tracked by git.
-	secrets, err := checkTrackedSecrets(root)
+	// Managed files (e.g. test fixtures) are excluded from this check.
+	secrets, err := checkTrackedSecrets(root, mf)
 	if err == nil {
 		res.TrackedSecrets = secrets
 	}
@@ -241,9 +242,10 @@ func renderText(cmd *cobra.Command, r *Result) {
 }
 
 // checkTrackedSecrets runs `git ls-files` in root and returns any filenames
-// that match secretPatterns. Returns (nil, non-nil) if git is unavailable
+// that match secretPatterns. Files matching managed manifest patterns (e.g.
+// test fixtures) are excluded. Returns (nil, non-nil) if git is unavailable
 // (caller skips the check silently for graceful degradation).
-func checkTrackedSecrets(root string) ([]string, error) {
+func checkTrackedSecrets(root string, mf manifest.File) ([]string, error) {
 	cmd := exec.Command("git", "-C", root, "ls-files")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -254,6 +256,10 @@ func checkTrackedSecrets(root string) ([]string, error) {
 	for _, line := range strings.Split(out.String(), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
+			continue
+		}
+		// Skip files that are explicitly managed (e.g. test fixtures).
+		if manifest.Match(mf.Managed, filepath.ToSlash(line)) {
 			continue
 		}
 		base := filepath.Base(filepath.FromSlash(line))

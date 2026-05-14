@@ -73,6 +73,7 @@ func New() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&root, "root", "", "Project root (default: cwd)")
 	cmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")
+	cmd.PersistentFlags().BoolVar(&dryRun, "check", false, "CI mode: preview only, exit non-zero if changes needed (alias for --dry-run)")
 	cmd.AddCommand(
 		newSyncCmd(&root, &dryRun),
 		newHealCmd(&root, &dryRun),

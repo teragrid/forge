@@ -257,7 +257,8 @@ jobs:
       - name: forge scan security (secrets)
         run: |
           BASE="${GITHUB_BASE_REF:-main}"
-          bin/forge scan security --since "origin/$BASE" --json | tee security-scan.json
+          # Allow forge scan to exit non-zero (findings present) without failing the pipe.
+          bin/forge scan security --since "origin/$BASE" --json | tee security-scan.json || true
           # Count secret-type findings.
           SECRETS=$(jq '[.findings[]? | select(.family == "security" and .rule_id != null and (.rule_id | test("secret|credential|token|key"; "i")))] | length' security-scan.json 2>/dev/null || echo 0)
           if [[ "$SECRETS" -gt 0 ]]; then
