@@ -1,0 +1,23 @@
+# .gitleaks.toml — Forge secret-scanning configuration (gitleaks v8+).
+# See: https://github.com/gitleaks/gitleaks#configuration
+
+title = "Forge gitleaks configuration"
+
+[extend]
+# Extend the default gitleaks ruleset.
+useDefault = true
+
+[allowlist]
+description = "Forge test-fixture allowlist"
+# Allow patterns used only in test fixtures and docs.
+regexes = [
+  # Redacted placeholder values used in tests/docs
+  '''REDACTED''',
+  '''<your-api-key>''',
+  '''your-token-here''',
+]
+paths = [
+  # Test fixtures may contain synthetic secrets for scan testing
+  '''tests/fixtures/''',
+  '''\.forge/eval/''',
+]

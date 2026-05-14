@@ -24,3 +24,8 @@ Thumbs.db
 # Forge runtime scratch (per spec §4 hygiene)
 .forge/cache/
 .forge/scratch/
+
+# forge:gitignore:start — patterns below are auto-managed by forge clean
+results.txt
+test_results.txt
+# forge:gitignore:end

@@ -169,6 +169,7 @@ func New() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().String("since", "", "filter findings to files changed since this git ref (e.g. origin/main)")
 	return cmd
 }
 

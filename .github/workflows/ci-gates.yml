@@ -105,7 +105,9 @@ jobs:
       - name: forge scan all
         run: |
           BASE="${GITHUB_BASE_REF:-main}"
-          bin/forge scan all --since "origin/$BASE" --json | tee scan-results.json
+          # Allow forge scan to exit non-zero (findings present) without failing the pipe;
+          # the severity-based jq check below is the actual gate.
+          bin/forge scan all --since "origin/$BASE" --json | tee scan-results.json || true
           # Exit non-zero if any security/correctness/compliance findings are errors.
           ERRORS=$(jq '[.findings[]? | select(.severity == "error")] | length' scan-results.json 2>/dev/null || echo 0)
           if [[ "$ERRORS" -gt 0 ]]; then
