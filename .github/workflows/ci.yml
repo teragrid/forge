@@ -39,9 +39,16 @@ jobs:
     name: lint (golangci-lint + gofmt + goimports)
     runs-on: [self-hosted, Windows, x64]
     steps:
+      # System gitconfig on this runner has core.autocrlf=true which overrides
+      # .gitattributes eol=lf. Setting system+global to false fixes checkout.
       - name: Configure git line endings
-        run: git config --global core.autocrlf false
+        run: |
+          git config --system core.autocrlf false
+          git config --global core.autocrlf false
       - uses: actions/checkout@v4
+      # Re-normalize working tree using .gitattributes (ensures LF after checkout).
+      - name: Renormalize line endings
+        run: git checkout -- .
       - name: Verify line endings (diagnostic)
         run: |
           git ls-files --eol cmd/forge/main.go doc.go | ForEach-Object { Write-Host $_ }
