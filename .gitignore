@@ -25,6 +25,31 @@ Thumbs.db
 .forge/cache/
 .forge/scratch/
 
+# ── Private / development-phase files (kept local, never pushed) ──────────────
+# Root artefacts & AI editor configs
+CHECKLIST.md
+CLAUDE.md
+.cursorrules
+.windsurfrules
+test_results_new.txt
+
+# Internal planning, specs, ops docs
+docs/FORGE_FRAMEWORK_SPEC.md
+docs/tasks/
+docs/DEVELOPMENT_PLAN.md
+docs/GO_TO_COMMUNITY_PLAN.md
+docs/LAUNCH.md
+docs/PILOT_CASE_STUDY.md
+docs/TEST_PLAN.md
+docs/PENTEST.md
+docs/THREAT_MODEL.md
+docs/MAINTAINER_SLA.md
+docs/STATUS_PAGE.md
+
+# Architecture Decision Records (internal)
+docs/adr/
+# ─────────────────────────────────────────────────────────────────────────────
+
 # forge:gitignore:start — patterns below are auto-managed by forge clean
 results.txt
 test_results.txt
