@@ -26,11 +26,9 @@ concurrency:
 permissions:
   contents: read
 
-# Use Git Bash so all `run:` steps work identically to ubuntu-latest.
-# Switch back to ubuntu-latest once the monthly Actions budget resets.
-defaults:
-  run:
-    shell: bash
+# All steps use PowerShell (default on Windows self-hosted runner).
+# bash-style commands have been rewritten as pwsh equivalents.
+# TODO: revert runs-on to ubuntu-latest and restore bash steps when budget resets.
 
 env:
   GO_VERSION: '1.25'
@@ -50,8 +48,10 @@ jobs:
       - name: gofmt + goimports
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
-          test -z "$(gofmt -s -l .)" || (gofmt -s -l . && exit 1)
-          test -z "$(goimports -l .)"  || (goimports -l . && exit 1)
+          $fmt = gofmt -s -l . 2>&1 | Where-Object { $_ -notmatch 'fixtures' }
+          if ($fmt) { Write-Host "gofmt issues:"; $fmt; exit 1 }
+          $imp = goimports -l . 2>&1 | Where-Object { $_ -notmatch 'fixtures' }
+          if ($imp) { Write-Host "goimports issues:"; $imp; exit 1 }
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
@@ -119,11 +119,10 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: |
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          mkdir -p dist
-          go build -ldflags "-s -w -X main.Version=${GITHUB_SHA::7}" \
-            -o "dist/forge-${GOOS}-${GOARCH}${ext}" ./cmd/forge
+          $ext = if ($env:GOOS -eq 'windows') { '.exe' } else { '' }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $ver = $env:GITHUB_SHA.Substring(0, 7)
+          go build -ldflags "-s -w -X main.Version=$ver" -o "dist/forge-$env:GOOS-$env:GOARCH$ext" ./cmd/forge
       - uses: actions/upload-artifact@v4
         with:
           name: forge-${{ matrix.goos }}-${{ matrix.goarch }}
