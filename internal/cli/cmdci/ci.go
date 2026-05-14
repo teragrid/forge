@@ -96,6 +96,7 @@ func init() {
 	errcode.Register(CodeCIGotchaWrite, "failed to write CI gotcha to .forge/learned/gotchas.jsonl")
 	initMeta()
 }
+
 // New returns the top-level `forge ci` cobra command.
 func New() *cobra.Command {
 	cmd := &cobra.Command{
@@ -212,10 +213,10 @@ func runWatch(ctx context.Context, out io.Writer, f *watchFlags) error {
 
 	for {
 		run, err := fetchRun(ctx, token, repo, sha)
-		if err != nil {
+		if err != nil { //nolint:gocritic
 			// Non-fatal: log and keep polling.
 			fmt.Fprintf(out, "  [poll error: %v]\n", err)
-		} else if run != nil { //nolint:gocritic
+		} else if run != nil {
 			elapsed := time.Since(start).Round(time.Second).String()
 			switch run.Status {
 			case "completed":
@@ -355,7 +356,7 @@ func runFix(ctx context.Context, out io.Writer, f *fixFlags) error {
 		return nil
 	}
 
-		return errcode.Newf(CodeCIOperationFailed, nil, "unexpected status %d fetching run logs", resp.StatusCode)
+	return errcode.Newf(CodeCIOperationFailed, nil, "unexpected status %d fetching run logs", resp.StatusCode)
 }
 
 // ── gotcha ────────────────────────────────────────────────────────────────────

@@ -98,7 +98,7 @@ func New() *cobra.Command {
 			"into .forge/backups/. Run before `forge migrate up`, major upgrades, or\n" +
 			"any destructive operation. Pairs with `forge rollback`.\n\n" +
 			"Safe by default: --apply is required to persist the snapshot.",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if root == "" {
 				cwd, err := os.Getwd()
 				if err != nil {

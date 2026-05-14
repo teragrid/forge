@@ -97,10 +97,8 @@ func New() *cobra.Command {
 			dir := outputDir
 			if dir == "" {
 				dir = filepath.Join(cwd, "tests", "fixtures")
-			} else {
-				if !filepath.IsAbs(dir) {
-					dir = filepath.Join(cwd, dir)
-				}
+			} else if !filepath.IsAbs(dir) {
+				dir = filepath.Join(cwd, dir)
 			}
 
 			filename := name + ".json"
