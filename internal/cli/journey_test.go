@@ -166,7 +166,7 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 	}
 
 	// Step 4 — ship dry-run: all 5 checkpoints present.
-	s4 := jStep(t, "ship", cmdship.New(), "--dry-run", "--description", "onboarding", "--json")
+	s4 := jStep(t, "ship", cmdship.New(), "--dry-run", "--root", dir, "--description", "onboarding", "--json")
 	var shipRes cmdship.ShipResult
 	if err := json.Unmarshal([]byte(strings.TrimSpace(s4)), &shipRes); err != nil {
 		t.Fatalf("step 4 (ship): not JSON: %v\n%s", err, s4)
@@ -180,7 +180,7 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 
 	// Idempotency guard (§4 in 9-point checklist): running ship again yields
 	// the same checkpoint count.
-	s4b := jStep(t, "ship (replay)", cmdship.New(), "--dry-run", "--json")
+	s4b := jStep(t, "ship (replay)", cmdship.New(), "--dry-run", "--root", dir, "--json")
 	var shipRes2 cmdship.ShipResult
 	if err := json.Unmarshal([]byte(strings.TrimSpace(s4b)), &shipRes2); err != nil {
 		t.Fatalf("step 4b (ship replay): not JSON: %v\n%s", err, s4b)
@@ -705,8 +705,10 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 		return res
 	}
 
+	dir := t.TempDir()
+
 	// Step 1: full pipeline.
-	s1 := jStep(t, "ship --json", cmdship.New(), "--json")
+	s1 := jStep(t, "ship --json", cmdship.New(), "--json", "--root", dir)
 	r1 := parseShipJSON(t, "ship-full", s1)
 	if !r1.DryRun {
 		t.Fatal("step 1 (ship full): expected dry_run=true")
@@ -716,7 +718,7 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	}
 
 	// Step 2: spec subcommand → 1 checkpoint.
-	s2 := jStep(t, "ship spec --json", cmdship.New(), "spec", "--json")
+	s2 := jStep(t, "ship spec --json", cmdship.New(), "spec", "--json", "--root", dir)
 	r2 := parseShipJSON(t, "ship-spec", s2)
 	if len(r2.Checkpoints) != 1 {
 		t.Fatalf("step 2 (ship spec): expected 1 checkpoint, got %d", len(r2.Checkpoints))
@@ -726,28 +728,28 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	}
 
 	// Step 3: verify subcommand → status "ok" on fresh dir.
-	s3 := jStep(t, "ship verify --json", cmdship.New(), "verify", "--json")
+	s3 := jStep(t, "ship verify --json", cmdship.New(), "verify", "--json", "--root", dir)
 	r3 := parseShipJSON(t, "ship-verify", s3)
 	if !r3.Ready {
 		t.Fatalf("step 3 (ship verify): expected Ready=true: %+v", r3.Checkpoints)
 	}
 
 	// Step 4: test subcommand → 1 checkpoint named "Test".
-	s4 := jStep(t, "ship test --json", cmdship.New(), "test", "--json")
+	s4 := jStep(t, "ship test --json", cmdship.New(), "test", "--json", "--root", dir)
 	r4 := parseShipJSON(t, "ship-test", s4)
 	if len(r4.Checkpoints) != 1 || !strings.EqualFold(r4.Checkpoints[0].Name, "test") {
 		t.Fatalf("step 4 (ship test): unexpected: %+v", r4.Checkpoints)
 	}
 
 	// Step 5: idempotency — spec twice → same Ready.
-	s5 := jStep(t, "ship spec replay --json", cmdship.New(), "spec", "--json")
+	s5 := jStep(t, "ship spec replay --json", cmdship.New(), "spec", "--json", "--root", dir)
 	r5 := parseShipJSON(t, "ship-spec-replay", s5)
 	if r2.Ready != r5.Ready {
 		t.Fatalf("step 5 (idempotency): Ready differs: %v vs %v", r2.Ready, r5.Ready)
 	}
 
 	// Step 6: text output (no --json) must mention pipeline.
-	s6 := jStep(t, "ship (text)", cmdship.New())
+	s6 := jStep(t, "ship (text)", cmdship.New(), "--root", dir)
 	if !strings.Contains(s6, "5-checkpoint") {
 		t.Fatalf("step 6 (text): missing 5-checkpoint in output\n%s", s6)
 	}
