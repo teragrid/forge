@@ -23,6 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/cli/banner"
 	"github.com/teragrid/forge/internal/cli/cmdadd"
 	"github.com/teragrid/forge/internal/cli/cmdadopt"
 	"github.com/teragrid/forge/internal/cli/cmdagents"
@@ -79,6 +80,16 @@ func NewRootCommand(version string) *cobra.Command {
 		SilenceErrors: false,
 	}
 	root.SetVersionTemplate("forge {{.Version}}\n")
+
+	// Prepend the ASCII-art banner to the root help page only.
+	// Subcommand help (e.g. `forge scan --help`) is unaffected.
+	origHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if cmd == root {
+			banner.Print(cmd.OutOrStdout())
+		}
+		origHelp(cmd, args)
+	})
 
 	// Load any external plugins declared in .forge/plugins.json before
 	// verbs run. Errors are silently swallowed (missing file is fine;
