@@ -49,14 +49,13 @@ jobs:
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
           # Format and normalise line endings in-place, then check git diff.
-          # Using --ignore-cr-at-eol makes the check immune to CRLF checkout
-          # differences on Windows runners (core.autocrlf conflicts).
+          # --ignore-cr-at-eol makes the check immune to CRLF checkout on Windows.
           gofmt -s -w . 2>$null
           goimports -w -local github.com/teragrid/forge . 2>$null
-          $diff = git diff --ignore-cr-at-eol -- "*.go"
+          $diff = git diff --ignore-cr-at-eol -- '*.go'
           if ($diff) {
-            Write-Host "Formatting issues — run 'gofmt -s -w .' and 'goimports -w .' locally and commit:"
-            git diff --ignore-cr-at-eol --name-only -- "*.go"
+            Write-Host 'Formatting issues detected -- run gofmt -s -w . and goimports -w . then commit'
+            git diff --ignore-cr-at-eol --name-only -- '*.go'
             exit 1
           }
           exit 0
