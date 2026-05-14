@@ -61,10 +61,9 @@ jobs:
           }
           exit 0
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=5m
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          golangci-lint run --timeout=5m
 
   test:
     name: test (go test) on self-hosted
