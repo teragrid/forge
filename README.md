@@ -1,5 +1,9 @@
 # forge
 
+<p align="center">
+  <img src="forge-logo.jpg" alt="Forge logo" width="200" />
+</p>
+
 > The LLM-native framework that makes AI-generated code survive contact with real users — security, multi-tenancy, audit, and observability built in, not bolted on.
 
 **Status:** M3 Preview — **18 verbs available** (`version`, `doctor`, `new`, `init`, `clean`, `explain`, `scan`, `lint`, `ship`, `upgrade`, `audit`, `plugin`, `eval`, `postmortem`, `insights`, `spend`, `incident`, `telemetry`). See [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) for the milestone roadmap and [docs/ERROR_CODES.md](docs/ERROR_CODES.md) for the full `FORGE-XXXX` catalogue.

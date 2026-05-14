@@ -12,6 +12,11 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel any in-progress run for the same branch/PR to save Actions minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -29,6 +34,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
+          cache: true
       - name: gofmt + goimports
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
@@ -53,6 +59,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
+          cache: true
       - name: go mod verify
         run: go mod verify
       - name: install gotestsum
@@ -73,6 +80,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
+          cache: true
       - name: install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: run govulncheck
@@ -81,6 +89,8 @@ jobs:
   build:
     name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
+    # Only run cross-compile on PRs and version tags; skip push-to-main to save minutes.
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     needs: [lint, test]
     strategy:
       fail-fast: false

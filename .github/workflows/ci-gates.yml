@@ -9,8 +9,11 @@ name: ci-gates
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+
+# Cancel any in-progress run for the same PR to save Actions minutes.
+concurrency:
+  group: ci-gates-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

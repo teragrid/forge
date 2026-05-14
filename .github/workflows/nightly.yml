@@ -5,6 +5,11 @@ on:
     - cron: "0 2 * * *"   # 02:00 UTC every day
   workflow_dispatch:       # allow manual trigger
 
+# Only one nightly run at a time; a manual dispatch cancels the scheduled one.
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
 env:
   FORGE_LIVE_LLM: "1"
 
