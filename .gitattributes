@@ -1,0 +1,24 @@
+# Normalize all text files to LF in the repository.
+# This prevents gofmt failures on Windows CI runners where
+# core.autocrlf would otherwise convert LF → CRLF on checkout.
+* text=auto eol=lf
+
+# Explicitly mark Go and shell sources as LF.
+*.go    text eol=lf
+*.sh    text eol=lf
+*.md    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+Makefile text eol=lf
+
+# Binary files — never touch line endings.
+*.exe   binary
+*.wasm  binary
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.zip   binary
+*.tar   binary
+*.gz    binary
