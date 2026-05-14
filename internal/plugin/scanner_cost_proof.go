@@ -51,9 +51,12 @@ func (p *ScannerCostPlugin) Manifest() Manifest {
 }
 
 // Scan walks root looking for cost anti-patterns in Go and TypeScript files.
-func (p *ScannerCostPlugin) Scan(_ context.Context, root string) ([]Finding, error) {
+func (p *ScannerCostPlugin) Scan(ctx context.Context, root string) ([]Finding, error) {
 	var findings []Finding
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			return nil
 		}

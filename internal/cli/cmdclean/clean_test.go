@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/teragrid/forge/internal/manifest"
 )
 
 func setupTree(t *testing.T) string {
@@ -121,7 +123,7 @@ func TestCheckTrackedSecrets_NonGitTree(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	// No .git directory; git ls-files should fail → err returned, caller skips.
-	secrets, err := checkTrackedSecrets(dir)
+	secrets, err := checkTrackedSecrets(dir, manifest.File{})
 	if err == nil && len(secrets) > 0 {
 		t.Errorf("expected no secrets in non-git tree, got %v", secrets)
 	}

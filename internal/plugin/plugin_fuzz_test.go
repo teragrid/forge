@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // FuzzManifestValidate ensures that arbitrary bytes fed through JSON→Manifest
@@ -71,8 +72,11 @@ func FuzzManifestValidate(f *testing.F) {
 // for paths that don't exist or are outside the sandbox, rather than
 // panicking or reading arbitrary files.
 func FuzzScannerScan(f *testing.F) {
+	// Use a small temp dir as the "valid path" seed to avoid scanning the
+	// entire project tree during seed-corpus mode, which would time out.
+	tmpDir := f.TempDir()
 	seeds := []string{
-		".",
+		tmpDir,
 		"/",
 		"../../etc",
 		"",
@@ -85,11 +89,13 @@ func FuzzScannerScan(f *testing.F) {
 	}
 
 	f.Fuzz(func(_ *testing.T, root string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		plugins := Default().All()
 		for _, p := range plugins {
 			if s, ok := p.(Scanner); ok {
 				// Must not panic. Errors for bad paths are fine.
-				_, _ = s.Scan(context.Background(), root)
+				_, _ = s.Scan(ctx, root)
 			}
 		}
 	})
