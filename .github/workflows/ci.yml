@@ -7,10 +7,13 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
+  # Only run on pull requests — the pre-push hook (gofmt, vet, test, govulncheck)
+  # already gates all quality checks before any commit reaches main, so re-running
+  # the full matrix on every push burns Actions minutes without added safety.
   pull_request:
     branches: [main]
+  # Allow manual re-runs from the Actions tab for debugging.
+  workflow_dispatch:
 
 # Cancel any in-progress run for the same branch/PR to save Actions minutes.
 concurrency:
@@ -46,7 +49,6 @@ jobs:
           version: latest
           args: --timeout=5m
 
-  # ubuntu runs on every push and PR (cheapest; Linux is the production target).
   test:
     name: test (go test -race) on ubuntu-latest
     runs-on: ubuntu-latest
@@ -68,11 +70,9 @@ jobs:
           CGO_ENABLED: '1'
         run: gotestsum --format pkgname -- -race -count=1 ./...
 
-  # macOS and Windows are expensive — only run on pull requests and version tags.
   test-cross-os:
     name: test (go test -race) on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     strategy:
       fail-fast: false
       matrix:
@@ -98,8 +98,6 @@ jobs:
   vuln:
     name: govulncheck
     runs-on: ubuntu-latest
-    # govulncheck is slow (~1 min) — skip on push-to-main, run on PRs and tags only.
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -115,8 +113,6 @@ jobs:
   build:
     name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
-    # Only run cross-compile on PRs and version tags; skip push-to-main to save minutes.
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     needs: [lint, test, test-cross-os]
     strategy:
       fail-fast: false
