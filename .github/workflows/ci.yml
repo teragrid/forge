@@ -39,6 +39,9 @@ jobs:
     name: lint (golangci-lint + gofmt + goimports)
     runs-on: [self-hosted, Windows, x64]
     steps:
+      # Prevent git from converting LF→CRLF on checkout; gofmt requires LF.
+      - name: Configure git line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
