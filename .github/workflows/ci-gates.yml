@@ -474,3 +474,27 @@ jobs:
             exit 1
           fi
           echo "contribution-standards: verbmeta presence ✓"
+
+  # ── G-124: No POSIX postinstall in npm packages ─────────────────────────────
+  # Enforces install-spec S5: packages/cli/package.json must not contain a
+  # postinstall script (broke Windows cmd.exe in v1.0.0; fixed in G-120).
+  npm-no-posix-postinstall:
+    name: "G-124 no POSIX postinstall in npm packages"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check packages/*/package.json for postinstall scripts
+        run: |
+          VIOLATIONS=0
+          for pkg in packages/*/package.json; do
+            # postinstall must be absent or empty-string.
+            VALUE=$(jq -r '.scripts.postinstall // empty' "$pkg" 2>/dev/null || true)
+            if [[ -n "$VALUE" ]]; then
+              echo "::error file=$pkg::postinstall script found: '$VALUE'. POSIX shell postinstall breaks Windows cmd.exe (install-spec S5). Remove it."
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done
+          if [[ "$VIOLATIONS" -gt 0 ]]; then
+            exit 1
+          fi
+          echo "npm-no-posix-postinstall: all packages/*/package.json are clean ✓"

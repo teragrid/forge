@@ -160,6 +160,43 @@ func NewRootCommand(version string) *cobra.Command {
 		cmdci.New(),
 	)
 
+	// Universal flags (G-080): every verb inherits these via PersistentFlags.
+	// Child commands that define a same-named local flag shadow these silently
+	// (pflag AddFlagSet skips duplicates), so there is no conflict.
+	var (
+		_globalJSON      bool
+		_globalYes       bool
+		_globalDryRun    bool
+		_globalExplain   bool
+		_globalWorkspace string
+		_globalNoColor   bool
+		_globalQuiet     bool
+		_globalVerbose   string
+		_globalProfile   string
+	)
+	pf := root.PersistentFlags()
+	pf.BoolVar(&_globalJSON, "json", false, "Emit machine-readable NDJSON output")
+	pf.BoolVarP(&_globalYes, "yes", "y", false, "Auto-approve all prompts")
+	pf.BoolVar(&_globalDryRun, "dry-run", false, "Preview changes without side effects")
+	pf.BoolVar(&_globalExplain, "explain", false, "Print LLM reasoning alongside output")
+	pf.StringVar(&_globalWorkspace, "workspace", "", "Active workspace ID (overrides .forge/workspace)")
+	pf.BoolVar(&_globalNoColor, "no-color", false, "Disable ANSI color output")
+	pf.BoolVarP(&_globalQuiet, "quiet", "q", false, "Suppress non-essential output")
+	pf.StringVar(&_globalVerbose, "verbose", "", "Log verbosity level (debug|info|warn)")
+	pf.StringVar(&_globalProfile, "profile", "", "Named credentials profile to load")
+
+	// Silence the linter about intentionally unused persistent-flag bindings.
+	// Commands read these via cmd.Root().PersistentFlags().GetBool/GetString.
+	_ = _globalJSON
+	_ = _globalYes
+	_ = _globalDryRun
+	_ = _globalExplain
+	_ = _globalWorkspace
+	_ = _globalNoColor
+	_ = _globalQuiet
+	_ = _globalVerbose
+	_ = _globalProfile
+
 	// Register backward-compat aliases after all canonical commands are added.
 	registerAliases(root)
 
