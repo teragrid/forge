@@ -39,11 +39,11 @@ echo "npm-publish.sh  version=${VERSION}  dry-run=${DRY_RUN}"
 # ── Platform map: <npm-pkg-dir>  <goreleaser-dist-subdir>  <binary-name> ─────
 
 declare -A PLATFORMS=(
-  ["cli-linux-x64"]="forge_linux_amd64/forge forge"
-  ["cli-linux-arm64"]="forge_linux_arm64/forge forge"
-  ["cli-darwin-x64"]="forge_darwin_amd64/forge forge"
-  ["cli-darwin-arm64"]="forge_darwin_arm64/forge forge"
-  ["cli-win32-x64"]="forge_windows_amd64/forge.exe forge.exe"
+  ["cli-linux-x64"]="forge_linux_amd64_v1/forge forge"
+  ["cli-linux-arm64"]="forge_linux_arm64_v8.0/forge forge"
+  ["cli-darwin-x64"]="forge_darwin_amd64_v1/forge forge"
+  ["cli-darwin-arm64"]="forge_darwin_arm64_v8.0/forge forge"
+  ["cli-win32-x64"]="forge_windows_amd64_v1/forge.exe forge.exe"
 )
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
