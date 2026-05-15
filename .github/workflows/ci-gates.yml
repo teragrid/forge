@@ -498,3 +498,20 @@ jobs:
             exit 1
           fi
           echo "npm-no-posix-postinstall: all packages/*/package.json are clean ✓"
+
+    # -- G-081: Error-codes drift check ------------------------------------------
+  # Verifies docs/ERROR_CODES.md is in sync with errcode.Register calls.
+  # Run: go run ./cmd/gen-errors to regenerate.
+  error-codes-drift:
+    name: "G-081 ERROR_CODES.md drift check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Check ERROR_CODES.md is up to date
+        run: |
+          go run ./cmd/gen-errors --check
+          echo "error-codes-drift: docs/ERROR_CODES.md is in sync with errcode registry"
