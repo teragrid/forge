@@ -100,12 +100,12 @@ jobs:
             packages/cli-darwin-arm64 \
             packages/cli-win32-x64; do
             echo "── publishing $pkg ──"
-            npm publish "./$pkg" --access public --provenance
+            npm publish "./$pkg" --access public
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @forgeone/cli wrapper
-        run: npm publish ./packages/cli --access public --provenance
+        run: npm publish ./packages/cli --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
