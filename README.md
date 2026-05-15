@@ -1,7 +1,7 @@
 ﻿# forge
 
 <p align="center">
-  <img src="forge-logo.png" alt="Forge logo" width="500" />
+  <img src="forge-logo.png" alt="Forge logo" width="600" />
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/teragrid/forge/releases"><img src="https://img.shields.io/github/v/release/teragrid/forge?color=orange&label=latest" alt="Latest release"/></a>
+  <a href="https://github.com/teragrid/forge/releases"><img src="https://img.shields.io/github/v/tag/teragrid/forge?sort=semver&color=orange&label=latest" alt="Latest release"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0"/></a>
   <a href="https://github.com/teragrid/forge/actions"><img src="https://img.shields.io/github/actions/workflow/status/teragrid/forge/ci.yml?label=CI" alt="CI"/></a>
 </p>
