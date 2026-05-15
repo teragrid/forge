@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// bin/forge.js — @forge/cli platform wrapper
+// bin/forge.js — @forgeone/cli platform wrapper
 //
 // Resolves the pre-compiled Go binary for the current platform from the
 // matching optional dependency package, then execs it transparently.
@@ -16,11 +16,11 @@ const fs = require("fs");
 // ── Platform → optional-dependency mapping ──────────────────────────────────
 
 const PLATFORM_PACKAGES = {
-  "linux-x64":    ["@forge/cli-linux-x64",    "forge"],
-  "linux-arm64":  ["@forge/cli-linux-arm64",  "forge"],
-  "darwin-x64":   ["@forge/cli-darwin-x64",   "forge"],
-  "darwin-arm64": ["@forge/cli-darwin-arm64",  "forge"],
-  "win32-x64":    ["@forge/cli-win32-x64",    "forge.exe"],
+  "linux-x64":    ["@forgeone/cli-linux-x64",    "forge"],
+  "linux-arm64":  ["@forgeone/cli-linux-arm64",  "forge"],
+  "darwin-x64":   ["@forgeone/cli-darwin-x64",   "forge"],
+  "darwin-arm64": ["@forgeone/cli-darwin-arm64",  "forge"],
+  "win32-x64":    ["@forgeone/cli-win32-x64",    "forge.exe"],
 };
 
 // ── Resolve binary path ──────────────────────────────────────────────────────

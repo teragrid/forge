@@ -4,9 +4,9 @@
 # Steps:
 #   1. Run goreleaser → builds 5 platform binaries + GitHub Release
 #   2. Copy binaries into packages/ → npm publish each platform package
-#   3. npm publish the @forge/cli wrapper last (depends on platform packages)
+#   3. npm publish the @forgeone/cli wrapper last (depends on platform packages)
 #
-# Required repository secrets:
+# Required environment secrets (environment: production):
 #   GORELEASER_GITHUB_TOKEN  — fine-grained PAT with contents:write on the repo
 #   NPM_TOKEN                — npm automation token (publish scope)
 
@@ -25,6 +25,7 @@ jobs:
   goreleaser:
     name: Build + GitHub Release (goreleaser)
     runs-on: ubuntu-latest
+    environment: production
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -62,6 +63,7 @@ jobs:
   npm-publish:
     name: npm publish
     runs-on: ubuntu-latest
+    environment: production
     needs: goreleaser
     env:
       VERSION: ${{ needs.goreleaser.outputs.version }}
@@ -97,7 +99,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @forge/cli wrapper
+      - name: Publish @forgeone/cli wrapper
         run: npm publish packages/cli --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

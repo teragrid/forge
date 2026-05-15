@@ -37,13 +37,13 @@ Forge is a single-binary CLI that closes the gap between "vibe-coded" AI output 
 ### npm (recommended — no Go required)
 
 ```sh
-npm install -g @forge/cli
+npm install -g @forgeone/cli
 ```
 
 ### npx (try without installing)
 
 ```sh
-npx @forge/cli new my-app --template ts-service
+npx @forgeone/cli new my-app --template ts-service
 ```
 
 ### Homebrew

@@ -1,7 +1,7 @@
 {
-  "name": "@forge/cli-linux-arm64",
+  "name": "@forgeone/cli-linux-arm64",
   "version": "1.0.0",
-  "description": "Linux arm64 binary for @forge/cli",
+  "description": "Linux arm64 binary for @forgeone/cli",
   "os": ["linux"],
   "cpu": ["arm64"],
   "main": "bin/forge",

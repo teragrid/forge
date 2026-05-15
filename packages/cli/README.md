@@ -1,13 +1,13 @@
-# @forge/cli
+# @forgeone/cli
 
 > **AI-native developer framework** — scaffold, lint, scan, and ship production-grade services without touching Go.
 
 ## Install
 
 ```sh
-npm install -g @forge/cli
+npm install -g @forgeone/cli
 # or run without installing
-npx @forge/cli new my-app --template ts-service
+npx @forgeone/cli new my-app --template ts-service
 ```
 
 No Go installation required. The right pre-compiled binary is pulled automatically for your platform.
@@ -31,11 +31,11 @@ forge new --list
 
 | Platform | Package |
 |---|---|
-| Linux x64 | `@forge/cli-linux-x64` |
-| Linux arm64 | `@forge/cli-linux-arm64` |
-| macOS x64 | `@forge/cli-darwin-x64` |
-| macOS arm64 (Apple Silicon) | `@forge/cli-darwin-arm64` |
-| Windows x64 | `@forge/cli-win32-x64` |
+| Linux x64 | `@forgeone/cli-linux-x64` |
+| Linux arm64 | `@forgeone/cli-linux-arm64` |
+| macOS x64 | `@forgeone/cli-darwin-x64` |
+| macOS arm64 (Apple Silicon) | `@forgeone/cli-darwin-arm64` |
+| Windows x64 | `@forgeone/cli-win32-x64` |
 
 ## Commands
 

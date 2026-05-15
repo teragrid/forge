@@ -1,7 +1,7 @@
 {
-  "name": "@forge/cli-win32-x64",
+  "name": "@forgeone/cli-win32-x64",
   "version": "1.0.0",
-  "description": "Windows x64 binary for @forge/cli",
+  "description": "Windows x64 binary for @forgeone/cli",
   "os": ["win32"],
   "cpu": ["x64"],
   "main": "bin/forge.exe",
