@@ -97,13 +97,21 @@ func jStepErr(t *testing.T, cmd *cobra.Command, args ...string) (string, error) 
 	return out.String(), err
 }
 
-// firstJSON trims trailing non-JSON content so partial log lines that follow
-// the root JSON value do not break json.Unmarshal.  It handles both objects
-// (trimmed to last '}') and arrays (trimmed to last ']').
+// firstJSON trims leading non-JSON text (e.g. deprecation notices) and
+// trailing non-JSON content so partial log lines do not break json.Unmarshal.
+// It handles both objects (trimmed to last '}') and arrays (last ']').
 func firstJSON(b []byte) []byte {
 	b = bytes.TrimSpace(b)
 	if len(b) == 0 {
 		return b
+	}
+	// Skip any leading lines that are not the start of a JSON value.
+	if b[0] != '{' && b[0] != '[' {
+		if i := bytes.IndexByte(b, '{'); i >= 0 {
+			b = b[i:]
+		} else if i := bytes.IndexByte(b, '['); i >= 0 {
+			b = b[i:]
+		}
 	}
 	switch b[0] {
 	case '{':
@@ -168,7 +176,7 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 	// Step 4 — ship dry-run: all 5 checkpoints present.
 	s4 := jStep(t, "ship", cmdship.New(), "--dry-run", "--root", dir, "--description", "onboarding", "--json")
 	var shipRes cmdship.ShipResult
-	if err := json.Unmarshal([]byte(strings.TrimSpace(s4)), &shipRes); err != nil {
+	if err := json.Unmarshal(firstJSON([]byte(s4)), &shipRes); err != nil {
 		t.Fatalf("step 4 (ship): not JSON: %v\n%s", err, s4)
 	}
 	if !shipRes.DryRun {
@@ -699,7 +707,7 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	parseShipJSON := func(t *testing.T, label, raw string) shipResult {
 		t.Helper()
 		var res shipResult
-		if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &res); err != nil {
+		if err := json.Unmarshal(firstJSON([]byte(raw)), &res); err != nil {
 			t.Fatalf("[%s] not JSON: %v\n%s", label, err, raw)
 		}
 		return res

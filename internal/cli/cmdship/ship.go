@@ -37,6 +37,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -46,6 +47,48 @@ import (
 	"github.com/teragrid/forge/internal/manifest"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
+
+// ShipEvent is a single NDJSON line emitted to stdout for each checkpoint when
+// --json is active. Schema versioned at .forge/cli-schemas/ship.events.schema.json.
+type ShipEvent struct {
+	Event         string `json:"event"`          // spec.created | tests.generated | tasks.broken-down | task.completed | ship.passed | ship.failed
+	Checkpoint    string `json:"checkpoint"`     // checkpoint name
+	Status        string `json:"status"`         // ok | warning | fail | skipped
+	Detail        string `json:"detail"`         // human-readable detail from the checkpoint
+	TS            string `json:"ts"`             // RFC3339 timestamp
+	SchemaVersion string `json:"schema_version"` // "1"
+}
+
+// checkpointEventName maps a checkpoint name to the NDJSON event type.
+var checkpointEventName = map[string]string{
+	"spec":      "spec.created",
+	"test":      "tests.generated",
+	"breakdown": "tasks.broken-down",
+	"code":      "task.completed",
+	"ship":      "ship.passed",
+	"verify":    "ship.passed", // deprecated alias
+}
+
+// emitEvent writes one NDJSON ShipEvent line to w.
+func emitEvent(w io.Writer, cp Checkpoint, overrideEvent string) {
+	evName := overrideEvent
+	if evName == "" {
+		evName = checkpointEventName[strings.ToLower(cp.Name)]
+		if evName == "" {
+			evName = strings.ToLower(cp.Name) + ".completed"
+		}
+	}
+	ev := ShipEvent{
+		Event:         evName,
+		Checkpoint:    cp.Name,
+		Status:        cp.Status,
+		Detail:        cp.Detail,
+		TS:            time.Now().UTC().Format(time.RFC3339),
+		SchemaVersion: "1",
+	}
+	b, _ := json.Marshal(ev)
+	fmt.Fprintln(w, string(b))
+}
 
 // Reserved error codes (range 3200..3299).
 var (
@@ -136,6 +179,7 @@ func New() *cobra.Command {
 		from           string // --from: resume from a named checkpoint
 		skipCheckpoint string // --skip-checkpoint: skip a named checkpoint
 		pr             bool   // --pr: create a draft GitHub PR after all checkpoints pass
+		resume         bool   // --resume: resume from first incomplete checkpoint (G-002)
 		rootDir        string // --root: project root (default: cwd); primarily for testing
 	)
 
@@ -151,6 +195,7 @@ func New() *cobra.Command {
 		c.Flags().StringVar(&skipCheckpoint, "skip-checkpoint", "", "skip a specific checkpoint by name")
 		c.Flags().BoolVar(&pr, "pr", false, "create a draft GitHub PR after all checkpoints pass (requires gh CLI)")
 		c.Flags().StringVar(&rootDir, "root", "", "project root (default: cwd)")
+		c.Flags().BoolVar(&resume, "resume", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
 	}
 
 	// runCheckpoint is the shared body: run only the named checkpoint(s).
@@ -176,7 +221,7 @@ func New() *cobra.Command {
 
 		// --from: drop all checkpoints before the named one.
 		if from != "" && len(names) == 0 {
-			order := []string{"spec", "test", "breakdown", "code", "verify"}
+			order := []string{"spec", "test", "breakdown", "code", "ship"}
 			found := false
 			for _, cp := range order {
 				if cp == from {
@@ -188,14 +233,14 @@ func New() *cobra.Command {
 			}
 			if !found {
 				return errcode.Newf(ErrShipFailed, nil,
-					"--from: unknown checkpoint %q; one of: spec, test, breakdown, code, verify", from)
+					"--from: unknown checkpoint %q; one of: spec, test, breakdown, code, ship", from)
 			}
 		}
 
 		// --skip-checkpoint: remove a named checkpoint from the run list.
 		if skipCheckpoint != "" {
 			if len(names) == 0 {
-				names = []string{"spec", "test", "breakdown", "code", "verify"}
+				names = []string{"spec", "test", "breakdown", "code", "ship"}
 			}
 			filtered := names[:0]
 			for _, n := range names {
@@ -229,19 +274,25 @@ func New() *cobra.Command {
 				DryRun:    dryRun,
 			}
 		}
+		// G-004: --yes && --json → NDJSON event stream. --json alone → single JSON object (backward compat).
+		if yolo && asJSON {
+			runOpts.EventWriter = cmd.OutOrStdout()
+		}
 		res := RunWithOptions(runOpts)
 		res.Yolo = yolo
 		res.Interactive = gate != nil
 		res.DebateEnabled = runOpts.DebateOpts != nil
-		if asJSON {
+		if asJSON && !yolo {
+			// Backward-compat: single JSON object when --json without --yes.
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 			if encErr := enc.Encode(res); encErr != nil {
 				return encErr
 			}
-		} else {
+		} else if !asJSON {
 			renderText(cmd, res)
 		}
+		// When yolo+json: events already written via EventWriter.
 		if !res.Ready {
 			return errcode.New(ErrShipFailed, "one or more checkpoints failed or were rejected; see output above", nil)
 		}
@@ -249,7 +300,7 @@ func New() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ship [spec|test|breakdown|code|verify] [flags]",
+		Use:   "ship [<feature>] [spec|test|breakdown|code|ship] [flags]",
 		Short: "Deploy a change through the 5-checkpoint pipeline.",
 		Long: "forge ship walks a change through 5 checkpoints:\n" +
 			"  (1) spec      â€” validate or generate the feature spec\n" +
@@ -260,8 +311,22 @@ func New() *cobra.Command {
 			"Run a single checkpoint with: forge ship spec|test|breakdown|code|verify\n" +
 			"Run all five checkpoints with: forge ship (no subcommand)\n\n" +
 			"The --dry-run flag (default in MVP) validates checkpoints without executing.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// G-001: positional <feature> arg.
+			if len(args) == 1 {
+				if description != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "note: --description ignored; using positional feature %q\n", args[0])
+				}
+				description = args[0]
+			} else if cmd.Flags().Changed("description") {
+				// G-001: --description is a deprecated alias.
+				fmt.Fprintf(cmd.OutOrStdout(), "deprecation: --description is deprecated; use positional arg instead: forge ship %q\n", slugify(description))
+			}
+			// G-002: --resume flag.
+			if resume {
+				return runResumeFlag(cmd, description, rootDir)
+			}
 			return runCheckpoint(cmd, nil) // nil = all checkpoints
 		},
 	}
@@ -282,6 +347,10 @@ func New() *cobra.Command {
 		return c
 	}
 
+	// G-003: checkpoint 5 renamed "ship"; "verify" kept as deprecated alias.
+	verifyDeprecated := makeCheckpointCmd("verify",
+		"[deprecated] Checkpoint 5: use 'forge ship ship' instead.")
+	verifyDeprecated.Deprecated = "use 'forge ship ship' instead"
 	cmd.AddCommand(
 		makeCheckpointCmd("spec",
 			"Checkpoint 1: validate or generate the feature spec"),
@@ -291,8 +360,9 @@ func New() *cobra.Command {
 			"Checkpoint 3: decompose the spec into AI-friendly task list"),
 		makeCheckpointCmd("code",
 			"Checkpoint 4: generate / iterate code until tests pass"),
-		makeCheckpointCmd("verify",
+		makeCheckpointCmd("ship",
 			"Checkpoint 5: hygiene + scan + lint ship-readiness check"),
+		verifyDeprecated,
 	)
 
 	// â”€â”€ Status + resume subcommands (spec Â§4 ship sub-verbs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -339,7 +409,7 @@ func New() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "feature %q not found in .forge/specs/\n", feature)
 				return nil
 			}
-			checkpoints := []string{"spec", "test", "breakdown", "code", "verify"}
+			checkpoints := []string{"spec", "test", "breakdown", "code", "ship"}
 			fmt.Fprintf(cmd.OutOrStdout(), "forge ship status: %s\n", feature)
 			for i, cp := range checkpoints {
 				marker := "â—‹ pending"
@@ -353,18 +423,24 @@ func New() *cobra.Command {
 		},
 	}
 
+	// G-002: kept as deprecated alias for --resume flag.
 	resumeCmd := &cobra.Command{
-		Use:   "resume <feature>",
-		Short: "Resume a paused pipeline from the last completed checkpoint.",
+		Use:        "resume <feature>",
+		Deprecated: "use 'forge ship <feature> --resume' instead",
+		Short:      "Resume a paused pipeline from the last completed checkpoint.",
 		Long: "Reads .forge/specs/<feature>/ to determine which checkpoints are complete,\n" +
 			"then continues from the next pending checkpoint.\n\n" +
 			"Equivalent to: forge ship --from=<next-checkpoint> <feature>",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			feature := args[0]
-			root, err := os.Getwd()
-			if err != nil {
-				return errcode.New(ErrShipFailed, "getwd", err)
+			root := rootDir
+			if root == "" {
+				var err error
+				root, err = os.Getwd()
+				if err != nil {
+					return errcode.New(ErrShipFailed, "getwd", err)
+				}
 			}
 			specsDir := filepath.Join(root, ".forge", "specs", feature)
 			if _, err := os.Stat(specsDir); os.IsNotExist(err) {
@@ -372,7 +448,7 @@ func New() *cobra.Command {
 					"feature %q not found in .forge/specs/; start with: forge ship %s", feature, feature)
 			}
 			// Find first pending checkpoint
-			checkpoints := []string{"spec", "test", "breakdown", "code", "verify"}
+			checkpoints := []string{"spec", "test", "breakdown", "code", "ship"}
 			resumeFrom := ""
 			for _, cp := range checkpoints {
 				cpFile := filepath.Join(specsDir, cp+".md")
@@ -396,6 +472,70 @@ func New() *cobra.Command {
 	cmd.AddCommand(statusCmd, resumeCmd)
 
 	return cmd
+}
+
+// runResumeFlag implements G-002: forge ship <feature> --resume.
+// It reads .forge/specs/<slug>/ to find the first pending checkpoint and
+// continues from there, printing a deprecation hint for old resume subcommand callers.
+func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
+	root := rootDir
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			return errcode.New(ErrShipFailed, "getwd", err)
+		}
+	}
+	slug := slugify(feature)
+	specsDir := filepath.Join(root, ".forge", "specs", slug)
+	if _, err := os.Stat(specsDir); os.IsNotExist(err) {
+		return errcode.Newf(ErrShipFailed, nil,
+			"feature %q not found in .forge/specs/; start with: forge ship %s", feature, slug)
+	}
+	checkpoints := []string{"spec", "test", "breakdown", "code", "ship"}
+	resumeFrom := ""
+	for _, cp := range checkpoints {
+		cpFile := filepath.Join(specsDir, cp+".md")
+		if _, err := os.Stat(cpFile); os.IsNotExist(err) {
+			resumeFrom = cp
+			break
+		}
+	}
+	if resumeFrom == "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "forge ship resume: %s \u2014 all checkpoints complete\n", slug)
+		return nil
+	}
+	// Determine JSON mode before printing text.
+	jsonFlag := cmd.Flags().Lookup("json")
+	isJSON := jsonFlag != nil && jsonFlag.Value.String() == "true"
+	if !isJSON {
+		fmt.Fprintf(cmd.OutOrStdout(), "forge ship --resume: %s \u2014 resuming from checkpoint %q\n", slug, resumeFrom)
+	}
+	// Build names list from resumeFrom onward.
+	var names []string
+	found := false
+	for _, cp := range checkpoints {
+		if cp == resumeFrom {
+			found = true
+		}
+		if found {
+			names = append(names, cp)
+		}
+	}
+	_ = found
+	res := RunCheckpoints(root, feature, names)
+	// Respect --json flag (single JSON object when --json without --yes).
+	if isJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(res)
+	}
+	if res.Ready {
+		fmt.Fprintf(cmd.OutOrStdout(), "forge ship --resume: %s \u2014 pipeline complete\n", slug)
+	} else {
+		return errcode.New(ErrShipFailed, "pipeline not complete after resume", nil)
+	}
+	return nil
 }
 
 // Run executes the full 5-checkpoint dry-run validation (backward-compat entry point).
@@ -769,7 +909,7 @@ func countChangedFiles(root string) int {
 // This is the only checkpoint with real automated gates in MVP.
 // M1-10: forge clean --check is now wired here.
 func checkVerify(root string) Checkpoint {
-	cp := Checkpoint{Name: "Verify"}
+	cp := Checkpoint{Name: "Ship"}
 
 	// Run security scan
 	scanRes, err := cmdscan.RunSecurity(root)
@@ -856,7 +996,8 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		"test":      1,
 		"breakdown": 2,
 		"code":      3,
-		"verify":    4,
+		"ship":      4, // G-003: primary name
+		"verify":    4, // G-003: deprecated alias
 	}
 
 	var selected []Checkpoint
@@ -890,6 +1031,10 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			res.Checkpoints = append(res.Checkpoints, cp)
 			res.Ready = false
 			res.Message = fmt.Sprintf("checkpoint %s failed; pipeline stopped", cp.Name)
+			// G-004: emit ship.failed event.
+			if opts.EventWriter != nil {
+				emitEvent(opts.EventWriter, cp, "ship.failed")
+			}
 			return res
 		}
 
@@ -909,16 +1054,36 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			b := approved
 			cp.Approved = &b
 			res.Checkpoints = append(res.Checkpoints, cp)
+			// G-004: emit event (non-final gated checkpoint).
+			if opts.EventWriter != nil {
+				emitEvent(opts.EventWriter, cp, "")
+			}
 			if !approved {
 				res.Ready = false
 				res.Message = fmt.Sprintf(
 					"pipeline stopped after checkpoint %d (%s): reviewer declined to continue",
 					i+1, cp.Name,
 				)
+				// G-004: emit ship.failed on rejection.
+				if opts.EventWriter != nil {
+					emitEvent(opts.EventWriter, cp, "ship.failed")
+				}
 				return res
 			}
 		} else {
 			res.Checkpoints = append(res.Checkpoints, cp)
+			// G-004: emit event. Only the "ship"/"verify" checkpoint gets ship.passed/failed;
+			// other checkpoints always use their natural event name.
+			if opts.EventWriter != nil {
+				cpLower := strings.ToLower(cp.Name)
+				if (cpLower == "ship" || cpLower == "verify") && cp.Status == "fail" {
+					emitEvent(opts.EventWriter, cp, "ship.failed")
+				} else if cpLower == "ship" || cpLower == "verify" {
+					emitEvent(opts.EventWriter, cp, "ship.passed")
+				} else {
+					emitEvent(opts.EventWriter, cp, "")
+				}
+			}
 		}
 	}
 

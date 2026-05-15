@@ -87,7 +87,8 @@ func TestCmd_JSON(t *testing.T) {
 
 func TestRunCheckpoints_Single(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"spec", "test", "breakdown", "code", "verify"} {
+	// G-003: checkpoint 5 is now named "ship"; "verify" is a deprecated alias.
+	for _, name := range []string{"spec", "test", "breakdown", "code", "ship"} {
 		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -95,7 +96,10 @@ func TestRunCheckpoints_Single(t *testing.T) {
 			if len(res.Checkpoints) != 1 {
 				t.Fatalf("[%s] expected 1 checkpoint, got %d", name, len(res.Checkpoints))
 			}
-			if strings.ToLower(res.Checkpoints[0].Name) != name {
+			// "verify" is deprecated alias for "ship"; accept either name.
+			gotName := strings.ToLower(res.Checkpoints[0].Name)
+			expectedName := name
+			if gotName != expectedName && !(name == "verify" && gotName == "ship") {
 				t.Fatalf("[%s] checkpoint name mismatch: got %q", name, res.Checkpoints[0].Name)
 			}
 			if !res.Ready {
@@ -130,16 +134,23 @@ func TestCmd_Subcommand_Spec_JSON(t *testing.T) {
 func TestCmd_Subcommand_Verify_JSON(t *testing.T) {
 	t.Parallel()
 	cmd := New()
-	var out bytes.Buffer
+	var out, errBuf bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetErr(&out)
+	cmd.SetErr(&errBuf) // keep stderr separate so deprecation notice doesn't corrupt stdout JSON
 	cmd.SetArgs([]string{"verify", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("verify subcommand failed: %v\n%s", err, out.String())
 	}
+	// G-003: cobra prints Deprecated notice to stdout before the JSON.
+	// Trim everything before the first '{' so we can parse the JSON.
+	raw := out.String()
+	jsonStart := strings.Index(raw, "{")
+	if jsonStart < 0 {
+		t.Fatalf("verify: no JSON object in output:\n%s", raw)
+	}
 	var res ShipResult
-	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-		t.Fatalf("verify: not JSON: %v\n%s", err, out.String())
+	if err := json.Unmarshal([]byte(raw[jsonStart:]), &res); err != nil {
+		t.Fatalf("verify: not JSON: %v\n%s", err, raw)
 	}
 	if res.Checkpoints[0].Status != "ok" {
 		t.Fatalf("verify on fresh dir must be ok, got %q", res.Checkpoints[0].Status)
@@ -341,7 +352,7 @@ func TestRunCheckpointsGated_Idempotent(t *testing.T) {
 	}
 }
 
-// TestCmd_Yolo_JSON — forge ship --yolo --json: Yolo=true, 5 checkpoints, Ready=true.
+// TestCmd_Yolo_JSON — forge ship --yolo --json: G-004 NDJSON stream with 5 events.
 func TestCmd_Yolo_JSON(t *testing.T) {
 	t.Parallel()
 	cmd := New()
@@ -352,23 +363,26 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--yolo --json: %v\n%s", err, out.String())
 	}
-	var res ShipResult
-	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
-		t.Fatalf("--yolo --json: not JSON: %v\n%s", err, out.String())
+	// G-004: --yolo + --json now emits NDJSON event stream (one line per checkpoint).
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("--yolo --json: expected 5 NDJSON lines, got %d\n%s", len(lines), out.String())
 	}
-	if !res.Yolo {
-		t.Fatal("--yolo --json: Yolo must be true")
-	}
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("--yolo --json: expected 5 checkpoints, got %d", len(res.Checkpoints))
-	}
-	if !res.Ready {
-		t.Fatal("--yolo --json: expected Ready=true")
-	}
-	for _, cp := range res.Checkpoints {
-		if cp.Approved != nil {
-			t.Fatalf("--yolo --json: Approved must be nil for %s", cp.Name)
+	// Decode all 5 events.
+	for i, line := range lines {
+		var ev ShipEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("--yolo --json: line %d not valid ShipEvent: %v\n%s", i+1, err, line)
 		}
+		if ev.SchemaVersion != "1" {
+			t.Errorf("--yolo --json: line %d: schema_version must be \"1\", got %q", i+1, ev.SchemaVersion)
+		}
+	}
+	// Last event must be ship.passed or ship.failed.
+	var lastEv ShipEvent
+	_ = json.Unmarshal([]byte(lines[4]), &lastEv)
+	if lastEv.Event != "ship.passed" && lastEv.Event != "ship.failed" {
+		t.Errorf("--yolo --json: last event must be ship.passed|ship.failed, got %q", lastEv.Event)
 	}
 }
 

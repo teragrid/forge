@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Forge CLI — AI-native developer framework. Scaffold, lint, scan, ship.",
   "keywords": ["forge", "scaffold", "cli", "ai", "developer-tools", "devex"],
   "homepage": "https://forgeframework.dev",
@@ -15,9 +15,6 @@
   "license": "Apache-2.0",
   "bin": {
     "forge": "bin/forge.js"
-  },
-  "scripts": {
-    "postinstall": "node bin/forge.js --version 2>/dev/null || true"
   },
   "files": [
     "bin/forge.js",
