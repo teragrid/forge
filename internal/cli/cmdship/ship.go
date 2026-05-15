@@ -618,6 +618,8 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 					slug)
 			}
 			if err := os.WriteFile(specFile, []byte(specContent), 0o600); err == nil {
+				// G-005: write spec.yml alongside spec.md.
+				writeSpecManifest(specsDir, slug, description, specContent)
 				cp.Status = "ok"
 				return cp
 			}
