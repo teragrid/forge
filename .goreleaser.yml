@@ -78,7 +78,7 @@ brews:
     homepage: "https://github.com/teragrid/forge"
     description: "LLM-native framework CLI for shipping AI-generated code safely."
     license: "Apache-2.0"
-    folder: Formula
+    directory: Formula
     install: |
       bin.install "forge"
     test: |
@@ -134,9 +134,9 @@ release:
   footer: |
     ## Install via npm
     ```sh
-    npm install -g @forge/cli
+    npm install -g @forgeone/cli
     # or
-    npx @forge/cli@{{.Tag}} new my-app --template ts-service
+    npx @forgeone/cli@{{.Tag}} new my-app --template ts-service
     ```
     ## Direct download
     See assets below — pick the archive for your platform.
