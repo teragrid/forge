@@ -21,12 +21,26 @@ package main
 
 import (
 	"os"
+	"runtime/debug"
+	"strings"
 
 	"github.com/teragrid/forge/internal/cli"
 )
 
 // Version is overridden at build time via -ldflags "-X main.Version=...".
+// When installed via "go install", debug.ReadBuildInfo returns the module version.
 var Version = "0.0.0-dev"
+
+func init() {
+	if Version != "0.0.0-dev" {
+		return // already set via -ldflags at build time
+	}
+	if info, ok := debug.ReadBuildInfo(); ok &&
+		info.Main.Version != "" &&
+		info.Main.Version != "(devel)" {
+		Version = strings.TrimPrefix(info.Main.Version, "v")
+	}
+}
 
 func main() {
 	if err := cli.NewRootCommand(Version).Execute(); err != nil {

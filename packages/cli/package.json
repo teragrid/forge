@@ -27,9 +27,7 @@
     "@forgeone/cli-darwin-arm64": "1.0.1",
     "@forgeone/cli-win32-x64": "1.0.1"
   },
-  "scripts": {
-    "postinstall": "node -e \"try{require('child_process').execFileSync(process.execPath,[require('path').join(__dirname,'bin','forge.js'),'--version'],{stdio:'pipe',timeout:5000})}catch(e){process.exit(0)}\""
-  },
+  "scripts": {},
   "engines": {
     "node": ">=18"
   },
