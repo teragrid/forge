@@ -16,6 +16,7 @@ package cmdincident
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -198,4 +199,62 @@ func TestIncident_FalsePositive_ClosedNotOpen(t *testing.T) {
 	if strings.Contains(out, "INC-060") {
 		t.Fatalf("false-positive: closed incident INC-060 appeared in --open list")
 	}
+}
+
+// ── G-111: TestIncident_Triage ────────────────────────────────────────────────
+
+// TestIncident_Triage_Text verifies that `forge incident triage` (text mode)
+// outputs a human-readable triage summary.
+func TestIncident_Triage_Text(t *testing.T) {
+	out := exec(t, []string{"triage"})
+	if !strings.Contains(out, "triage:") {
+		t.Errorf("triage text output missing 'triage:' prefix, got: %q", out)
+	}
+}
+
+// TestIncident_Triage_JSON verifies that `forge incident triage --json` emits
+// valid JSON containing the expected fields: status and labels.
+func TestIncident_Triage_JSON(t *testing.T) {
+	out := exec(t, []string{"triage", "--json"})
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("triage --json produced invalid JSON: %v\noutput: %q", err, out)
+	}
+	if _, ok := result["status"]; !ok {
+		t.Errorf("triage JSON missing 'status' field, got keys: %v", mapKeys(result))
+	}
+	if _, ok := result["labels"]; !ok {
+		t.Errorf("triage JSON missing 'labels' field, got keys: %v", mapKeys(result))
+	}
+	if result["status"] != "triage_pending" {
+		t.Errorf("status: want %q, got %v", "triage_pending", result["status"])
+	}
+}
+
+// TestIncident_Triage_WithInputFile verifies that `--input` is accepted even
+// when the file path is provided (no errors on valid file).
+func TestIncident_Triage_WithInputFile(t *testing.T) {
+	// Write a minimal JSON bundle.
+	bundle := `{"errors":["timeout in CI"],"context":"test run"}`
+	f := filepath.Join(t.TempDir(), "bundle.json")
+	if err := os.WriteFile(f, []byte(bundle), 0o644); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+	out := exec(t, []string{"triage", "--input", f, "--json"})
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("triage --input --json produced invalid JSON: %v\noutput: %q", err, out)
+	}
+	if result["status"] != "triage_pending" {
+		t.Errorf("status: want %q, got %v", "triage_pending", result["status"])
+	}
+}
+
+// mapKeys returns the keys of a map as a sorted slice (for error messages).
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

@@ -39,11 +39,12 @@ var (
 
 // Finding represents a single secret finding.
 type Finding struct {
-	File   string `json:"file"`
-	Line   int    `json:"line"`
-	Match  string `json:"match"`
-	Rule   string `json:"rule"`
-	Secret string `json:"secret"`
+	File       string `json:"file"`
+	Line       int    `json:"line"`
+	Match      string `json:"match"`
+	Rule       string `json:"rule"`
+	Secret     string `json:"secret"`
+	Confidence string `json:"confidence,omitempty"` // G-022: high|medium|low
 }
 
 // ScanResult is the summary of a scan run.
@@ -77,11 +78,15 @@ func init() {
 // New returns the cobra command.
 func New() *cobra.Command {
 	var (
-		root   string
-		asJSON bool
+		root          string
+		asJSON        bool
+		mode          string
+		since         string
+		includeMedium bool
+		fast          bool // G-024: pre-commit fast mode (security+correctness only, quickest patterns)
 	)
 	cmd := &cobra.Command{
-		Use:   "scan <family> [--root <path>] [--json]",
+		Use:   "scan <family> [--root <path>] [--json] [--mode report|suggest|apply]",
 		Short: "Scan project across quality families: security, correctness, reliability, and more.",
 		Long: "Scanner families (spec §4):\n" +
 			"  security      — OWASP Top-10, secrets, RLS gaps, prompt-injection, supply-chain (M1)\n" +
@@ -94,6 +99,10 @@ func New() *cobra.Command {
 			"  dx            — stale .forge/instructions, missing tests, hygiene drift (M2)\n" +
 			"  all           — run all families\n\n" +
 			"Legacy sub-family aliases (M1 backward-compat): secrets, rls, prompt-injection, supply-chain\n\n" +
+			"Modes (--mode):\n" +
+			"  report  — print findings, exit non-zero if any (default, CI-safe)\n" +
+			"  suggest — print unified diff of proposed fixes (no file changes)\n" +
+			"  apply   — auto-apply high-confidence fixes; add --include-medium to widen gate\n\n" +
 			"Exits non-zero if findings detected (CI-gateable).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -106,6 +115,15 @@ func New() *cobra.Command {
 				root = cwd
 			}
 
+			scanMode := ScanMode(mode)
+			if scanMode == "" {
+				scanMode = ModeReport
+			}
+			if scanMode != ModeReport && scanMode != ModeSuggest && scanMode != ModeApply {
+				return errcode.Newf(ErrScanFailed, nil,
+					"invalid --mode %q; valid: report, suggest, apply", mode)
+			}
+
 			var (
 				res *ScanResult
 				err error
@@ -113,9 +131,13 @@ func New() *cobra.Command {
 			switch scanner {
 			// ── Spec §4 top-level family names ──────────────────────────────
 			case "security":
-				res, err = RunSecurity(root)
+				if fast {
+					res, err = RunSecurityFast(root)
+				} else {
+					res, err = RunSecurity(root)
+				}
 			case "correctness":
-				res, err = RunCorrectness(root)
+				res, err = RunCorrectness(root) // already fast — pure file-scan
 			case "performance":
 				res, err = RunPerformance(root)
 			case "reliability":
@@ -149,6 +171,27 @@ func New() *cobra.Command {
 				return err
 			}
 
+			// G-022: assign confidence scores.
+			res.Findings = AssignConfidence(res.Findings)
+
+			// G-023: --since diff against baseline.
+			if since != "" {
+				baseline := loadScanBaseline(root, scanner)
+				if baseline != nil {
+					res.Findings = diffFindings(res.Findings, baseline)
+					res.Count = len(res.Findings)
+					finalizeStatus(res)
+				}
+			}
+
+			// G-023: persist history.
+			persistScanHistory(root, scanner, res)
+
+			// G-021: three-mode dispatch.
+			if scanMode != ModeReport {
+				return ApplyMode(scanMode, scanner, root, res, includeMedium)
+			}
+
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -162,14 +205,17 @@ func New() *cobra.Command {
 			// Exit non-zero if findings found (gating for CI).
 			if len(res.Findings) > 0 {
 				return errcode.Newf(ErrScanFailed, nil,
-					"%d secret finding(s) detected; fix before shipping", len(res.Findings))
+					"%d finding(s) detected; fix before shipping", len(res.Findings))
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
-	cmd.Flags().String("since", "", "filter findings to files changed since this git ref (e.g. origin/main)")
+	cmd.Flags().StringVar(&mode, "mode", "report", "scan mode: report|suggest|apply (G-021)")
+	cmd.Flags().StringVar(&since, "since", "", "diff findings against baseline from this git ref (G-023)")
+	cmd.Flags().BoolVar(&includeMedium, "include-medium", false, "apply medium-confidence fixes in --mode apply (G-022)")
+	cmd.Flags().BoolVar(&fast, "fast", false, "pre-commit fast mode: security runs secrets-only; skips slow scanners (G-024)")
 	return cmd
 }
 
@@ -189,6 +235,17 @@ func RunSecurity(root string) (*ScanResult, error) {
 	}
 	finalizeStatus(merged)
 	return merged, nil
+}
+
+// RunSecurityFast is the G-024 pre-commit fast variant: runs only the secrets
+// scanner (the fastest sub-family) to keep pre-commit hooks snappy.
+func RunSecurityFast(root string) (*ScanResult, error) {
+	res, err := RunSecrets(root)
+	if err != nil {
+		return nil, err
+	}
+	finalizeStatus(res)
+	return res, nil
 }
 
 // RunCorrectness scans for logical correctness hazards: floating-point money,

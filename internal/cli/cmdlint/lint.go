@@ -105,6 +105,9 @@ func New() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+
+	// G-043: forge lint prompts — KV-cache prefix-break detection.
+	cmd.AddCommand(newPromptsLintCmd())
 	return cmd
 }
 
@@ -306,4 +309,114 @@ func isExported(line string) bool {
 		}
 	}
 	return false
+}
+
+// ── G-043: forge lint prompts ─────────────────────────────────────────────────
+
+// PromptLintIssue describes one KV-cache or ordering problem in a prompt file.
+type PromptLintIssue struct {
+	File    string `json:"file"`
+	Kind    string `json:"kind"` // "prefix_break" | "unstable_order" | "variable_in_prefix"
+	Message string `json:"message"`
+}
+
+// CheckPromptKVCache analyses prompt files for patterns that break provider-side
+// KV-cache prefix stability:
+//   - System prompt region contains a variable substitution ({{.VarName}}).
+//   - Static prefix region comes AFTER dynamic content.
+//
+// A file is considered a "prompt" if it has a .md extension inside .forge/prompts/.
+func CheckPromptKVCache(root string) []PromptLintIssue {
+	promptDir := filepath.Join(root, ".forge", "prompts")
+	var issues []PromptLintIssue
+
+	_ = filepath.WalkDir(promptDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".md") && !strings.HasSuffix(d.Name(), ".prompt.ts") {
+			return nil
+		}
+		data, err := os.ReadFile(p) //nolint:gosec
+		if err != nil {
+			return nil
+		}
+		rel := strings.TrimPrefix(p, root+string(os.PathSeparator))
+		content := string(data)
+		lines := strings.Split(content, "\n")
+
+		// Check 1: variable in system-prompt region (first N lines before the first
+		// "---" separator indicate the system prompt prefix region).
+		inSystemRegion := true
+		seenDynamic := false
+		for i, line := range lines {
+			if strings.TrimSpace(line) == "---" {
+				inSystemRegion = false
+			}
+			isDynamic := strings.Contains(line, "{{.") || strings.Contains(line, "${")
+			if inSystemRegion && isDynamic {
+				issues = append(issues, PromptLintIssue{
+					File: rel, Kind: "variable_in_prefix",
+					Message: fmt.Sprintf("line %d: variable substitution in prefix-stable region breaks KV-cache — move variables after the '---' separator", i+1),
+				})
+			}
+			if !inSystemRegion && isDynamic {
+				seenDynamic = true
+			}
+			// Check 2: static content after dynamic content (re-ordering risk).
+			if !inSystemRegion && !isDynamic && seenDynamic && strings.TrimSpace(line) != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				// Static non-header line after dynamic content — might destabilise prefix.
+				// Only warn once per file.
+				issues = append(issues, PromptLintIssue{
+					File: rel, Kind: "unstable_order",
+					Message: fmt.Sprintf("line %d: static content after dynamic content may destabilise KV-cache prefix — place all static sections before dynamic sections", i+1),
+				})
+				seenDynamic = false // suppress duplicate warnings in same file
+			}
+		}
+		return nil
+	})
+	return issues
+}
+
+func newPromptsLintCmd() *cobra.Command {
+	var (
+		root   string
+		asJSON bool
+	)
+	return &cobra.Command{
+		Use:   "prompts",
+		Short: "Lint prompt files for KV-cache prefix-break issues (G-043).",
+		Long: "Analyses .forge/prompts/*.md and .forge/prompts/*.prompt.ts files for\n" +
+			"patterns that break provider-side KV-cache prefix stability:\n" +
+			"  variable_in_prefix  — variable substitution in the static prefix region\n" +
+			"  unstable_order      — static content placed after dynamic content\n\n" +
+			"Re-ordering or inserting content before the prefix-stable region causes the\n" +
+			"provider to re-compute the full prefix, wasting tokens and increasing latency.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			r := root
+			if r == "" {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return errcode.New(ErrLintFailed, "getwd", err)
+				}
+				r = cwd
+			}
+			issues := CheckPromptKVCache(r)
+			if asJSON {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(issues)
+			}
+			if len(issues) == 0 {
+				fmt.Fprintln(cmd.OutOrStdout(), "lint prompts: no KV-cache issues found")
+				return nil
+			}
+			for _, iss := range issues {
+				fmt.Fprintf(cmd.OutOrStdout(), "  [%s] %s: %s\n", iss.Kind, iss.File, iss.Message)
+			}
+			return errcode.Newf(ErrLintFailed, nil, "%d prompt lint issue(s)", len(issues))
+		},
+	}
 }

@@ -197,3 +197,20 @@ func HitCount() int64 { return hitCount }
 
 // MissCount returns the number of cache misses since process start.
 func MissCount() int64 { return missCount }
+
+// HitRate returns the cache hit rate as a value in [0.0, 1.0]. Returns 0 if
+// no lookups have been made.
+func HitRate() float64 {
+	total := hitCount + missCount
+	if total == 0 {
+		return 0
+	}
+	return float64(hitCount) / float64(total)
+}
+
+// ResetStats resets the in-memory hit/miss counters to zero. Intended for
+// use in tests.
+func ResetStats() {
+	hitCount = 0
+	missCount = 0
+}

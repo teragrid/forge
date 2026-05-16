@@ -1,0 +1,15 @@
+{
+  "name": "forge-version",
+  "description": "forge version exits 0 and emits a version string",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "version",
+      "run": ["forge", "version"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["forge"]
+      }
+    }
+  ]
+}

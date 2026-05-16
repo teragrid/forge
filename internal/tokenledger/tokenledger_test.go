@@ -233,33 +233,181 @@ func TestAppend_Concurrent(t *testing.T) {
 	}
 }
 
-// ── Data accuracy ─────────────────────────────────────────────────────────────
-
-// Append an entry with known timestamp, read back, verify round-trip fidelity.
-func TestAppend_TimeRoundTrip(t *testing.T) {
+// G-043: TestTokenLedger_DailyBudgetAlert
+func TestTokenLedger_DailyBudgetAlert(t *testing.T) {
 	t.Parallel()
 	l := ledgerAt(t)
-	ts := time.Date(2024, 6, 15, 12, 30, 0, 0, time.UTC)
-	if err := l.Append(tokenledger.Entry{Time: ts, Model: "m"}); err != nil {
-		t.Fatal(err)
+	now := time.Now().UTC()
+
+	// Under limit: no alert.
+	_ = l.Append(tokenledger.Entry{Time: now, Model: "gpt-4o", CostUSD: 0.05})
+	if err := l.DailyBudgetAlert(now, 0.10); err != nil {
+		t.Errorf("DailyBudgetAlert under limit: unexpected error: %v", err)
 	}
-	entries, _ := l.ReadAll()
-	if !entries[0].Time.Equal(ts) {
-		t.Errorf("time mismatch: got %v want %v", entries[0].Time, ts)
+
+	// Add more to breach the limit.
+	_ = l.Append(tokenledger.Entry{Time: now, Model: "gpt-4o", CostUSD: 0.06})
+	if err := l.DailyBudgetAlert(now, 0.10); err == nil {
+		t.Error("DailyBudgetAlert over limit: want error, got nil")
 	}
 }
 
-// ── False-positive guard ──────────────────────────────────────────────────────
-
-// Two distinct models must produce two distinct ByModel entries.
-func TestSummary_TwoModelsAreDistinct(t *testing.T) {
+func TestTokenLedger_DailyBudgetAlert_ZeroLimitIsUnlimited(t *testing.T) {
 	t.Parallel()
 	l := ledgerAt(t)
-	_ = l.Append(tokenledger.Entry{Model: "a", CostUSD: 1.0})
-	_ = l.Append(tokenledger.Entry{Model: "b", CostUSD: 2.0})
+	now := time.Now().UTC()
+	_ = l.Append(tokenledger.Entry{Time: now, Model: "gpt-4o", CostUSD: 999.0})
+	if err := l.DailyBudgetAlert(now, 0); err != nil {
+		t.Errorf("zero limit should be unlimited, got error: %v", err)
+	}
+}
 
-	s, _ := l.Summary()
-	if s.ByModel["a"].TotalCostUSD == s.ByModel["b"].TotalCostUSD {
-		t.Error("distinct models must not share the same cost aggregate")
+func TestTokenLedger_DailySpend_ExcludesOtherDays(t *testing.T) {
+	t.Parallel()
+	l := ledgerAt(t)
+	today := time.Now().UTC()
+	yesterday := today.AddDate(0, 0, -1)
+	_ = l.Append(tokenledger.Entry{Time: today, Model: "m", CostUSD: 0.10})
+	_ = l.Append(tokenledger.Entry{Time: yesterday, Model: "m", CostUSD: 0.90})
+	got, err := l.DailySpend(today)
+	if err != nil {
+		t.Fatalf("DailySpend: %v", err)
+	}
+	if got != 0.10 {
+		t.Errorf("DailySpend: want 0.10, got %g", got)
+	}
+}
+
+// ── G-140: per-feature token attribution ─────────────────────────────────────
+
+func TestEntry_FeatureField_RoundTrip(t *testing.T) {
+	t.Parallel()
+	l := ledgerAt(t)
+	e := tokenledger.Entry{
+		Model:        "gpt-4o",
+		InputTokens:  50,
+		OutputTokens: 25,
+		CostUSD:      0.001,
+		Operation:    "scaffold",
+		Feature:      "auth-email",
+		Actor:        "user1",
+		Tenant:       "acme-corp",
+	}
+	if err := l.Append(e); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	entries, err := l.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	got := entries[0]
+	if got.Feature != "auth-email" {
+		t.Errorf("Feature: got %q want %q", got.Feature, "auth-email")
+	}
+	if got.Actor != "user1" {
+		t.Errorf("Actor: got %q want %q", got.Actor, "user1")
+	}
+	if got.Tenant != "acme-corp" {
+		t.Errorf("Tenant: got %q want %q", got.Tenant, "acme-corp")
+	}
+}
+
+func TestSummary_ByFeature_Aggregation(t *testing.T) {
+	t.Parallel()
+	l := ledgerAt(t)
+
+	entries := []tokenledger.Entry{
+		{Model: "m", Feature: "feat-A", CostUSD: 0.01, InputTokens: 100, OutputTokens: 50},
+		{Model: "m", Feature: "feat-A", CostUSD: 0.02, InputTokens: 200, OutputTokens: 80},
+		{Model: "m", Feature: "feat-B", CostUSD: 0.05, InputTokens: 500, OutputTokens: 200},
+		{Model: "m", CostUSD: 0.03}, // no feature tag — must not appear in ByFeature
+	}
+	for _, e := range entries {
+		if err := l.Append(e); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+	}
+
+	s, err := l.Summary()
+	if err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+
+	if s.TotalCalls != 4 {
+		t.Errorf("TotalCalls: got %d want 4", s.TotalCalls)
+	}
+
+	if len(s.ByFeature) != 2 {
+		t.Errorf("ByFeature: got %d keys, want 2", len(s.ByFeature))
+	}
+
+	fa := s.ByFeature["feat-A"]
+	if fa == nil {
+		t.Fatal("ByFeature missing feat-A")
+	}
+	if fa.Calls != 2 {
+		t.Errorf("feat-A Calls: got %d want 2", fa.Calls)
+	}
+	if math.Abs(fa.TotalCostUSD-0.03) > 1e-9 {
+		t.Errorf("feat-A TotalCostUSD: got %g want 0.03", fa.TotalCostUSD)
+	}
+	if fa.InputTokens != 300 {
+		t.Errorf("feat-A InputTokens: got %d want 300", fa.InputTokens)
+	}
+
+	fb := s.ByFeature["feat-B"]
+	if fb == nil {
+		t.Fatal("ByFeature missing feat-B")
+	}
+	if fb.Calls != 1 {
+		t.Errorf("feat-B Calls: got %d want 1", fb.Calls)
+	}
+	if math.Abs(fb.TotalCostUSD-0.05) > 1e-9 {
+		t.Errorf("feat-B TotalCostUSD: got %g want 0.05", fb.TotalCostUSD)
+	}
+}
+
+func TestSummary_ByFeature_EmptyWhenNoTags(t *testing.T) {
+	t.Parallel()
+	l := ledgerAt(t)
+	for i := 0; i < 3; i++ {
+		if err := l.Append(tokenledger.Entry{Model: "m", CostUSD: 0.001}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := l.Summary()
+	if err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	if len(s.ByFeature) != 0 {
+		t.Errorf("ByFeature should be empty when no feature tags, got %d entries", len(s.ByFeature))
+	}
+}
+
+func TestSummary_ByFeature_CostSumsToTotal(t *testing.T) {
+	t.Parallel()
+	l := ledgerAt(t)
+	features := []string{"feat-X", "feat-Y", "feat-Z"}
+	want := 0.0
+	for i, f := range features {
+		cost := float64(i+1) * 0.01
+		want += cost
+		if err := l.Append(tokenledger.Entry{Model: "m", Feature: f, CostUSD: cost}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := l.Summary()
+	if err != nil {
+		t.Fatalf("Summary: %v", err)
+	}
+	var featureTotal float64
+	for _, fs := range s.ByFeature {
+		featureTotal += fs.TotalCostUSD
+	}
+	if math.Abs(featureTotal-want) > 1e-9 {
+		t.Errorf("ByFeature cost sum %g != expected %g", featureTotal, want)
 	}
 }

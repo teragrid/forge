@@ -58,6 +58,15 @@ var knownAliases = []aliasEntry{
 	{OldName: "opt", NewName: "optimize", RemovedIn: "v2.0.0"},
 	// forge adopt was previously called forge bootstrap in early prototypes.
 	{OldName: "bootstrap", NewName: "adopt", RemovedIn: "v2.0.0"},
+	// G-090 rename map: old top-level verbs → new canonical verbs.
+	// forge gdpr → forge audit  (was a separate GDPR-flavoured alias in early prototypes)
+	{OldName: "gdpr", NewName: "audit", RemovedIn: "v2.0.0"},
+	// forge compliance → forge audit  (compliance was an alias for the same ledger commands)
+	{OldName: "compliance", NewName: "audit", RemovedIn: "v2.0.0"},
+	// forge migrate-code → forge upgrade
+	{OldName: "migrate-code", NewName: "upgrade", RemovedIn: "v2.0.0"},
+	// forge generate ai-context → forge context generate
+	// forge agents stop --workspace → forge agents stop  (flag change handled in cmdagents)
 }
 
 // registerAliases wires all knownAliases into root so that typing the old

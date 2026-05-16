@@ -40,8 +40,9 @@ type Record struct {
 
 // Config holds configurable spend limits. Zero means unlimited.
 type Config struct {
-	DailyLimitUSD   float64 `json:"daily_limit_usd"`
-	MonthlyLimitUSD float64 `json:"monthly_limit_usd"`
+	DailyLimitUSD   float64            `json:"daily_limit_usd"`
+	MonthlyLimitUSD float64            `json:"monthly_limit_usd"`
+	VerbLimitsUSD   map[string]float64 `json:"verb_limits_usd,omitempty"`
 }
 
 // Budget persists LLM spend history and enforces configurable limits.
@@ -169,4 +170,53 @@ func (b *Budget) Reset(resetLimits bool) {
 	if resetLimits {
 		b.Config = Config{}
 	}
+}
+
+// SetVerbLimit sets a per-verb daily spend limit in USD. A limit of 0 removes
+// the limit for that verb.
+func (b *Budget) SetVerbLimit(verb string, dailyUSD float64) error {
+	if dailyUSD < 0 {
+		return fmt.Errorf("llmbudget: verb limit must be ≥ 0, got %g", dailyUSD)
+	}
+	if b.Config.VerbLimitsUSD == nil {
+		b.Config.VerbLimitsUSD = make(map[string]float64)
+	}
+	if dailyUSD == 0 {
+		delete(b.Config.VerbLimitsUSD, verb)
+	} else {
+		b.Config.VerbLimitsUSD[verb] = dailyUSD
+	}
+	return nil
+}
+
+// VerbDailySpend returns the total CostUSD for the given verb on the calendar
+// day of t (UTC).
+func (b *Budget) VerbDailySpend(verb string, t time.Time) float64 {
+	y, mo, d := t.UTC().Date()
+	var sum float64
+	for _, r := range b.Records {
+		ry, rmo, rd := r.Timestamp.UTC().Date()
+		if r.Verb == verb && ry == y && rmo == mo && rd == d {
+			sum += r.CostUSD
+		}
+	}
+	return sum
+}
+
+// CheckVerbLimit returns an error if the given verb's daily spend meets or
+// exceeds its configured per-verb limit on day t. Zero or absent limit is
+// unlimited.
+func (b *Budget) CheckVerbLimit(verb string, t time.Time) error {
+	if b.Config.VerbLimitsUSD == nil {
+		return nil
+	}
+	limit, ok := b.Config.VerbLimitsUSD[verb]
+	if !ok || limit == 0 {
+		return nil
+	}
+	if spent := b.VerbDailySpend(verb, t); spent >= limit {
+		return fmt.Errorf("llmbudget: verb %q daily spend $%.4f meets/exceeds limit $%.4f",
+			verb, spent, limit)
+	}
+	return nil
 }

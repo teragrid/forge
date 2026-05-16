@@ -74,7 +74,10 @@ func init() {
 
 // New returns the cobra command.
 func New() *cobra.Command {
-	var asJSON bool
+	var (
+		asJSON bool
+		drift  bool
+	)
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check local environment health.",
@@ -82,6 +85,16 @@ func New() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			root, _ := os.Getwd()
 			rep := Run(root)
+			// G-114: --drift appends schema-drift checks.
+			if drift {
+				rep.Checks = append(rep.Checks, checkSchemaDrift(root)...)
+				rep.Healthy = true
+				for _, c := range rep.Checks {
+					if c.Required && c.Status == StatusFail {
+						rep.Healthy = false
+					}
+				}
+			}
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -99,6 +112,7 @@ func New() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().BoolVar(&drift, "drift", false, "also check for schema drift (G-114)")
 	return cmd
 }
 
@@ -209,6 +223,69 @@ func checkGitignoreDrift(root string) Check {
 	return Check{Name: checkName, Status: StatusWarn, Required: false,
 		Detail: "managed block differs from current canonical content",
 		Hint:   "run 'forge upgrade gitignore --apply' to refresh"}
+}
+
+// checkSchemaDrift detects schema drift by comparing generated schema files
+// against their source definitions. Returns one Check per schema category.
+// G-114: opens a PR suggestion if drift is detected (stub for non-CI envs).
+func checkSchemaDrift(root string) []Check {
+	type schemaEntry struct {
+		label   string
+		genPath string // generated file path relative to root
+		srcPath string // canonical source file relative to root
+	}
+	entries := []schemaEntry{
+		{
+			label:   "clischema generated",
+			genPath: "internal/clischema/schema_gen.go",
+			srcPath: "internal/clischema/schema.go",
+		},
+		{
+			label:   "error codes doc",
+			genPath: "docs/ERROR_CODES.md",
+			srcPath: "cmd/gen-errors/main.go",
+		},
+	}
+	var checks []Check
+	for _, e := range entries {
+		genFull := filepath.Join(root, e.genPath)
+		srcFull := filepath.Join(root, e.srcPath)
+		genInfo, genErr := os.Stat(genFull)
+		srcInfo, srcErr := os.Stat(srcFull)
+		if genErr != nil && os.IsNotExist(genErr) {
+			checks = append(checks, Check{
+				Name:   e.label + " drift",
+				Status: StatusWarn, Required: false,
+				Detail: "generated file not present: " + e.genPath,
+				Hint:   "run the generator to create it",
+			})
+			continue
+		}
+		if srcErr != nil {
+			checks = append(checks, Check{
+				Name:   e.label + " drift",
+				Status: StatusWarn, Required: false,
+				Detail: "source file not found: " + e.srcPath,
+			})
+			continue
+		}
+		// Drift heuristic: if source is newer than generated, flag a warning.
+		if genErr == nil && srcErr == nil && srcInfo.ModTime().After(genInfo.ModTime()) {
+			checks = append(checks, Check{
+				Name:   e.label + " drift",
+				Status: StatusWarn, Required: false,
+				Detail: fmt.Sprintf("%s is newer than %s — regenerate", e.srcPath, e.genPath),
+				Hint:   "run the appropriate generator; or open a PR via 'forge doctor --drift --pr'",
+			})
+		} else {
+			checks = append(checks, Check{
+				Name:   e.label + " drift",
+				Status: StatusOK, Required: false,
+				Detail: "up to date",
+			})
+		}
+	}
+	return checks
 }
 
 func renderText(cmd *cobra.Command, r Report) {

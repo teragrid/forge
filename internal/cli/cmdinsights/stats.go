@@ -63,10 +63,14 @@ type VerbStat struct {
 
 // Report is the full stats output.
 type Report struct {
-	GeneratedAt time.Time  `json:"generated_at"`
-	TotalEvents int        `json:"total_events"`
-	SinceFilter string     `json:"since,omitempty"`
-	Verbs       []VerbStat `json:"verbs"`
+	GeneratedAt    time.Time  `json:"generated_at"`
+	TotalEvents    int        `json:"total_events"`
+	SinceFilter    string     `json:"since,omitempty"`
+	Verbs          []VerbStat `json:"verbs"`
+	// G-013: quick_ratio_30d — fraction of ship runs that used --quick.
+	// Printed as a workflow-smell banner when > 20%.
+	QuickRatio30d  float64    `json:"quick_ratio_30d,omitempty"`
+	QuickSmell     bool       `json:"quick_smell,omitempty"`
 }
 
 // New returns the cobra command.
@@ -112,6 +116,7 @@ func New() *cobra.Command {
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().StringVar(&since, "since", "", "filter events from YYYY-MM-DD onwards")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.AddCommand(NewCLICmd(), NewHygieneCmd())
 	return cmd
 }
 
@@ -122,6 +127,10 @@ func buildReport(entries []audit.Entry, sinceT time.Time, sinceLabel string) Rep
 		actions  map[string]int
 	}
 	verbMap := map[string]*accum{}
+	// G-013: track ship --quick usage over last 30d.
+	thirtyDaysAgo := time.Now().UTC().AddDate(0, 0, -30)
+	var shipTotal30d, shipQuick30d int
+
 	for _, e := range entries {
 		if !sinceT.IsZero() && e.Timestamp.Before(sinceT) {
 			continue
@@ -136,6 +145,14 @@ func buildReport(entries []audit.Entry, sinceT time.Time, sinceLabel string) Rep
 			a.lastSeen = e.Timestamp
 		}
 		a.actions[e.Action]++
+
+		// Count --quick usage in ship runs over the last 30d.
+		if e.Verb == "ship" && !e.Timestamp.Before(thirtyDaysAgo) {
+			shipTotal30d++
+			if det, ok2 := e.Detail["flag"]; ok2 && det == "--quick" {
+				shipQuick30d++
+			}
+		}
 	}
 
 	var verbs []VerbStat
@@ -158,11 +175,20 @@ func buildReport(entries []audit.Entry, sinceT time.Time, sinceLabel string) Rep
 	for _, vs := range verbs {
 		total += vs.Count
 	}
+
+	// G-013: compute quick_ratio_30d.
+	var quickRatio float64
+	if shipTotal30d > 0 {
+		quickRatio = float64(shipQuick30d) / float64(shipTotal30d)
+	}
+
 	return Report{
-		GeneratedAt: time.Now().UTC(),
-		TotalEvents: total,
-		SinceFilter: sinceLabel,
-		Verbs:       verbs,
+		GeneratedAt:   time.Now().UTC(),
+		TotalEvents:   total,
+		SinceFilter:   sinceLabel,
+		Verbs:         verbs,
+		QuickRatio30d: quickRatio,
+		QuickSmell:    quickRatio > 0.20,
 	}
 }
 
@@ -183,5 +209,11 @@ func renderReport(cmd *cobra.Command, r Report, asJSON bool) error {
 	}
 	_ = tw.Flush()
 	fmt.Fprintf(cmd.OutOrStdout(), "\ntotal events: %d\n", r.TotalEvents)
+	// G-013: workflow smell banner.
+	if r.QuickSmell {
+		fmt.Fprintf(cmd.OutOrStdout(),
+			"\n⚠  WORKFLOW SMELL: --quick flag used in %.0f%% of ship runs (30d). "+
+				"Consider addressing root causes.\n", r.QuickRatio30d*100)
+	}
 	return nil
 }

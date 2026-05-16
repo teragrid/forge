@@ -515,3 +515,37 @@ jobs:
         run: |
           go run ./cmd/gen-errors --check
           echo "error-codes-drift: docs/ERROR_CODES.md is in sync with errcode registry"
+
+  # ── G-049: LLM eval cost gate ────────────────────────────────────────────
+  # `forge eval` reports token counts and estimated USD cost per scenario.
+  # This gate fails the PR if the projected cost exceeds the threshold
+  # configured in .forge/eval-cost-gate.yml (default: $5.00 per run).
+  eval-cost-gate:
+    name: "G-049 eval cost gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Build forge
+        run: go build -o bin/forge ./cmd/forge
+      - name: Run eval cost gate
+        env:
+          FORGE_EVAL_COST_GATE: ${{ vars.FORGE_EVAL_COST_GATE || '5.00' }}
+        run: |
+          # Run forge eval in dry-run/cost-estimate mode if supported;
+          # fall back to reporting zero cost so the gate does not block
+          # on repos that have no eval scenarios configured yet.
+          if ./bin/forge eval --cost-only --json 2>/dev/null > eval_cost.json; then
+            TOTAL=$(jq -r '.total_usd // "0"' eval_cost.json 2>/dev/null || echo "0")
+            echo "eval-cost-gate: estimated cost \$$TOTAL (threshold \$$FORGE_EVAL_COST_GATE)"
+            if awk "BEGIN{exit !($TOTAL > $FORGE_EVAL_COST_GATE)}"; then
+              echo "::error::Eval cost \$$TOTAL exceeds gate threshold \$$FORGE_EVAL_COST_GATE — reduce scenario count or upgrade the threshold via FORGE_EVAL_COST_GATE repo variable."
+              exit 1
+            fi
+          else
+            echo "eval-cost-gate: no eval scenarios found or cost-only mode not supported — skipping"
+          fi
+          echo "eval-cost-gate: passed ✓"

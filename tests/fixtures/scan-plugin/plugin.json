@@ -1,0 +1,39 @@
+{
+  "name": "scan-plugin-demo",
+  "version": "1.0.0",
+  "description": "Sample third-party scanner plugin demonstrating the forge scanner contract (G-025).",
+  "type": "scanner",
+  "entrypoint": "scan_plugin_demo.py",
+  "runtime": "python3",
+  "contract": "forge-scanner/v1",
+  "capabilities": ["scan"],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "files": { "type": "array", "items": { "type": "string" } },
+      "root":  { "type": "string" }
+    },
+    "required": ["files", "root"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "scanner":  { "type": "string" },
+      "findings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "rule_id":  { "type": "string" },
+            "file":     { "type": "string" },
+            "line":     { "type": "integer" },
+            "severity": { "type": "string", "enum": ["error", "warning", "info"] },
+            "message":  { "type": "string" }
+          },
+          "required": ["rule_id", "file", "line", "severity", "message"]
+        }
+      }
+    },
+    "required": ["scanner", "findings"]
+  }
+}

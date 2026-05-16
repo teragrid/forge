@@ -225,6 +225,11 @@ func newInstallCmd() *cobra.Command {
 			if err := writeLock(root, lf); err != nil {
 				return err
 			}
+			// G-131: provision per-plugin LLM instructions file.
+			if err := provisionPluginInstructions(root, name); err != nil {
+				// Non-fatal: log but do not block install.
+				fmt.Fprintf(cmd.ErrOrStderr(), "warn: could not provision plugin instructions: %v\n", err)
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "installed plugin %q version %s\n", name, ver)
 			return nil
 		},
@@ -317,6 +322,8 @@ func newRemoveCmd() *cobra.Command {
 			if err := writeLock(root, lf); err != nil {
 				return err
 			}
+			// G-131: remove per-plugin LLM instructions file.
+			removePluginInstructions(root, name)
 			fmt.Fprintf(cmd.OutOrStdout(), "removed plugin %q from lock file\n", name)
 			return nil
 		},
@@ -455,4 +462,35 @@ func newDocsCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// ── G-131: per-plugin LLM instructions ───────────────────────────────────
+
+// pluginInstructionsPath returns the path for a plugin's LLM instructions file.
+func pluginInstructionsPath(root, pluginName string) string {
+	return filepath.Join(root, ".forge", "instructions", pluginName+".instructions.md")
+}
+
+// provisionPluginInstructions creates a stub instructions file for pluginName
+// under <root>/.forge/instructions/<pluginName>.instructions.md if it does not
+// already exist.
+func provisionPluginInstructions(root, pluginName string) error {
+	dir := filepath.Join(root, ".forge", "instructions")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	path := pluginInstructionsPath(root, pluginName)
+	if _, err := os.Stat(path); err == nil {
+		return nil // already exists
+	}
+	content := "# " + pluginName + " Plugin Instructions\n\n" +
+		"<!-- Add LLM instructions for the " + pluginName + " plugin here. -->\n" +
+		"<!-- This file is included in forge context bundles when the plugin is active. -->\n"
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+// removePluginInstructions deletes the instructions file for pluginName.
+// Errors are silently ignored (best-effort cleanup).
+func removePluginInstructions(root, pluginName string) {
+	_ = os.Remove(pluginInstructionsPath(root, pluginName))
 }

@@ -1,0 +1,15 @@
+{
+  "name": "forge-generate-test-dryrun",
+  "description": "G-036: forge generate test --from-bug in dry-run mode exits 0",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "gen-test-dryrun",
+      "run": ["forge", "generate", "test", "--from-bug", "42"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["dry-run", "issue_42_test.go"]
+      }
+    }
+  ]
+}

@@ -278,3 +278,104 @@ func expectExcludes(t *testing.T, got []string, wants ...string) {
 		}
 	}
 }
+
+// ── G-061: dry-run and trash modes ────────────────────────────────────────────
+
+// TestRunDryRun_ShowsButNoDelete verifies that RunDryRun reports candidates
+// without deleting them from disk. G-061.
+func TestRunDryRun_ShowsButNoDelete(t *testing.T) {
+	t.Parallel()
+	root := setupTree(t)
+	res, err := RunDryRun(root)
+	if err != nil {
+		t.Fatalf("RunDryRun: %v", err)
+	}
+	if res.Mode != "dry-run" {
+		t.Errorf("mode = %q, want dry-run", res.Mode)
+	}
+	if len(res.Candidates) == 0 {
+		t.Fatal("expected candidates in dry-run mode")
+	}
+	if len(res.Deleted) != 0 {
+		t.Errorf("dry-run must not delete files, got Deleted=%v", res.Deleted)
+	}
+	// Files must still exist on disk.
+	for _, c := range res.Candidates {
+		if _, err := os.Stat(filepath.Join(root, c)); err != nil {
+			t.Errorf("dry-run deleted %s — must not delete", c)
+		}
+	}
+}
+
+// TestRunWithTrash_MovesFiles verifies that RunWithTrash moves candidates to
+// .forge/trash/<run-id>/ and they no longer exist at their original paths. G-061.
+func TestRunWithTrash_MovesFiles(t *testing.T) {
+	t.Parallel()
+	root := setupTree(t)
+	res, err := RunWithTrash(root)
+	if err != nil {
+		t.Fatalf("RunWithTrash: %v", err)
+	}
+	if res.Mode != "apply" {
+		t.Errorf("mode = %q, want apply", res.Mode)
+	}
+	if len(res.Deleted) == 0 {
+		t.Fatal("expected deleted candidates")
+	}
+	if res.TrashDir == "" {
+		t.Error("TrashDir must be set when files are moved to trash")
+	}
+	// Originals must be gone.
+	for _, d := range res.Deleted {
+		if _, err := os.Stat(filepath.Join(root, d)); err == nil {
+			t.Errorf("%s should not exist at original location after RunWithTrash", d)
+		}
+	}
+	// Managed files must survive.
+	if _, err := os.Stat(filepath.Join(root, "README.md")); err != nil {
+		t.Errorf("README.md must survive RunWithTrash: %v", err)
+	}
+}
+
+// TestRunWithTrash_Recoverable verifies that the files moved to trash are
+// actually readable at their new location (recoverable). G-061.
+func TestRunWithTrash_Recoverable(t *testing.T) {
+	t.Parallel()
+	root := setupTree(t)
+	res, err := RunWithTrash(root)
+	if err != nil {
+		t.Fatalf("RunWithTrash: %v", err)
+	}
+	if res.TrashDir == "" {
+		t.Skip("no trash dir — nothing to verify")
+	}
+	trashBase := filepath.Join(root, filepath.FromSlash(res.TrashDir))
+	// At least one deleted file must exist inside the trash directory.
+	foundInTrash := false
+	for _, d := range res.Deleted {
+		trashPath := filepath.Join(trashBase, filepath.FromSlash(d))
+		if _, err := os.Stat(trashPath); err == nil {
+			foundInTrash = true
+			break
+		}
+	}
+	if !foundInTrash {
+		t.Errorf("no deleted file found in trash dir %s — files are not recoverable", res.TrashDir)
+	}
+}
+
+// TestRunWithTrash_EmptyTree returns empty result without error. G-061.
+func TestRunWithTrash_EmptyTree(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	res, err := RunWithTrash(root)
+	if err != nil {
+		t.Fatalf("RunWithTrash on empty tree: %v", err)
+	}
+	if len(res.Candidates) != 0 {
+		t.Errorf("empty tree: expected 0 candidates, got %v", res.Candidates)
+	}
+	if res.TrashDir != "" {
+		t.Error("TrashDir should be empty when no candidates found")
+	}
+}

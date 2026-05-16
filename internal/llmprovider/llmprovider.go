@@ -58,6 +58,13 @@ type Request struct {
 	UserPrompt   string
 	// MaxTokens caps the completion length. 0 means provider default.
 	MaxTokens int
+	// G-140: per-feature token attribution.
+	// Capability is the forge capability/verb performing this LLM call.
+	Capability string
+	// Actor is the user or service initiating this request.
+	Actor string
+	// CorrelationID links all LLM calls in a single pipeline run.
+	CorrelationID string
 }
 
 // Response is a completed completion response.

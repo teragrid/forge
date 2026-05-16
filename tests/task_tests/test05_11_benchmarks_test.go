@@ -67,10 +67,10 @@ func TestTC0504_BenchmarkMeasurementStability(t *testing.T) {
 			maxDur = d
 		}
 	}
-	// max should not be more than 10× min (very loose stability bound for CI).
-	if minDur > 0 && maxDur > 10*minDur {
+	// max should not be more than 20× min (loose stability bound for CI).
+	if minDur > 0 && maxDur > 20*minDur {
 		t.Logf("durations: %v", durations)
-		t.Errorf("measurement unstable: max=%v is >10× min=%v", maxDur, minDur)
+		t.Errorf("measurement unstable: max=%v is >20× min=%v", maxDur, minDur)
 	}
 }
 

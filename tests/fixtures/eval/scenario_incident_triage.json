@@ -1,0 +1,15 @@
+{
+  "name": "forge-incident-triage",
+  "description": "G-111: forge incident triage reads JSON from stdin and returns structured triage",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "triage-json",
+      "run": ["forge", "incident", "triage", "--json"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["triage_pending"]
+      }
+    }
+  ]
+}

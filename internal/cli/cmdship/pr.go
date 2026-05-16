@@ -91,6 +91,19 @@ func buildPRBody(root, description string) string {
 			sb.Write(data)
 			sb.WriteString("\n\n")
 		}
+		// G-012: include tasks.md checklist and scan summary.
+		tasksFile := filepath.Join(root, ".forge", "specs", slug, "tasks.md")
+		if data, err := os.ReadFile(tasksFile); err == nil {
+			sb.WriteString("## Tasks\n")
+			sb.Write(data)
+			sb.WriteString("\n\n")
+		}
+		scanSummaryFile := filepath.Join(root, ".forge", "specs", slug, "scan-summary.md")
+		if data, err := os.ReadFile(scanSummaryFile); err == nil {
+			sb.WriteString("## Scan Summary\n")
+			sb.Write(data)
+			sb.WriteString("\n\n")
+		}
 	}
 	sb.WriteString("---\n*Created by `forge ship`*\n")
 	return sb.String()

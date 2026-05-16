@@ -141,3 +141,67 @@ func TestDefault_Shared(t *testing.T) {
 		t.Fatal("Default() not stable")
 	}
 }
+
+// ── G-100: WASM sandbox denies execution in stub build ────────────────────────
+
+// TestPluginSandbox_WASM verifies that the WASM sandbox rejects plugin execution
+// when the forge_wasm build tag is absent. In stub builds, any Call returns
+// ErrNotLoaded — the tightest possible sandbox: no execution path exists.
+func TestPluginSandbox_WASM(t *testing.T) {
+	t.Parallel()
+	m := Manifest{
+		Name:     "untrusted-plugin",
+		Version:  "1.0.0",
+		Kind:     KindScanner,
+		WASMPath: "/tmp/untrusted.wasm",
+	}
+	ep := NewExternalPlugin(m)
+	_, err := ep.Call(context.Background(), []string{"--output=/etc/passwd"})
+	if err == nil {
+		t.Fatal("sandbox should deny execution; got nil error")
+	}
+	if err != ErrNotLoaded {
+		t.Errorf("expected ErrNotLoaded from sandbox, got: %v", err)
+	}
+}
+
+// ── G-130: WASM sandbox capability model ─────────────────────────────────────
+
+// TestPlugin_WASMSandbox verifies that no capability beyond what the manifest
+// declares can be exercised through the sandbox. In stub builds the constraint
+// is absolute: every call returns ErrNotLoaded regardless of arguments,
+// including attempts at filesystem escape or command injection.
+func TestPlugin_WASMSandbox(t *testing.T) {
+	t.Parallel()
+	m := Manifest{
+		Name:     "capability-test",
+		Version:  "1.0.0",
+		Kind:     KindCodemod,
+		WASMPath: "plugins/capability-test.wasm",
+	}
+	ep := NewExternalPlugin(m)
+
+	dangerousArgs := []struct {
+		label string
+		args  []string
+	}{
+		{"root-escape", []string{"--root=/"}},
+		{"path-traversal", []string{"--output=../../etc/crontab"}},
+		{"cmd-injection", []string{"/bin/sh", "-c", "rm -rf /"}},
+		{"nil-args", nil},
+	}
+
+	for _, tc := range dangerousArgs {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+			_, err := ep.Call(context.Background(), tc.args)
+			if err == nil {
+				t.Errorf("sandbox: expected error for args %v, got nil", tc.args)
+			}
+			if err != ErrNotLoaded {
+				t.Errorf("sandbox: expected ErrNotLoaded for args %v, got: %v", tc.args, err)
+			}
+		})
+	}
+}

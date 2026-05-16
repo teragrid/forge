@@ -1,0 +1,15 @@
+{
+  "name": "forge-learn-share-no-flags",
+  "description": "G-035: forge learn share with no flags prints current status",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "learn-share-status",
+      "run": ["forge", "learn", "share"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["share"]
+      }
+    }
+  ]
+}

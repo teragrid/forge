@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Append G-043 DailyBudgetAlert tests to tokenledger_test.go."""
+
+addition = (
+    '\n'
+    '// -- G-043: TestTokenLedger_DailyBudgetAlert ----------------------------------\n'
+    '\n'
+    '// TestTokenLedger_DailyBudgetAlert verifies that DailyBudgetAlert returns a\n'
+    '// non-nil error when cumulative spend for the current day meets or exceeds\n'
+    '// the configured limit.\n'
+    'func TestTokenLedger_DailyBudgetAlert(t *testing.T) {\n'
+    '\tt.Parallel()\n'
+    '\tl := ledgerAt(t)\n'
+    '\tnow := time.Now().UTC()\n'
+    '\n'
+    '\t// Under limit: no alert.\n'
+    '\t_, _ = l.Append(tokenledger.Entry{Time: now, Model: "gpt-4o", CostUSD: 0.05})\n'
+    '\tif err := l.DailyBudgetAlert(now, 0.10); err != nil {\n'
+    '\t\tt.Errorf("DailyBudgetAlert under limit: unexpected error: %v", err)\n'
+    '\t}\n'
+    '\n'
+    '\t// Add more to breach the limit.\n'
+    '\t_, _ = l.Append(tokenledger.Entry{Time: now, Model: "gpt-4o", CostUSD: 0.06})\n'
+    '\t// Total = 0.11, limit = 0.10 -> should alert.\n'
+    '\tif err := l.DailyBudgetAlert(now, 0.10); err == nil {\n'
+    '\t\tt.Error("DailyBudgetAlert over limit: want error, got nil")\n'
+    '\t}\n'
+    '}\n'
+    '\n'
+    '// TestTokenLedger_DailyBudgetAlert_ZeroLimitIsUnlimited verifies that a zero\n'
+    '// limitUSD is treated as unlimited.\n'
+    'func TestTokenLedger_DailyBudgetAlert_ZeroLimitIsUnlimited(t *testing.T) {\n'
+    '\tt.Parallel()\n'
+    '\tl := ledgerAt(t)\n'
+    '\tnow := time.Now().UTC()\n'
+    '\t_, _ = l.Append(tokenledger.Entry{Time: now, Model: "gpt-4o", CostUSD: 999.0})\n'
+    '\tif err := l.DailyBudgetAlert(now, 0); err != nil {\n'
+    '\t\tt.Errorf("zero limit should be unlimited, got error: %v", err)\n'
+    '\t}\n'
+    '}\n'
+    '\n'
+    '// TestTokenLedger_DailySpend_ExcludesOtherDays verifies that DailySpend only\n'
+    '// counts entries from the given day.\n'
+    'func TestTokenLedger_DailySpend_ExcludesOtherDays(t *testing.T) {\n'
+    '\tt.Parallel()\n'
+    '\tl := ledgerAt(t)\n'
+    '\ttoday := time.Now().UTC()\n'
+    '\tyesterday := today.AddDate(0, 0, -1)\n'
+    '\t_, _ = l.Append(tokenledger.Entry{Time: today, Model: "m", CostUSD: 0.10})\n'
+    '\t_, _ = l.Append(tokenledger.Entry{Time: yesterday, Model: "m", CostUSD: 0.90})\n'
+    '\tgot, err := l.DailySpend(today)\n'
+    '\tif err != nil {\n'
+    '\t\tt.Fatalf("DailySpend: %v", err)\n'
+    '\t}\n'
+    '\tif got != 0.10 {\n'
+    '\t\tt.Errorf("DailySpend: want 0.10, got %g", got)\n'
+    '\t}\n'
+    '}\n'
+)
+
+path = 'internal/tokenledger/tokenledger_test.go'
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+content = content.rstrip('\n') + '\n' + addition
+with open(path, 'w', encoding='utf-8', newline='\n') as f:
+    f.write(content)
+print('Done - G-043 appended to tokenledger_test.go')

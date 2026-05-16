@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -237,6 +238,67 @@ func NewRollback() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview without deploying")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON output")
 	cmd.Flags().Bool("allow-irreversible", false, "Confirm this irreversible action (ADR-024)")
+
+	// G-112: --advise flag: print advisor recommendation from deploy history
+	var adviseID string
+	cmd.Flags().StringVar(&adviseID, "advise", "", "Deploy ID to advise on (shows risk, suggested roll-back target)")
+	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if adviseID == "" {
+			return nil
+		}
+		r, err := resolveRoot(root)
+		if err != nil {
+			return err
+		}
+		records, err := loadDeployHistory(r)
+		if err != nil || len(records) == 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "advise: no deploy history found for %s\n", adviseID)
+			return nil
+		}
+		// Find the deploy and its predecessor.
+		var target, prev *DeployRecord
+		for i := range records {
+			if records[i].Timestamp == adviseID || records[i].Tag == adviseID {
+				if i > 0 {
+					prev = &records[i-1]
+				}
+				target = &records[i]
+				break
+			}
+		}
+		if target == nil {
+			// Default to latest.
+			latest := records[len(records)-1]
+			target = &latest
+			if len(records) > 1 {
+				p := records[len(records)-2]
+				prev = &p
+			}
+		}
+		advice := map[string]any{
+			"deploy_id": target.Timestamp,
+			"tag":       target.Tag,
+			"risk":      "low",
+			"action":    "monitor",
+		}
+		if target.Status != "ok" {
+			advice["risk"] = "high"
+			advice["action"] = "immediate_rollback"
+			if prev != nil {
+				advice["suggested_target"] = prev.Tag
+			}
+		} else if strings.Contains(strings.ToLower(target.Note), "rollback") {
+			advice["risk"] = "medium"
+			advice["action"] = "review_postmortem"
+		}
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		enc.Encode(advice) //nolint:errcheck
+		// Always exit after advise, don't proceed with rollback.
+		os.Exit(0)
+		return nil
+	}
+
 	return cmd
 }
 

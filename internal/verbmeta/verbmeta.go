@@ -26,6 +26,8 @@ package verbmeta
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 
@@ -125,4 +127,55 @@ func Reset() {
 	mu.Lock()
 	defer mu.Unlock()
 	manifests = map[string]Manifest{}
+}
+
+// CLISchema is the JSON Schema (Draft 7) generated for a verb's --json output.
+type CLISchema struct {
+	Schema      string              `json:"$schema"`
+	Title       string              `json:"title"`
+	Description string              `json:"description"`
+	Type        string              `json:"type"`
+	Properties  map[string]property `json:"properties"`
+	Required    []string            `json:"required,omitempty"`
+}
+
+type property struct {
+	Type string `json:"type"`
+}
+
+// GenerateCLISchemas writes one JSON Schema file per registered verb into
+// dir/.forge/cli-schemas/<verb>.schema.json. It creates the directory if it
+// does not exist. G-082: per-command JSON schemas.
+func GenerateCLISchemas(root string) error {
+	schemaDir := filepath.Join(root, ".forge", "cli-schemas")
+	if err := os.MkdirAll(schemaDir, 0o755); err != nil {
+		return fmt.Errorf("GenerateCLISchemas mkdir: %w", err)
+	}
+
+	for _, m := range All() {
+		schema := CLISchema{
+			Schema:      "http://json-schema.org/draft-07/schema#",
+			Title:       "forge " + m.Verb + " output",
+			Description: m.Summary,
+			Type:        "object",
+			Properties:  make(map[string]property, len(m.OutputFields)),
+		}
+		for _, f := range m.OutputFields {
+			schema.Properties[f] = property{Type: "string"}
+			schema.Required = append(schema.Required, f)
+		}
+		if len(schema.Required) == 0 {
+			schema.Required = nil
+		}
+
+		data, err := json.MarshalIndent(schema, "", "  ")
+		if err != nil {
+			return fmt.Errorf("GenerateCLISchemas marshal %s: %w", m.Verb, err)
+		}
+		path := filepath.Join(schemaDir, m.Verb+".schema.json")
+		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+			return fmt.Errorf("GenerateCLISchemas write %s: %w", m.Verb, err)
+		}
+	}
+	return nil
 }

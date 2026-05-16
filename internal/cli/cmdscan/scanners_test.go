@@ -14,6 +14,7 @@
 package cmdscan
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -638,6 +639,166 @@ func TestRunDX_SourceWithoutTest(t *testing.T) {
 	}
 }
 
+// ============================================================
+// G-021: Scan modes (report / suggest / apply)
+// G-022: Confidence field on findings
+// G-023: Scan history persistence
+// ============================================================
+
+// TC-G021-01: each scanner family supports ModeReport without error.
+func TestScanModes_ReportAllFamilies(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Place a file that triggers something in every family.
+	writeFile(t, root, "config.txt", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n")
+
+	families := []struct {
+		name string
+		fn   func(string) (*ScanResult, error)
+	}{
+		{"security", RunSecurity},
+		{"correctness", RunCorrectness},
+		{"performance", RunPerformance},
+		{"reliability", RunReliability},
+	}
+	for _, fam := range families {
+		fam := fam
+		t.Run(fam.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := fam.fn(root)
+			if err != nil {
+				t.Fatalf("%s report mode: unexpected error: %v", fam.name, err)
+			}
+			if res == nil {
+				t.Fatalf("%s: expected non-nil ScanResult", fam.name)
+			}
+		})
+	}
+}
+
+// TC-G021-02: ApplyMode with ModeSuggest does not return an error.
+func TestApplyMode_Suggest(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "config.go", `package main
+const key = "sk_live_abc123"
+`)
+	res, _ := RunSecurity(root)
+	if err := ApplyMode(ModeSuggest, "security", root, res, false); err != nil {
+		t.Fatalf("ModeSuggest: unexpected error: %v", err)
+	}
+}
+
+// TC-G021-03: ApplyMode with ModeReport returns nil (no-op).
+func TestApplyMode_Report(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	res := &ScanResult{Status: "clean"}
+	if err := ApplyMode(ModeReport, "security", root, res, false); err != nil {
+		t.Fatalf("ModeReport: unexpected error: %v", err)
+	}
+}
+
+// TC-G022-01: AssignConfidence sets non-empty confidence on all findings.
+func TestFindingConfidenceField(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "creds.go", `package main
+const pass = "password=hunter2"
+`)
+	res, err := RunSecurity(root)
+	if err != nil {
+		t.Fatalf("RunSecurity: %v", err)
+	}
+	// AssignConfidence is called internally; verify findings have Confidence set.
+	// Only check findings from the built-in scanner (skip if gitleaks is installed).
+	if hasGitleaks() {
+		t.Skip("gitleaks installed; confidence test skipped")
+	}
+	for _, f := range res.Findings {
+		if f.Confidence == "" {
+			t.Fatalf("finding %+v has empty Confidence field", f)
+		}
+		c := Confidence(f.Confidence)
+		if c != ConfidenceHigh && c != ConfidenceMedium && c != ConfidenceLow {
+			t.Fatalf("finding %+v has invalid Confidence value %q", f, f.Confidence)
+		}
+	}
+}
+
+// TC-G022-02: AssignConfidence marks test-file findings as low confidence.
+func TestAssignConfidence_TestFileIsLow(t *testing.T) {
+	t.Parallel()
+	findings := []Finding{
+		{File: "internal/auth/auth_test.go", Rule: "hardcoded-secret", Match: "password=test"},
+	}
+	got := AssignConfidence(findings)
+	if Confidence(got[0].Confidence) != ConfidenceLow {
+		t.Fatalf("test file finding should be low confidence, got %q", got[0].Confidence)
+	}
+}
+
+// TC-G022-03: AssignConfidence marks production files with exact keywords as high.
+func TestAssignConfidence_ProductionHigh(t *testing.T) {
+	t.Parallel()
+	findings := []Finding{
+		{File: "internal/payment/client.go", Rule: "stripe-key", Match: "sk_live_abc123"},
+	}
+	got := AssignConfidence(findings)
+	if Confidence(got[0].Confidence) != ConfidenceHigh {
+		t.Fatalf("sk_live_ should be high confidence, got %q", got[0].Confidence)
+	}
+}
+
+// TC-G023-01: scan history file created after RunSecurity.
+func TestScanHistory_Persisted(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "config.txt", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n")
+
+	res, err := RunSecurity(root)
+	if err != nil {
+		t.Fatalf("RunSecurity: %v", err)
+	}
+	// Manually call persistScanHistory since it's called internally by RunSecurity.
+	// (Direct call tests the G-023 persistence layer independently.)
+	persistScanHistory(root, "security", res)
+
+	dir := filepath.Join(root, ".forge", "scan-history")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("scan-history dir not created: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected ≥1 scan history file, got 0")
+	}
+	// Verify the file is valid JSON with the expected schema.
+	data, err := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read history file: %v", err)
+	}
+	var entry ScanHistoryEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		t.Fatalf("history file is not valid JSON: %v\n%s", err, string(data))
+	}
+	if entry.Family != "security" {
+		t.Fatalf("history entry family: want security, got %q", entry.Family)
+	}
+	if entry.SchemaVersion != 1 {
+		t.Fatalf("history entry schema_version: want 1, got %d", entry.SchemaVersion)
+	}
+}
+
+// TC-G023-02: loadScanBaseline returns nil when no history exists.
+func TestScanHistory_NoBaselineReturnsNil(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	got := loadScanBaseline(root, "security")
+	if got != nil {
+		t.Fatalf("expected nil baseline for fresh root, got: %+v", got)
+	}
+}
+
 // TC-SCAN-DX-03 (false-positive guard): source file WITH test is not flagged.
 func TestRunDX_SourceWithTestClean(t *testing.T) {
 	t.Parallel()
@@ -688,5 +849,45 @@ func TestRunDX_ForgeManifestPresentClean(t *testing.T) {
 		if f.Rule == "missing-forge-manifest" {
 			t.Fatalf("false positive: .forge/manifest is present but flagged as missing")
 		}
+	}
+}
+// ── G-020: All 8 scanner families are registered and callable ────────────────
+
+// TestScannerFamilies_AllRegistered verifies that every scanner family
+// defined in spec §4 has a corresponding Run* function that can be called
+// on a clean directory without returning an error.
+func TestScannerFamilies_AllRegistered(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	families := []struct {
+		name string
+		fn   func(string) (*ScanResult, error)
+	}{
+		{"security", RunSecurity},
+		{"correctness", RunCorrectness},
+		{"performance", RunPerformance},
+		{"reliability", RunReliability},
+		{"accessibility", RunAccessibility},
+		{"cost", RunCost},
+		{"compliance", RunCompliance},
+		{"dx", RunDX},
+	}
+
+	for _, f := range families {
+		f := f
+		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := f.fn(root)
+			if err != nil {
+				t.Fatalf("[%s] scanner returned error: %v", f.name, err)
+			}
+			if res == nil {
+				t.Fatalf("[%s] scanner returned nil result", f.name)
+			}
+			if res.Status == "" {
+				t.Errorf("[%s] empty Status field in ScanResult", f.name)
+			}
+		})
 	}
 }

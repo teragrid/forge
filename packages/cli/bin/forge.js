@@ -40,7 +40,7 @@ function resolveBinary() {
   const [pkgName, binaryName] = entry;
 
   // Walk up from this file to find the package inside node_modules.
-  // Works whether @forge/cli is installed globally, locally, or via npx.
+  // Works whether @forgeone/cli is installed globally, locally, or via npx.
   let dir = __dirname;
   for (let i = 0; i < 5; i++) {
     dir = path.dirname(dir);

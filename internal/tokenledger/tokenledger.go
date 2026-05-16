@@ -53,6 +53,10 @@ type Entry struct {
 	OutputTokens int       `json:"output_tokens"`
 	CostUSD      float64   `json:"cost_usd"`
 	Operation    string    `json:"operation"`
+	// G-140: per-feature token attribution tags.
+	Feature string `json:"feature,omitempty"` // slug of the forge ship feature (e.g. "auth-email")
+	Actor   string `json:"actor,omitempty"`   // user / service account initiating the call
+	Tenant  string `json:"tenant,omitempty"`  // workspace / org ID for multi-tenant attribution
 }
 
 // ModelSummary aggregates usage for a single model.
@@ -64,11 +68,22 @@ type ModelSummary struct {
 	TotalCostUSD float64
 }
 
+// FeatureSummary aggregates usage for a single feature slug (G-140).
+type FeatureSummary struct {
+	Feature      string
+	Calls        int
+	InputTokens  int
+	OutputTokens int
+	TotalCostUSD float64
+}
+
 // Summary holds the full cross-model aggregation.
 type Summary struct {
 	TotalCalls   int
 	TotalCostUSD float64
 	ByModel      map[string]*ModelSummary
+	// G-140: per-feature cost breakdown.
+	ByFeature map[string]*FeatureSummary
 }
 
 // Ledger is a thread-safe, append-only token usage ledger.
@@ -171,7 +186,10 @@ func (l *Ledger) Summary() (*Summary, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Summary{ByModel: make(map[string]*ModelSummary)}
+	s := &Summary{
+		ByModel:   make(map[string]*ModelSummary),
+		ByFeature: make(map[string]*FeatureSummary),
+	}
 	for _, e := range entries {
 		s.TotalCalls++
 		s.TotalCostUSD += e.CostUSD
@@ -184,6 +202,53 @@ func (l *Ledger) Summary() (*Summary, error) {
 		ms.InputTokens += e.InputTokens
 		ms.OutputTokens += e.OutputTokens
 		ms.TotalCostUSD += e.CostUSD
+		// G-140: per-feature attribution.
+		if e.Feature != "" {
+			fs, ok := s.ByFeature[e.Feature]
+			if !ok {
+				fs = &FeatureSummary{Feature: e.Feature}
+				s.ByFeature[e.Feature] = fs
+			}
+			fs.Calls++
+			fs.InputTokens += e.InputTokens
+			fs.OutputTokens += e.OutputTokens
+			fs.TotalCostUSD += e.CostUSD
+		}
 	}
 	return s, nil
+}
+
+// DailySpend returns the total CostUSD recorded in the ledger for the
+// calendar day of t (UTC).
+func (l *Ledger) DailySpend(t time.Time) (float64, error) {
+	entries, err := l.ReadAll()
+	if err != nil {
+		return 0, err
+	}
+	y, mo, d := t.UTC().Date()
+	var total float64
+	for _, e := range entries {
+		ey, emo, ed := e.Time.UTC().Date()
+		if ey == y && emo == mo && ed == d {
+			total += e.CostUSD
+		}
+	}
+	return total, nil
+}
+
+// DailyBudgetAlert returns a non-nil error when the ledger spend on the
+// calendar day of t (UTC) meets or exceeds limitUSD. A zero limitUSD is
+// treated as unlimited (always returns nil).
+func (l *Ledger) DailyBudgetAlert(t time.Time, limitUSD float64) error {
+	if limitUSD <= 0 {
+		return nil
+	}
+	spent, err := l.DailySpend(t)
+	if err != nil {
+		return err
+	}
+	if spent >= limitUSD {
+		return fmt.Errorf("tokenledger: daily spend USD%.4f meets/exceeds limit USD%.4f", spent, limitUSD)
+	}
+	return nil
 }

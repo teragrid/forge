@@ -196,7 +196,16 @@ func New() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(recordCmd, submitCmd, statusCmd, resetCmd)
+	// G-030–G-035 extended subcommands.
+	cmd.AddCommand(
+		recordCmd, submitCmd, statusCmd, resetCmd,
+		NewPromoteCmd(&root, &jsonOut),
+		NewAntiPatternsCmd(&root, &jsonOut),
+		NewTeachCmd(&root, &jsonOut),
+		NewSessionCmd(&root, &jsonOut),
+		NewInstructionsCmd(&root, &jsonOut),
+		NewShareCmd(&root, &jsonOut),
+	)
 	return cmd
 }
 

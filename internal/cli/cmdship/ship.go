@@ -45,6 +45,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/manifest"
+	"github.com/teragrid/forge/internal/audit"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -102,11 +103,12 @@ type Gate func(idx, total int, cp Checkpoint) bool
 
 // Checkpoint represents one step in the 5-checkpoint pipeline.
 type Checkpoint struct {
-	Name     string        `json:"name"`
-	Status   string        `json:"status"` // "ok", "skipped", "warning", "fail"
-	Detail   string        `json:"detail"`
-	Approved *bool         `json:"approved,omitempty"` // nil=yolo/not-gated; true=approved; false=rejected
-	Debate   *DebateResult `json:"debate,omitempty"`   // populated when --yolo self-debate runs
+	Name        string        `json:"name"`
+	Status      string        `json:"status"` // "ok", "skipped", "warning", "fail"
+	Detail      string        `json:"detail"`
+	AutoAdvance bool          `json:"auto_advance,omitempty"` // G-009: Code sets true when all tasks done
+	Approved    *bool         `json:"approved,omitempty"` // nil=yolo/not-gated; true=approved; false=rejected
+	Debate      *DebateResult `json:"debate,omitempty"`   // populated when --yolo self-debate runs
 }
 
 // ShipResult summarizes the ship run.
@@ -249,6 +251,14 @@ func New() *cobra.Command {
 				}
 			}
 			names = filtered
+			// G-014: Audit skip-checkpoint usage.
+			if al, aErr := audit.Open(audit.DefaultPath); aErr == nil {
+				_, _ = al.Append(audit.Entry{
+					Verb:   "ship",
+					Action: "skip_checkpoint",
+					Detail: map[string]string{"checkpoint": skipCheckpoint},
+				})
+			}
 		}
 
 		// Build approval gate: only for the full pipeline (nil names = all checkpoints).
@@ -551,6 +561,8 @@ func Run(root, description string) *ShipResult {
 // Without an LLMPipe (no provider configured): a Markdown stub is written.
 func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Spec"}
+	// G-011: surface recent spec failures as context for the LLM.
+	recentSpecFailures := loadRecentFailures(root, "spec", 3)
 	specsDir := filepath.Join(root, ".forge", "specs")
 	if description != "" {
 		slug := slugify(description)
@@ -559,11 +571,15 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 			// Spec exists â€” attempt LLM review.
 			if pipe != nil {
 				existing, _ := os.ReadFile(specFile)
+				specReviewSystem := "You are a senior software architect reviewing a feature specification. " +
+					"Improve its acceptance criteria (Given/When/Then format), NFRs, and edge cases. " +
+					"Return the full improved specification in Markdown."
+				if recentSpecFailures != "" {
+					specReviewSystem = recentSpecFailures + "\n" + specReviewSystem
+				}
 				reviewed, err := pipe.Invoke(
 					"ship:spec:review", "",
-					"You are a senior software architect reviewing a feature specification. "+
-						"Improve its acceptance criteria (Given/When/Then format), NFRs, and edge cases. "+
-						"Return the full improved specification in Markdown.",
+					specReviewSystem,
 					fmt.Sprintf("Feature: %s\n\nCurrent spec:\n%s", description, string(existing)),
 					2000,
 				)
@@ -589,11 +605,15 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 		if err := os.MkdirAll(filepath.Join(specsDir, slug), 0o755); err == nil {
 			specContent := ""
 			if pipe != nil {
+				specGenSystem := "You are a senior software architect. Generate a feature specification in Markdown. " +
+					"Include: What, Why, Acceptance Criteria (Given/When/Then format), " +
+					"Non-functional requirements, and Out of scope."
+				if recentSpecFailures != "" {
+					specGenSystem = recentSpecFailures + "\n" + specGenSystem
+				}
 				generated, err := pipe.Invoke(
 					"ship:spec:generate", "",
-					"You are a senior software architect. Generate a feature specification in Markdown. "+
-						"Include: What, Why, Acceptance Criteria (Given/When/Then format), "+
-						"Non-functional requirements, and Out of scope.",
+					specGenSystem,
 					fmt.Sprintf("Generate a complete feature specification for: %s", description),
 					2000,
 				)
@@ -673,43 +693,54 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 			"tests-precede-code violation: %d production file(s) were modified more than 60s before their test file â€” write failing tests first: %s",
 			len(violations), strings.Join(violations[:min3(len(violations))], ", "),
 		)
+		// G-011: record this failure for future learning context.
+		appendFailure(root, "test", description, cp.Detail)
 		return cp
+	}
+
+	slug := slugify(description)
+
+	// G-006: write / verify all 4 named test artifacts.
+	if description != "" {
+		specMD := ""
+		specPath := filepath.Join(root, ".forge", "specs", slug, "spec.md")
+		if data, err := os.ReadFile(specPath); err == nil {
+			specMD = string(data)
+		}
+		writeTestArtifacts(root, slug, description, specMD, pipe)
 	}
 
 	if len(testFiles) > 0 {
 		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf("%d test file(s) found", len(testFiles))
+		missing := missingTestArtifacts(root, slug)
+		if len(missing) == 0 {
+			cp.Detail = fmt.Sprintf("%d test file(s) found; all 4 named artifacts present (tests/%s.*)", len(testFiles), slug)
+		} else {
+			cp.Detail = fmt.Sprintf("%d test file(s) found; missing artifacts: %s", len(testFiles), strings.Join(missing, ", "))
+		}
 		if pipe != nil {
-			stub, err := generateTestStubs(root, description, pipe)
-			if err != nil {
+			if _, err := generateTestStubs(root, description, pipe); err != nil {
 				cp.Detail += fmt.Sprintf(" [LLM:%s â€” %s]", pipe.ProviderName(), llmErrNote(err))
-			} else if stub != "" {
-				cp.Detail = fmt.Sprintf("%d test file(s) found; test stubs written by %s to .forge/specs/%s/test-stubs.md",
-					len(testFiles), pipe.ProviderName(), slugify(description))
 			}
 		}
 		return cp
 	}
-	// No test files â€” attempt LLM generation.
+	// No test files â€” generate 4 named artifacts.
 	if pipe != nil {
-		stub, err := generateTestStubs(root, description, pipe)
-		if err != nil {
+		if _, err := generateTestStubs(root, description, pipe); err != nil {
 			cp.Status = "warning"
-			cp.Detail = fmt.Sprintf("no test files found [LLM:%s â€” %s] â€” write failing tests before forge ship code",
-				pipe.ProviderName(), llmErrNote(err))
+			cp.Detail = fmt.Sprintf("no test files; 4 artifacts written to tests/%s.* [LLM:%s â€” %s]",
+				slug, pipe.ProviderName(), llmErrNote(err))
 			return cp
 		}
-		if stub != "" {
-			cp.Status = "ok"
-			cp.Detail = fmt.Sprintf("test stubs generated by %s (see .forge/specs/%s/test-stubs.md) â€” complete before forge ship code",
-				pipe.ProviderName(), slugify(description))
-			return cp
-		}
+		cp.Status = "ok"
+		cp.Detail = fmt.Sprintf("4 named test artifacts written to tests/%s.* â€” complete stubs before forge ship code", slug)
+		return cp
 	}
 	cp.Status = "warning"
-	cp.Detail = "no test files found â€” write failing tests before running forge ship code"
+	cp.Detail = fmt.Sprintf("no test files found â€” 4 stub artifacts written to tests/%s.*", slug)
 	if pipe == nil {
-		cp.Detail += " (set ANTHROPIC_API_KEY to auto-generate stubs)"
+		cp.Detail += " (set ANTHROPIC_API_KEY to generate LLM-assisted stubs)"
 	}
 	return cp
 }
@@ -807,11 +838,15 @@ func checkBreakdown(root, description string, pipe *LLMPipe) Checkpoint {
 				cp.Status = "warning"
 				cp.Detail = fmt.Sprintf("no breakdown.md [LLM:%s â€” %s] â€” run forge ship breakdown to generate",
 					pipe.ProviderName(), llmErrNote(err))
+				// G-011: record breakdown failure for future learning context.
+				appendFailure(root, "breakdown", description, cp.Detail)
 				return cp
 			}
 			if generated != "" {
 				cp.Status = "ok"
-				cp.Detail = fmt.Sprintf("breakdown generated by %s: .forge/specs/%s/breakdown.md",
+				// G-008: write per-task context bundles.
+				_ = writeTaskContextBundles(root, slug, 0)
+				cp.Detail = fmt.Sprintf("breakdown+tasks+bundles by %s: .forge/specs/%s/",
 					pipe.ProviderName(), slug)
 				return cp
 			}
@@ -863,6 +898,14 @@ func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
 			}
 			return cp
 		}
+	}
+
+	// G-009: auto-advance when all tasks complete.
+	if description != "" && allTasksComplete(root, slugify(description)) {
+		cp.Status = "ok"
+		cp.AutoAdvance = true
+		cp.Detail = "all tasks complete â€” auto-advancing to Ship checkpoint"
+		return cp
 	}
 
 	// Structural fallback (no LLM or no spec/breakdown context).

@@ -61,5 +61,31 @@ if command -v "$FORGE_BIN" &>/dev/null; then
   fi
 fi
 
+# ── Hygiene check (G-070) ──────────────────────────────────────────────────
+echo "forge pre-commit: running hygiene check…"
+if command -v "$FORGE_BIN" &>/dev/null; then
+  if ! "$FORGE_BIN" clean --check 2>&1; then
+    echo "forge pre-commit: hygiene check failed — run 'forge clean' to fix"
+    exit 1
+  fi
+fi
+
+# ── Fast scanners: security + correctness (G-024) ─────────────────────────
+echo "forge pre-commit: running fast security scanner…"
+if command -v "$FORGE_BIN" &>/dev/null; then
+  if ! "$FORGE_BIN" scan security --fast 2>&1; then
+    echo "forge pre-commit: security scan failed — fix before committing"
+    exit 1
+  fi
+fi
+
+echo "forge pre-commit: running fast correctness scanner…"
+if command -v "$FORGE_BIN" &>/dev/null; then
+  if ! "$FORGE_BIN" scan correctness --fast 2>&1; then
+    echo "forge pre-commit: correctness scan failed — fix before committing"
+    exit 1
+  fi
+fi
+
 echo "forge pre-commit: all checks passed ✓"
 exit 0

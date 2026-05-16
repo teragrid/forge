@@ -70,29 +70,29 @@ signs:
     artifacts: checksum
     output: true
 
-# ── DEV-M0-29 Homebrew tap — disabled until teragrid/homebrew-tap repo exists ─
-# brews:
-#   - name: forge
-#     repository:
-#       owner: teragrid
-#       name: homebrew-tap
-#     homepage: "https://github.com/teragrid/forge"
-#     description: "LLM-native framework CLI for shipping AI-generated code safely."
-#     license: "Apache-2.0"
-#     directory: Formula
-#     install: |
-#       bin.install "forge"
-#     test: |
-#       system "#{bin}/forge", "version"
+# ── G-123: Homebrew tap ────────────────────────────────────────────────────
+brews:
+  - name: forge
+    repository:
+      owner: teragrid
+      name: homebrew-tap
+    homepage: "https://github.com/teragrid/forge"
+    description: "LLM-native framework CLI for shipping AI-generated code safely."
+    license: "Apache-2.0"
+    directory: Formula
+    install: |
+      bin.install "forge"
+    test: |
+      system "#{bin}/forge", "version"
 
-# ── DEV-M0-29 Scoop bucket — disabled until teragrid/scoop-forge repo exists ──
-# scoops:
-#   - repository:
-#       owner: teragrid
-#       name: scoop-forge
-#     homepage: "https://github.com/teragrid/forge"
-#     description: "LLM-native framework CLI for shipping AI-generated code safely."
-#     license: "Apache-2.0"
+# ── G-123: Scoop bucket ────────────────────────────────────────────────────
+scoops:
+  - repository:
+      owner: teragrid
+      name: scoop-forge
+    homepage: "https://github.com/teragrid/forge"
+    description: "LLM-native framework CLI for shipping AI-generated code safely."
+    license: "Apache-2.0"
 
 sboms:
   - artifacts: archive

@@ -100,3 +100,37 @@ func TestRootCommand_VerbsRegistered(t *testing.T) {
 		}
 	}
 }
+
+// TestUniversalFlags_AllVerbs verifies that every subcommand registered on the
+// root inherits the universal persistent flags defined by NewRootCommand.
+// G-080: --json, --yes, --dry-run, --explain, --workspace, --no-color, --quiet.
+func TestUniversalFlags_AllVerbs(t *testing.T) {
+	t.Parallel()
+
+	universalFlags := []string{
+		"json", "yes", "dry-run", "explain", "workspace", "no-color", "quiet",
+	}
+
+	root := NewRootCommand("0.0.0-dev")
+
+	// Verify all universal flags exist on root's PersistentFlags.
+	for _, flag := range universalFlags {
+		if root.PersistentFlags().Lookup(flag) == nil {
+			t.Errorf("root PersistentFlags missing --%s", flag)
+		}
+	}
+
+	// Verify every registered verb can resolve each universal flag via Flag(),
+	// which traverses the persistent flag chain from parent to child.
+	for _, cmd := range root.Commands() {
+		cmd := cmd
+		t.Run(cmd.Name(), func(t *testing.T) {
+			t.Parallel()
+			for _, flag := range universalFlags {
+				if cmd.Flag(flag) == nil {
+					t.Errorf("verb %q: universal flag --%s not inherited", cmd.Name(), flag)
+				}
+			}
+		})
+	}
+}

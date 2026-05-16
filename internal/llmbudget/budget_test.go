@@ -234,3 +234,72 @@ func TestBudget_MonthlySpend_ExcludesOtherMonths(t *testing.T) {
 		t.Fatalf("MonthlySpend excludes other months: want 1.00, got %g", got)
 	}
 }
+// ── G-040: TestBudget_PerVerbLimits ──────────────────────────────────────────
+
+// TestBudget_PerVerbLimits verifies that per-verb daily limits are enforced.
+func TestBudget_PerVerbLimits(t *testing.T) {
+        t.Parallel()
+        b := New()
+        verbs := []string{"scan", "fix", "ship", "deploy", "learn"}
+        const verbLimit = 0.10
+
+        // Set a daily limit for each verb.
+        for _, v := range verbs {
+                if err := b.SetVerbLimit(v, verbLimit); err != nil {
+                        t.Fatalf("SetVerbLimit(%q): %v", v, err)
+                }
+        }
+
+        now := time.Now().UTC()
+
+        // Under limit: no error.
+        b.Add(Record{Timestamp: now, Verb: "scan", CostUSD: 0.05})
+        if err := b.CheckVerbLimit("scan", now); err != nil {
+                t.Errorf("CheckVerbLimit under limit: unexpected error: %v", err)
+        }
+
+        // At/over limit: must return non-nil error.
+        b.Add(Record{Timestamp: now, Verb: "scan", CostUSD: 0.06}) // total 0.11
+        if err := b.CheckVerbLimit("scan", now); err == nil {
+                t.Error("CheckVerbLimit over limit: want error, got nil")
+        }
+
+        // Other verbs are unaffected.
+        if err := b.CheckVerbLimit("fix", now); err != nil {
+                t.Errorf("CheckVerbLimit(fix) should be zero spend, got error: %v", err)
+        }
+}
+
+// TestBudget_PerVerbLimit_ZeroUnlimited verifies that setting a zero limit
+// removes the per-verb limit (effectively unlimited).
+func TestBudget_PerVerbLimit_ZeroUnlimited(t *testing.T) {
+        t.Parallel()
+        b := New()
+        now := time.Now().UTC()
+        b.SetVerbLimit("scan", 0.01) //nolint:errcheck
+        b.Add(Record{Timestamp: now, Verb: "scan", CostUSD: 1.00})
+        // Remove limit by setting to 0.
+        b.SetVerbLimit("scan", 0) //nolint:errcheck
+        if err := b.CheckVerbLimit("scan", now); err != nil {
+                t.Errorf("CheckVerbLimit after removal: want nil, got %v", err)
+        }
+}
+
+// TestBudget_VerbDailySpend_IsolatesVerbs verifies that VerbDailySpend only
+// counts records for the given verb.
+func TestBudget_VerbDailySpend_IsolatesVerbs(t *testing.T) {
+        t.Parallel()
+        b := New()
+        now := time.Now().UTC()
+        b.Add(Record{Timestamp: now, Verb: "scan", CostUSD: 0.30})
+        b.Add(Record{Timestamp: now, Verb: "fix", CostUSD: 0.20})
+        if got := b.VerbDailySpend("scan", now); got != 0.30 {
+                t.Errorf("VerbDailySpend(scan): want 0.30, got %g", got)
+        }
+        if got := b.VerbDailySpend("fix", now); got != 0.20 {
+                t.Errorf("VerbDailySpend(fix): want 0.20, got %g", got)
+        }
+        if got := b.VerbDailySpend("deploy", now); got != 0.00 {
+                t.Errorf("VerbDailySpend(deploy): want 0.00, got %g", got)
+        }
+}

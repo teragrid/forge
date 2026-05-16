@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -64,7 +65,8 @@ var secretPatterns = []string{
 type Result struct {
 	Root           string   `json:"root"`
 	ManifestPath   string   `json:"manifest_path"`
-	Mode           string   `json:"mode"` // "check" or "apply"
+	Mode           string   `json:"mode"` // "check", "dry-run", or "apply"
+	TrashDir       string   `json:"trash_dir,omitempty"` // set when apply moves files to trash
 	Candidates     []string `json:"candidates"`
 	Deleted        []string `json:"deleted,omitempty"`
 	TrackedSecrets []string `json:"tracked_secrets,omitempty"`
@@ -91,20 +93,31 @@ func init() {
 // New returns the cobra command.
 func New() *cobra.Command {
 	var (
-		root   string
-		check  bool
-		apply  bool
-		asJSON bool
+		root    string
+		check   bool
+		dryRun  bool
+		apply   bool
+		asJSON  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Find/remove unmanaged scratch files.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if apply && check {
-				return errcode.New(ErrCleanFailed, "use either --check or --apply, not both", nil)
+			modes := 0
+			if check {
+				modes++
 			}
-			if !apply {
+			if dryRun {
+				modes++
+			}
+			if apply {
+				modes++
+			}
+			if modes > 1 {
+				return errcode.New(ErrCleanFailed, "use at most one of --check, --dry-run, --apply", nil)
+			}
+			if !apply && !dryRun {
 				check = true // default
 			}
 			if root == "" {
@@ -115,16 +128,27 @@ func New() *cobra.Command {
 				root = cwd
 			}
 
-			res, err := Run(root, apply)
+			var (
+				res *Result
+				err error
+			)
+			switch {
+			case apply:
+				res, err = RunWithTrash(root)
+			case dryRun:
+				res, err = RunDryRun(root)
+			default:
+				res, err = Run(root, false)
+			}
+
 			if err != nil {
 				return err
 			}
-
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
-				if err := enc.Encode(res); err != nil {
-					return err
+				if encErr := enc.Encode(res); encErr != nil {
+					return encErr
 				}
 			} else {
 				renderText(cmd, res)
@@ -143,8 +167,9 @@ func New() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
-	cmd.Flags().BoolVar(&check, "check", false, "report only (default)")
-	cmd.Flags().BoolVar(&apply, "apply", false, "delete found candidates")
+	cmd.Flags().BoolVar(&check, "check", false, "report only, exit non-zero if any found (default)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting")
+	cmd.Flags().BoolVar(&apply, "apply", false, "move found candidates to .forge/trash/<run-id>/")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	return cmd
 }
@@ -211,6 +236,123 @@ func Run(root string, apply bool) (*Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// RunDryRun lists candidates without deleting them. Exits 0 regardless of
+// findings (unlike --check which exits non-zero). G-061.
+func RunDryRun(root string) (*Result, error) {
+	mfPath := filepath.Join(root, manifest.DefaultPath)
+	mf, err := manifest.Load(mfPath)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{Root: root, ManifestPath: mf.Path, Mode: "dry-run"}
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || p == root {
+			return werr
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		if mf.IsScratch(rel) {
+			res.Candidates = append(res.Candidates, rel)
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	sort.Strings(res.Candidates)
+	return res, nil
+}
+
+// RunWithTrash moves scratch candidates to .forge/trash/<run-id>/ for
+// recoverable deletion, and records the operation. G-061.
+func RunWithTrash(root string) (*Result, error) {
+	mfPath := filepath.Join(root, manifest.DefaultPath)
+	mf, err := manifest.Load(mfPath)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{Root: root, ManifestPath: mf.Path, Mode: "apply"}
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || p == root {
+			return werr
+		}
+		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		if mf.IsScratch(rel) {
+			res.Candidates = append(res.Candidates, rel)
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	sort.Strings(res.Candidates)
+
+	if len(res.Candidates) == 0 {
+		return res, nil
+	}
+
+	// Create trash directory with a simple timestamp-based run-id.
+	runID := fmt.Sprintf("%d", time.Now().UnixNano())
+	trashDir := filepath.Join(root, ".forge", "trash", runID)
+	if err := os.MkdirAll(trashDir, 0o755); err != nil {
+		return nil, errcode.Newf(ErrCleanFailed, err, "mkdir trash %s", trashDir)
+	}
+	res.TrashDir = filepath.Join(".forge", "trash", runID)
+
+	secrets, _ := checkTrackedSecrets(root, mf)
+	res.TrackedSecrets = secrets
+
+	for _, c := range res.Candidates {
+		src := filepath.Join(root, filepath.FromSlash(c))
+		dst := filepath.Join(trashDir, filepath.FromSlash(c))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, errcode.Newf(ErrCleanFailed, err, "mkdir for %s", c)
+		}
+		if err := os.Rename(src, dst); err != nil {
+			// Fallback: copy+delete for cross-device moves.
+			if copyErr := copyFile(src, dst); copyErr == nil {
+				_ = os.RemoveAll(src)
+			}
+		}
+		res.Deleted = append(res.Deleted, c)
+	}
+	return res, nil
+}
+
+// copyFile copies src to dst (used as fallback when os.Rename crosses devices).
+func copyFile(src, dst string) error {
+	in, err := os.Open(src) // #nosec G304 — internal use only, src is validated
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := in.Read(buf)
+		if n > 0 {
+			if _, writeErr := out.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return nil
 }
 
 func renderText(cmd *cobra.Command, r *Result) {

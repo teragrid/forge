@@ -1,0 +1,15 @@
+{
+  "name": "forge-help",
+  "description": "forge --help exits 0 and prints usage",
+  "workdir": "tmpdir",
+  "steps": [
+    {
+      "id": "help",
+      "run": ["forge", "--help"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["Usage:", "Available Commands:"]
+      }
+    }
+  ]
+}

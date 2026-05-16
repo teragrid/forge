@@ -1,0 +1,10 @@
+{
+  "name": "community-plugin-demo",
+  "version": "0.1.0",
+  "kind": "scanner",
+  "author": "community",
+  "summary": "Sample community WASM plugin demonstrating RFC-001 sandbox capability model (G-130).",
+  "forge_version": ">=1.0.0",
+  "capabilities": ["fs:read"],
+  "wasm_path": "community_plugin_demo.wasm"
+}

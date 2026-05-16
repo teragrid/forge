@@ -13,7 +13,12 @@
 // limitations under the License.
 package verbmeta
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestRegisterAndLookup(t *testing.T) {
 	Reset()
@@ -140,5 +145,113 @@ func TestValidateJSON_Idempotent(t *testing.T) {
 	}
 	if err := m.ValidateJSON(data); err != nil {
 		t.Fatalf("second call: %v", err)
+	}
+}
+
+// ── G-082: GenerateCLISchemas ─────────────────────────────────────────────────
+
+// TestGenerateCLISchemas_CreatesFiles verifies that GenerateCLISchemas writes
+// one .schema.json file per registered verb into .forge/cli-schemas/.
+func TestGenerateCLISchemas_CreatesFiles(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+
+	Register(Manifest{Verb: "alpha", Summary: "alpha verb", OutputFields: []string{"status", "count"}})
+	Register(Manifest{Verb: "beta", Summary: "beta verb"})
+
+	dir := t.TempDir()
+	if err := GenerateCLISchemas(dir); err != nil {
+		t.Fatalf("GenerateCLISchemas: %v", err)
+	}
+
+	for _, verb := range []string{"alpha", "beta"} {
+		path := filepath.Join(dir, ".forge", "cli-schemas", verb+".schema.json")
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("schema file missing for verb %q: %v", verb, err)
+		}
+	}
+}
+
+// TestGenerateCLISchemas_SchemaContents verifies the generated JSON schema has
+// the expected fields for a verb with declared OutputFields.
+func TestGenerateCLISchemas_SchemaContents(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+
+	Register(Manifest{
+		Verb:         "myscan",
+		Summary:      "scanner verb",
+		OutputFields: []string{"findings", "count", "status"},
+	})
+
+	dir := t.TempDir()
+	if err := GenerateCLISchemas(dir); err != nil {
+		t.Fatalf("GenerateCLISchemas: %v", err)
+	}
+
+	path := filepath.Join(dir, ".forge", "cli-schemas", "myscan.schema.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+
+	var schema CLISchema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	if schema.Type != "object" {
+		t.Errorf("expected type=object, got %q", schema.Type)
+	}
+	for _, f := range []string{"findings", "count", "status"} {
+		if _, ok := schema.Properties[f]; !ok {
+			t.Errorf("property %q missing from schema", f)
+		}
+	}
+	if len(schema.Required) != 3 {
+		t.Errorf("expected 3 required fields, got %d", len(schema.Required))
+	}
+}
+
+// TestGenerateCLISchemas_NoOutputFields verifies that verbs with no OutputFields
+// get a schema with no required list (not nil-crash).
+func TestGenerateCLISchemas_NoOutputFields(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+
+	Register(Manifest{Verb: "empty", Summary: "no outputs"})
+
+	dir := t.TempDir()
+	if err := GenerateCLISchemas(dir); err != nil {
+		t.Fatalf("GenerateCLISchemas: %v", err)
+	}
+
+	path := filepath.Join(dir, ".forge", "cli-schemas", "empty.schema.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	var schema CLISchema
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	if schema.Required != nil {
+		t.Errorf("expected nil Required for verb with no OutputFields, got %v", schema.Required)
+	}
+}
+
+// TestGenerateCLISchemas_Idempotent verifies that calling GenerateCLISchemas
+// twice overwrites cleanly without error.
+func TestGenerateCLISchemas_Idempotent(t *testing.T) {
+	Reset()
+	t.Cleanup(Reset)
+
+	Register(Manifest{Verb: "idem2", OutputFields: []string{"status"}})
+
+	dir := t.TempDir()
+	if err := GenerateCLISchemas(dir); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if err := GenerateCLISchemas(dir); err != nil {
+		t.Fatalf("second run: %v", err)
 	}
 }

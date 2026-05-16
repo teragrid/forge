@@ -279,7 +279,57 @@ func generateBreakdown(root, description string, pipe *LLMPipe) (string, error) 
 		return content, nil
 	}
 	_ = os.WriteFile(filepath.Join(specsDir, "breakdown.md"), []byte(content), 0o600)
+
+	// G-007: also write tasks.md — machine-parseable checkbox list alongside breakdown.md.
+	tasksContent := extractTasksMD(description, content)
+	_ = os.WriteFile(filepath.Join(specsDir, "tasks.md"), []byte(tasksContent), 0o600)
+
 	return content, nil
+}
+
+// extractTasksMD converts an LLM-generated breakdown into a machine-parseable
+// tasks.md with a `- [ ] T-NNN: <title>` checkbox per task.
+// If the LLM produced numbered lines (1., 2., …) those are extracted.
+// Otherwise the whole breakdown is treated as a single task.
+func extractTasksMD(feature, breakdown string) string {
+	var sb strings.Builder
+	sb.WriteString("# Tasks: ")
+	sb.WriteString(feature)
+	sb.WriteString("\n\n")
+
+	// Try to extract numbered lines.
+	lines := strings.Split(breakdown, "\n")
+	taskNum := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Match: "1. Foo" or "1) Foo" or "## Task 1" or "**T-001**" or "- " as task bullet.
+		isTask := false
+		title := ""
+		if len(line) > 3 {
+			if (line[1] == '.' || line[1] == ')') && line[0] >= '1' && line[0] <= '9' {
+				isTask = true
+				title = strings.TrimSpace(line[2:])
+			} else if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "### ") {
+				isTask = true
+				title = strings.TrimPrefix(strings.TrimPrefix(line, "### "), "## ")
+			}
+		}
+		if isTask && title != "" {
+			taskNum++
+			sb.WriteString(fmt.Sprintf("- [ ] T-%03d: %s\n", taskNum, title))
+		}
+	}
+
+	if taskNum == 0 {
+		// Fallback: treat the whole breakdown as one task.
+		taskNum++
+		sb.WriteString(fmt.Sprintf("- [ ] T-%03d: Implement %s\n", taskNum, feature))
+	}
+
+	return sb.String()
 }
 
 // generateCodePlan asks the LLM for a step-by-step code implementation plan

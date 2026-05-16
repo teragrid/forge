@@ -16,20 +16,32 @@
 | `forge explain` | Introspect any verb or plugin manifest | `FORGE-1300..1399` |
 | `forge scan` | Run security / quality scanners | `FORGE-1400..1499` |
 | `forge lint` | Check conventions and hygiene markers | `FORGE-1500..1599` |
-| `forge ship` | Full five-checkpoint delivery pipeline | `FORGE-1600..1699` |
+| `forge ship` | Full five-checkpoint delivery pipeline: `forge ship auth/email` (positional arg); `--resume` to continue; checkpoint 5 renamed from `verify` → `ship` (G-003) | `FORGE-1600..1699` |
 | `forge test` | Run any of 13 test families (unit/integration/e2e/journey/perf/load/soak/…) | `FORGE-4300..4399` |
-| `forge upgrade` | Apply built-in or plugin codemods | `FORGE-2000..2099` |
-| `forge audit` | Query / verify the audit ledger | `FORGE-3400..3499` |
+| `forge upgrade` | Apply built-in or plugin codemods (renamed from `forge migrate-code`) | `FORGE-2000..2099` |
+| `forge audit` | Query / verify the audit ledger; `forge audit erase` (renamed from `forge gdpr erase`); `forge audit export` (renamed from `forge compliance export`) | `FORGE-3400..3499` |
 | `forge eval` | Run deterministic evaluation scenarios | `FORGE-3600..3699` |
 | `forge plugin` | Manage installed WASM plugins | `FORGE-3700..3799` |
 | `forge postmortem` | Draft or review incident postmortems | `FORGE-3800..3899` |
-| `forge insights` | Local telemetry rollup and statistics | `FORGE-3900..3999` |
+| `forge insights` | Local telemetry rollup and statistics; `forge insights cli` finds unused verbs | `FORGE-3900..3999` |
 | `forge incident` | Manage the incident lifecycle | `FORGE-4000..4099` |
 | `forge telemetry` | Opt in/out and rotate telemetry ID | `FORGE-4100..4199` |
 | `forge spend` | Track and cap LLM token spend | `FORGE-2400..2499` |
 | `forge fixtures` | Generate JSON test fixture files | `FORGE-6000..6099` |
 | `forge backup` | Create a point-in-time backup snapshot before risky operations | `FORGE-6100..6199` |
 | `forge ci` | Post-push CI monitor: watch, fix, and record lessons from CI runs | `FORGE-6200..6299` |
+| `forge learn` | Manage the learning loop; sub-verbs: `teach` (renamed from `forge teach`), `session` (renamed from `forge session digest`), `instructions` (renamed from `forge instructions evolve`), `promote`, `antipatterns` | `FORGE-5200..5299` |
+| `forge context` | Manage project context bundles; `forge context generate` (renamed from `forge generate ai-context`) | — |
+| `forge agents` | Manage LLM agents; `forge agents stop` (replaces `forge agents stop --workspace`) | — |
+| `forge ask` | Ask questions about the project via LLM; `forge ask error <code>` looks up error docs | `FORGE-4900..4999` |
+
+> **Deprecation notice (G-090):** The following old verbs print a deprecation hint and delegate to the new name:
+> `forge migrate-code` → `forge upgrade`,
+> `forge teach` → `forge learn teach`,
+> `forge session` → `forge learn session`,
+> `forge instructions` → `forge learn instructions`,
+> `forge gdpr` → `forge audit`,
+> `forge compliance` → `forge audit`.
 
 For the full error-code catalogue see [`docs/ERROR_CODES.md`](ERROR_CODES.md).
 
@@ -200,34 +212,43 @@ forge lint --json    # machine-readable JSON
 ### `forge ship`
 
 Run the full five-checkpoint delivery pipeline (Spec → Test → Breakdown → Code →
-Verify), or run a single checkpoint in isolation.
+Ship), or run a single checkpoint in isolation.
 
 ```bash
-forge ship --description "add rate-limiter middleware"   # all 5 checkpoints (dry-run)
-forge ship spec   --json                                 # only Spec checkpoint
-forge ship test   --json                                 # only Test checkpoint
-forge ship breakdown                                     # only Breakdown checkpoint
-forge ship code                                          # only Code checkpoint
-forge ship verify --json                                 # only Verify (hygiene) checkpoint
+forge ship auth/email                    # slugifies to auth-email; runs all checkpoints
+forge ship auth/email --resume           # resume from last incomplete checkpoint
+forge ship spec   --json                 # only Spec checkpoint
+forge ship test   --json                 # only Test checkpoint
+forge ship breakdown                     # only Breakdown checkpoint
+forge ship code                          # only Code checkpoint
+forge ship ship   --json                 # only Ship (hygiene + scan) checkpoint
+forge ship --description "add rate-limiter middleware"   # legacy flag (deprecated; use positional arg)
 ```
+
+> **Note (G-001):** The positional `<feature>` argument is the preferred form.
+> `--description` is a deprecated alias and will be removed in the next minor version.
+> `forge ship verify` is also a deprecated alias for `forge ship ship`.
 
 **Checkpoint subcommands:**
 
 | Subcommand | Checkpoint | What happens |
 |------------|------------|-------------|
-| `spec` | 1 | Validates `.forge/specs/<slug>/spec.md`; creates it if absent |
+| `spec` | 1 | Validates `.forge/specs/<slug>/spec.md`; creates `spec.yml` if absent |
 | `test` | 2 | AI writes failing tests; commits them before code (TDD gate) |
-| `breakdown` | 3 | AI produces `.forge/specs/<slug>/tasks.md` |
+| `breakdown` | 3 | AI produces `.forge/specs/<slug>/tasks.md` and per-task context bundles |
 | `code` | 4 | AI iterates until `go test -race ./...` is green |
-| `verify` | 5 | `forge scan all` + `forge lint` + `forge eval`; ship readiness check |
+| `ship` | 5 | `forge scan all` + `forge lint` + `forge eval`; ship readiness check |
+| ~~`verify`~~ | *(deprecated)* | Alias for `ship`; will be removed in the next minor |
 
 **Flags (all subcommands share these):**
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dry-run` | `true` | Validate without applying changes (MVP default) |
-| `--description` | `""` | Plain-English description of the change |
-| `--json` | `false` | Emit machine-readable JSON |
+| `--description` | `""` | Plain-English description (deprecated — use positional arg) |
+| `--resume` | `false` | Continue from the first incomplete checkpoint |
+| `--yes` | `false` | Non-interactive mode; auto-advance through all checkpoints |
+| `--json` | `false` | Emit machine-readable NDJSON events |
 
 **Error codes:**
 - `FORGE-1600` — spec missing or incomplete

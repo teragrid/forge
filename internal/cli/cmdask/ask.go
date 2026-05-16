@@ -50,12 +50,13 @@ var (
 
 // AskResult is returned by Run and emitted in --json mode.
 type AskResult struct {
-	Question   string `json:"question"`
-	Answer     string `json:"answer"`
-	Model      string `json:"model,omitempty"`
-	TokensIn   int    `json:"tokens_in,omitempty"`
-	TokensOut  int    `json:"tokens_out,omitempty"`
-	NoProvider bool   `json:"no_provider,omitempty"`
+	Question   string   `json:"question"`
+	Answer     string   `json:"answer"`
+	Evidence   []string `json:"evidence,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	TokensIn   int      `json:"tokens_in,omitempty"`
+	TokensOut  int      `json:"tokens_out,omitempty"`
+	NoProvider bool     `json:"no_provider,omitempty"`
 }
 
 func init() {
@@ -80,6 +81,7 @@ func New() *cobra.Command {
 	var (
 		root   string
 		model  string
+		cite   bool
 		asJSON bool
 	)
 	cmd := &cobra.Command{
@@ -90,9 +92,10 @@ func New() *cobra.Command {
 			"the configured LLM provider to provide grounded answers.\n\n" +
 			"Graceful degradation: when no API key is set, forge ask explains how to\n" +
 			"configure a provider rather than exiting with an error.\n\n" +
+			"Use --cite to request evidence citations in the answer.\n\n" +
 			"Examples:\n" +
 			"  forge ask 'Which migrations are pending?'\n" +
-			"  forge ask 'What is the threat model for the auth service?'\n" +
+			"  forge ask --cite 'What is the threat model for the auth service?'\n" +
 			"  forge ask 'Show me all registered error codes above 2000'",
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -104,7 +107,7 @@ func New() *cobra.Command {
 				}
 				root = cwd
 			}
-			res := Run(root, question, model)
+			res := Run(root, question, model, cite)
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -115,6 +118,12 @@ func New() *cobra.Command {
 				return nil
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Q: %s\n\nA: %s\n", res.Question, res.Answer)
+			if len(res.Evidence) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "\nEvidence sources:\n")
+				for _, e := range res.Evidence {
+					fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", e)
+				}
+			}
 			if res.Model != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "\n[model: %s | in: %d | out: %d tokens]\n",
 					res.Model, res.TokensIn, res.TokensOut)
@@ -124,17 +133,21 @@ func New() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().StringVar(&model, "model", "", "LLM model to use (default: provider default)")
+	cmd.Flags().BoolVar(&cite, "cite", false, "request evidence citations in the answer (G-113)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.AddCommand(newErrorCmd())
 	return cmd
 }
 
 // Run executes the ask request and returns a result. It never returns an error
 // so callers get a gracefully degraded response when the LLM is unavailable.
-func Run(root, question, model string) AskResult {
+// When cite is true, the LLM is instructed to cite evidence sources inline and
+// the Evidence field is populated by extracting [Source: ...] markers.
+func Run(root, question, model string, cite bool) AskResult {
 	res := AskResult{Question: question}
 
 	// Build context from project files.
-	systemCtx := buildContext(root)
+	systemCtx := buildContext(root, cite)
 
 	provider, err := llmprovider.Detect()
 	if err != nil {
@@ -164,15 +177,25 @@ func Run(root, question, model string) AskResult {
 	res.Model = resp.Model
 	res.TokensIn = resp.InputTokens
 	res.TokensOut = resp.OutputTokens
+
+	// G-113: extract evidence citations from [Source: X] markers.
+	if cite {
+		res.Evidence = extractEvidence(resp.Content)
+	}
 	return res
 }
 
 // buildContext assembles the system prompt from project context files.
-func buildContext(root string) string {
+// When cite is true, an instruction to cite sources is appended.
+func buildContext(root string, cite bool) string {
 	var parts []string
-	parts = append(parts, "You are a helpful AI assistant answering questions about a software project. "+
-		"Base your answers on the project context below. "+
-		"Be concise and accurate. If the answer is not in the context, say so clearly.")
+	systemMsg := "You are a helpful AI assistant answering questions about a software project. " +
+		"Base your answers on the project context below. " +
+		"Be concise and accurate. If the answer is not in the context, say so clearly."
+	if cite {
+		systemMsg += " When you use information from a specific section, cite it as [Source: <section-name>]."
+	}
+	parts = append(parts, systemMsg)
 
 	contextFiles := []struct {
 		path  string
@@ -201,4 +224,87 @@ func buildContext(root string) string {
 	}
 
 	return strings.Join(parts, "\n\n---\n\n")
+}
+
+// extractEvidence finds [Source: X] citations in the LLM response.
+func extractEvidence(answer string) []string {
+	seen := map[string]bool{}
+	var sources []string
+	for _, line := range strings.Split(answer, "\n") {
+		line = strings.TrimSpace(line)
+		start := strings.Index(line, "[Source:")
+		for start >= 0 {
+			rest := line[start+8:]
+			end := strings.Index(rest, "]")
+			if end < 0 {
+				break
+			}
+			src := strings.TrimSpace(rest[:end])
+			if src != "" && !seen[src] {
+				seen[src] = true
+				sources = append(sources, src)
+			}
+			line = rest[end+1:]
+			start = strings.Index(line, "[Source:")
+		}
+	}
+	return sources
+}
+
+// newErrorCmd returns the `forge ask error <code>` subcommand (G-151).
+// It looks up <code> in docs/ERROR_CODES.md and prints the entry.
+func newErrorCmd() *cobra.Command {
+	var root string
+	cmd := &cobra.Command{
+		Use:   "error <code>",
+		Short: "Look up documentation for a FORGE-XXXX error code.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			code := strings.ToUpper(strings.TrimSpace(args[0]))
+			// Normalise: accept both "1234" and "FORGE-1234".
+			if !strings.HasPrefix(code, "FORGE-") {
+				code = "FORGE-" + code
+			}
+			if root == "" {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return errcode.New(ErrAskFailed, "getwd", err)
+				}
+				root = cwd
+			}
+			// Search docs/ERROR_CODES.md for the code.
+			docPath := filepath.Join(root, "docs", "ERROR_CODES.md")
+			data, err := os.ReadFile(docPath)
+			if err != nil {
+				return errcode.Newf(ErrAskFailed, err, "could not read %s", docPath)
+			}
+			lines := strings.Split(string(data), "\n")
+			var found []string
+			inBlock := false
+			for _, line := range lines {
+				if strings.Contains(line, code) {
+					inBlock = true
+				}
+				if inBlock {
+					found = append(found, line)
+					// Stop at next section heading or after 10 lines.
+					if len(found) > 1 && (strings.HasPrefix(line, "#") || len(found) >= 10) {
+						break
+					}
+				}
+			}
+			if len(found) == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(),
+					"No documentation found for %s in %s.\n"+
+						"See: https://forge.dev/errors/%s\n", code, docPath, strings.TrimPrefix(code, "FORGE-"))
+				return nil
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), strings.Join(found, "\n"))
+			fmt.Fprintf(cmd.OutOrStdout(), "\nFull docs: https://forge.dev/errors/%s\n",
+				strings.TrimPrefix(code, "FORGE-"))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
+	return cmd
 }

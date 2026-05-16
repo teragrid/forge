@@ -336,3 +336,101 @@ func TestPlugin_Remove_PreservesOthers(t *testing.T) {
 		}
 	}
 }
+
+// ── G-131: per-plugin LLM instructions ────────────────────────────────────
+
+// TestPlugin_Install_ProvisionesInstructions verifies that installing a plugin
+// creates a .forge/instructions/<name>.instructions.md stub.
+func TestPlugin_Install_ProvisionesInstructions(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmdRoot(t, dir, "install", "myplugin@1.0.0"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	path := filepath.Join(dir, ".forge", "instructions", "myplugin.instructions.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("instructions file not created: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "myplugin") {
+		t.Errorf("instructions file does not reference plugin name:\n%s", content)
+	}
+}
+
+// TestPlugin_Remove_DeletesInstructions verifies that removing a plugin also
+// removes its .forge/instructions/<name>.instructions.md file.
+func TestPlugin_Remove_DeletesInstructions(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmdRoot(t, dir, "install", "cleanplugin@1.0.0"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	path := filepath.Join(dir, ".forge", "instructions", "cleanplugin.instructions.md")
+	// Ensure file was created.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("instructions file not created on install: %v", err)
+	}
+	if _, err := runCmdRoot(t, dir, "remove", "cleanplugin"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("instructions file should be deleted on plugin remove, but it still exists")
+	}
+}
+
+// TestPlugin_Install_InstructionsIdempotent verifies that installing the same
+// plugin twice does not overwrite a user-edited instructions file.
+func TestPlugin_Install_InstructionsIdempotent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmdRoot(t, dir, "install", "idemplugin@1.0.0"); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	path := filepath.Join(dir, ".forge", "instructions", "idemplugin.instructions.md")
+	customContent := "# custom instructions\nDon't suggest float for money.\n"
+	if err := os.WriteFile(path, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("write custom instructions: %v", err)
+	}
+	// Second install (same version, no-op).
+	if _, err := runCmdRoot(t, dir, "install", "idemplugin@1.0.0"); err != nil {
+		// This may fail with "already installed" — that's OK; just check file.
+		_ = err
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read instructions: %v", err)
+	}
+	if string(got) != customContent {
+		t.Errorf("install overwrote custom instructions file:\ngot:  %q\nwant: %q", string(got), customContent)
+	}
+}
+
+// TestProvisionPluginInstructions_DirectAPI verifies the internal helper directly.
+func TestProvisionPluginInstructions_DirectAPI(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := provisionPluginInstructions(dir, "testplugin"); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	path := pluginInstructionsPath(dir, "testplugin")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(data), "testplugin") {
+		t.Error("instructions stub missing plugin name")
+	}
+	// Calling again must not overwrite.
+	customContent := "# user edited\n"
+	if err := os.WriteFile(path, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := provisionPluginInstructions(dir, "testplugin"); err != nil {
+		t.Fatalf("second provision: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != customContent {
+		t.Error("second provision must not overwrite existing instructions file")
+	}
+}
