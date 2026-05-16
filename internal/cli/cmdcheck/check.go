@@ -18,7 +18,7 @@
 // constraints, and spec §11.1.2 Developer Promises.
 //
 // Gates run in this order:
-//  1. manifest     — .forge/manifest present and valid JSON
+//  1. manifest     — .forge/manifest present and valid (INI format)
 //  2. hygiene      — .forge/hygiene.yml present
 //  3. conventions  — .forge/conventions.json present
 //  4. errcode-reg  — errcode.Register calls match declared ranges
@@ -39,6 +39,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teragrid/forge/internal/errcode"
+	"github.com/teragrid/forge/internal/manifest"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -178,13 +179,11 @@ func timed(name string, fn func() (string, string)) GateResult {
 func checkManifest(root string) GateResult {
 	return timed("manifest", func() (string, string) {
 		path := filepath.Join(root, ".forge", "manifest")
-		data, err := os.ReadFile(path)
-		if err != nil {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return "warn", ".forge/manifest not found (run forge adopt --apply)"
 		}
-		var m interface{}
-		if err := json.Unmarshal(data, &m); err != nil {
-			return "fail", fmt.Sprintf(".forge/manifest invalid JSON: %v", err)
+		if _, err := manifest.Load(path); err != nil {
+			return "fail", fmt.Sprintf(".forge/manifest parse error: %v", err)
 		}
 		return "pass", ""
 	})

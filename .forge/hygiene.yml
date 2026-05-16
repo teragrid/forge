@@ -1,0 +1,20 @@
+# Forge hygiene manifest
+# Created: 2026-05-17T00:00:00Z
+# Project: github.com/teragrid/forge
+
+scope:
+  module: github.com/teragrid/forge
+  type: go
+
+managed:
+  - .forge/**
+  - internal/**
+  - cmd/**
+  - packages/**
+
+scratch_patterns:
+  - "*.tmp"
+  - "*.bak"
+  - dist/
+  - build/
+  - bin/
