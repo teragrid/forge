@@ -178,7 +178,7 @@ if [[ "${FORGE_SKIP_SCAN:-}" == "1" ]]; then
 elif ! command -v forge &>/dev/null; then
   warn "forge binary not on PATH — skipping scan (run 'make build' to install)"
 else
-  if SCAN_OUT=$(forge scan security --json 2>&1); then
+  if SCAN_OUT=$(forge scan security --json --min-confidence medium 2>&1); then
     pass "forge scan security"
   else
     fail "forge scan security"

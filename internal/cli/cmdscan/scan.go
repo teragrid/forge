@@ -83,7 +83,8 @@ func New() *cobra.Command {
 		mode          string
 		since         string
 		includeMedium bool
-		fast          bool // G-024: pre-commit fast mode (security+correctness only, quickest patterns)
+		fast          bool   // G-024: pre-commit fast mode (security+correctness only, quickest patterns)
+		minConf       string // minimum confidence level to report/gate on (high|medium|low)
 	)
 	cmd := &cobra.Command{
 		Use:   "scan <family> [--root <path>] [--json] [--mode report|suggest|apply]",
@@ -192,6 +193,33 @@ func New() *cobra.Command {
 				return ApplyMode(scanMode, scanner, root, res, includeMedium)
 			}
 
+			// --min-confidence: filter out findings below the requested level.
+			if minConf != "" {
+				minLevel := Confidence(minConf)
+				filtered := res.Findings[:0]
+				for _, f := range res.Findings {
+					c := Confidence(f.Confidence)
+					if c == "" {
+						c = ConfidenceMedium
+					}
+					switch minLevel {
+					case ConfidenceHigh:
+						if c == ConfidenceHigh {
+							filtered = append(filtered, f)
+						}
+					case ConfidenceMedium:
+						if c == ConfidenceHigh || c == ConfidenceMedium {
+							filtered = append(filtered, f)
+						}
+					default: // low or unrecognised — keep all
+						filtered = append(filtered, f)
+					}
+				}
+				res.Findings = filtered
+				res.Count = len(filtered)
+				finalizeStatus(res)
+			}
+
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -213,6 +241,7 @@ func New() *cobra.Command {
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	cmd.Flags().StringVar(&mode, "mode", "report", "scan mode: report|suggest|apply (G-021)")
+	cmd.Flags().StringVar(&minConf, "min-confidence", "", "minimum confidence to gate on: high|medium|low (default: all)")
 	cmd.Flags().StringVar(&since, "since", "", "diff findings against baseline from this git ref (G-023)")
 	cmd.Flags().BoolVar(&includeMedium, "include-medium", false, "apply medium-confidence fixes in --mode apply (G-022)")
 	cmd.Flags().BoolVar(&fast, "fast", false, "pre-commit fast mode: security runs secrets-only; skips slow scanners (G-024)")
