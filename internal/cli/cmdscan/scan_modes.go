@@ -199,23 +199,6 @@ func confidenceFor(f Finding) Confidence {
 	return ConfidenceMedium
 }
 
-// filterByConfidence returns only findings at or above the minimum confidence.
-func filterByConfidence(findings []Finding, minConf Confidence) []Finding {
-	order := map[Confidence]int{ConfidenceHigh: 3, ConfidenceMedium: 2, ConfidenceLow: 1}
-	minScore := order[minConf]
-	var out []Finding
-	for _, f := range findings {
-		c := Confidence(f.Confidence)
-		if c == "" {
-			c = ConfidenceMedium
-		}
-		if order[c] >= minScore {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
 // ── G-023: scan history ───────────────────────────────────────────────────────
 
 // persistScanHistory appends the current scan result to

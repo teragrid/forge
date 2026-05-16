@@ -123,7 +123,7 @@ func NewCLICmd() *cobra.Command {
 			reportDir := filepath.Join(root, "private", "docs")
 			_ = os.MkdirAll(reportDir, 0o755)
 			reportPath := filepath.Join(reportDir, "insights-"+now.Format("2006-01-02")+".md")
-				if err := os.WriteFile(reportPath, []byte(sb.String()), 0o600); err != nil {
+			if err := os.WriteFile(reportPath, []byte(sb.String()), 0o600); err != nil {
 				return errcode.New(ErrStatsFailed, "write report", err)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "insights report written to %s\n", reportPath)
