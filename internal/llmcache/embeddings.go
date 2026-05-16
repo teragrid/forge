@@ -40,10 +40,10 @@ type EmbeddingRecord struct {
 // EmbeddingStore is a content-addressed embedding cache stored under
 // <root>/.forge/cache/embeddings/.
 type EmbeddingStore struct {
-	mu       sync.RWMutex
-	dir      string
-	hits     int64
-	misses   int64
+	mu     sync.RWMutex
+	dir    string
+	hits   int64
+	misses int64
 }
 
 // OpenEmbeddingStore opens (or creates) the embedding store directory.

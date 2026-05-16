@@ -65,7 +65,7 @@ var secretPatterns = []string{
 type Result struct {
 	Root           string   `json:"root"`
 	ManifestPath   string   `json:"manifest_path"`
-	Mode           string   `json:"mode"` // "check", "dry-run", or "apply"
+	Mode           string   `json:"mode"`                // "check", "dry-run", or "apply"
 	TrashDir       string   `json:"trash_dir,omitempty"` // set when apply moves files to trash
 	Candidates     []string `json:"candidates"`
 	Deleted        []string `json:"deleted,omitempty"`
@@ -93,11 +93,11 @@ func init() {
 // New returns the cobra command.
 func New() *cobra.Command {
 	var (
-		root    string
-		check   bool
-		dryRun  bool
-		apply   bool
-		asJSON  bool
+		root   string
+		check  bool
+		dryRun bool
+		apply  bool
+		asJSON bool
 	)
 	cmd := &cobra.Command{
 		Use:   "clean",

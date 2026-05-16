@@ -41,11 +41,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/audit"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/manifest"
-	"github.com/teragrid/forge/internal/audit"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -107,8 +107,8 @@ type Checkpoint struct {
 	Status      string        `json:"status"` // "ok", "skipped", "warning", "fail"
 	Detail      string        `json:"detail"`
 	AutoAdvance bool          `json:"auto_advance,omitempty"` // G-009: Code sets true when all tasks done
-	Approved    *bool         `json:"approved,omitempty"` // nil=yolo/not-gated; true=approved; false=rejected
-	Debate      *DebateResult `json:"debate,omitempty"`   // populated when --yolo self-debate runs
+	Approved    *bool         `json:"approved,omitempty"`     // nil=yolo/not-gated; true=approved; false=rejected
+	Debate      *DebateResult `json:"debate,omitempty"`       // populated when --yolo self-debate runs
 }
 
 // ShipResult summarizes the ship run.

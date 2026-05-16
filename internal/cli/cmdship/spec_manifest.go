@@ -18,7 +18,7 @@
 //
 //   - spec.md  — human-readable Markdown specification (prose, GWT criteria)
 //   - spec.yml — machine-readable manifest (parsed by Test/Breakdown/Ship
-//                checkpoints so they never need to string-grep spec.md)
+//     checkpoints so they never need to string-grep spec.md)
 //
 // The schema is documented in docs/spec-schema.md and validated by
 // TestSpecManifest_* in spec_manifest_test.go.
@@ -143,6 +143,7 @@ func loadSpecManifest(specsDir, slug string) *SpecManifest {
 	}
 	return &m
 }
+
 // extractSpecFields parses acceptance criteria, events, and authz model
 // from a Markdown spec.  The parser is intentionally simple:
 //

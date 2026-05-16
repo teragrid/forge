@@ -177,6 +177,7 @@ func newHealCmd(root *string, dryRun *bool) *cobra.Command {
 		},
 	}
 }
+
 // --- helpers ---
 
 type pkgDocEntry struct {
@@ -333,7 +334,6 @@ func removeStaleLinks(links []brokenLink) (int, error) {
 	}
 	return total, nil
 }
-
 
 // findBrokenAnchors scans markdown files for [text](#anchor) links where the
 // target heading does not exist in the same file. G-115.

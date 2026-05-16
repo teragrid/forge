@@ -38,12 +38,12 @@ const (
 
 // Profile holds the settings driven by a named profile.
 type Profile struct {
-	Name                 ProfileName
-	MinTier              string // T0, T1, T2
-	IncludeMedium        bool   // include medium-confidence scan findings
-	MaxLLMTokenBudget    int    // maximum tokens for a single LLM call (0 = provider default)
-	ScanStrictness       string // "low", "medium", "high"
-	ConfidenceThreshold  string // "low", "medium", "high" — minimum confidence to report
+	Name                ProfileName
+	MinTier             string // T0, T1, T2
+	IncludeMedium       bool   // include medium-confidence scan findings
+	MaxLLMTokenBudget   int    // maximum tokens for a single LLM call (0 = provider default)
+	ScanStrictness      string // "low", "medium", "high"
+	ConfidenceThreshold string // "low", "medium", "high" — minimum confidence to report
 }
 
 // builtinProfiles is the canonical profile table.

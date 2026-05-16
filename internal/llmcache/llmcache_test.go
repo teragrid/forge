@@ -139,7 +139,6 @@ func TestZeroProviderCallOnHit(t *testing.T) {
 	}
 }
 
-
 // G-041: TestCache_HitRateReported verifies that HitRate() correctly reflects
 // the ratio of cache hits to total lookups. This validates the forge insights
 // cache hit metric source.

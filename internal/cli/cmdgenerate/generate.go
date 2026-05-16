@@ -393,10 +393,10 @@ func renderText(cmd *cobra.Command, r GenerateResult) {
 // regression test skeleton that reproduces the described bug.
 func newTestFromBugCmd() *cobra.Command {
 	var (
-		root    string
-		issue   string
-		apply   bool
-		asJSON  bool
+		root   string
+		issue  string
+		apply  bool
+		asJSON bool
 	)
 	cmd := &cobra.Command{
 		Use:   "test",

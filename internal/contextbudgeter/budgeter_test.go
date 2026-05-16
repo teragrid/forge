@@ -32,9 +32,9 @@ func TestEstimateTokens_Basic(t *testing.T) {
 		want int
 	}{
 		{"", 0},
-		{"abcd", 1},   // exactly 4 chars → 1 token
-		{"abc", 1},    // 3 chars → ceil(3/4)=1
-		{"abcde", 2},  // 5 chars → 2
+		{"abcd", 1},  // exactly 4 chars → 1 token
+		{"abc", 1},   // 3 chars → ceil(3/4)=1
+		{"abcde", 2}, // 5 chars → 2
 		{strings.Repeat("a", 100), 25},
 	}
 	for _, tc := range cases {

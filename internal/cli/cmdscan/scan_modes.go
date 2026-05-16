@@ -274,7 +274,10 @@ func diffFindings(current []Finding, baseline *ScanHistoryEntry) []Finding {
 	if baseline == nil {
 		return current
 	}
-	type key struct{ rule, file string; line int }
+	type key struct {
+		rule, file string
+		line       int
+	}
 	baseKeys := make(map[key]bool, len(baseline.Findings))
 	for _, f := range baseline.Findings {
 		baseKeys[key{f.Rule, f.File, f.Line}] = true

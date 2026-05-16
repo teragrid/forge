@@ -78,9 +78,9 @@ func RefusalDetect(content string, severity Severity) GuardrailResult {
 // ── PII redaction ─────────────────────────────────────────────────────────
 
 var (
-	reEmail  = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
-	rePhone  = regexp.MustCompile(`\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b`)
-	reCCNum  = regexp.MustCompile(`\b(?:\d[ -]?){13,16}\b`)
+	reEmail = regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)
+	rePhone = regexp.MustCompile(`\b(\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b`)
+	reCCNum = regexp.MustCompile(`\b(?:\d[ -]?){13,16}\b`)
 )
 
 // PIIRedact replaces PII patterns in content with placeholders.

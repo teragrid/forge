@@ -142,24 +142,24 @@ func TestThirdPartyPlugin_ManifestValidation(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:    "valid",
+			name:     "valid",
 			manifest: plugin.Manifest{Name: "ok-plugin", Version: "1.0.0", Kind: plugin.KindScanner},
-			wantErr: false,
+			wantErr:  false,
 		},
 		{
-			name:    "missing_name",
+			name:     "missing_name",
 			manifest: plugin.Manifest{Version: "1.0.0", Kind: plugin.KindScanner},
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
-			name:    "missing_version",
+			name:     "missing_version",
 			manifest: plugin.Manifest{Name: "no-version", Kind: plugin.KindScanner},
-			wantErr: true,
+			wantErr:  true,
 		},
 		{
-			name:    "unknown_kind",
+			name:     "unknown_kind",
 			manifest: plugin.Manifest{Name: "bad-kind", Version: "1.0.0", Kind: "unknown"},
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 	for _, tc := range cases {

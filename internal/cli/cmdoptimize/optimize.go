@@ -304,10 +304,10 @@ func resolveRoot(root string) (string, error) {
 
 // CompileResult describes one compiled prompt file.
 type CompileResult struct {
-	File        string `json:"file"`
-	Before      int    `json:"tokens_before"`
-	After       int    `json:"tokens_after"`
-	ReductionPct int   `json:"reduction_pct"`
+	File         string `json:"file"`
+	Before       int    `json:"tokens_before"`
+	After        int    `json:"tokens_after"`
+	ReductionPct int    `json:"reduction_pct"`
 }
 
 // PromptsResult summarises a prompts compile run.
@@ -414,10 +414,10 @@ type SelfOptResult struct {
 // improvement between iterations falls below --convergence-threshold.
 func newSelfOptCmd(root *string, jsonOut *bool) *cobra.Command {
 	var (
-		evalCmd    string
-		maxIter    int
-		threshold  float64
-		dryRun     bool
+		evalCmd   string
+		maxIter   int
+		threshold float64
+		dryRun    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "self-opt",

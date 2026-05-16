@@ -261,9 +261,9 @@ func EnsureGitleaksConfig(root string) error {
 
 // AllowlistEntry represents one expired or expiring allowlist entry.
 type AllowlistEntry struct {
-	Path       string
-	ReviewBy   time.Time
-	DaysStale  int
+	Path      string
+	ReviewBy  time.Time
+	DaysStale int
 }
 
 // CheckAllowlistExpiry reads .gitleaks.toml and returns any allowlist entries

@@ -13,9 +13,10 @@
 // limitations under the License.
 
 // Tests for G-001, G-002, G-003 gap tasks:
-//   G-001: positional <feature> arg on forge ship
-//   G-002: --resume flag replacing forge ship resume subcommand
-//   G-003: rename checkpoint 5 from verify→ship
+//
+//	G-001: positional <feature> arg on forge ship
+//	G-002: --resume flag replacing forge ship resume subcommand
+//	G-003: rename checkpoint 5 from verify→ship
 package cmdship
 
 import (

@@ -851,6 +851,7 @@ func TestRunDX_ForgeManifestPresentClean(t *testing.T) {
 		}
 	}
 }
+
 // ── G-020: All 8 scanner families are registered and callable ────────────────
 
 // TestScannerFamilies_AllRegistered verifies that every scanner family

@@ -63,14 +63,14 @@ type VerbStat struct {
 
 // Report is the full stats output.
 type Report struct {
-	GeneratedAt    time.Time  `json:"generated_at"`
-	TotalEvents    int        `json:"total_events"`
-	SinceFilter    string     `json:"since,omitempty"`
-	Verbs          []VerbStat `json:"verbs"`
+	GeneratedAt time.Time  `json:"generated_at"`
+	TotalEvents int        `json:"total_events"`
+	SinceFilter string     `json:"since,omitempty"`
+	Verbs       []VerbStat `json:"verbs"`
 	// G-013: quick_ratio_30d — fraction of ship runs that used --quick.
 	// Printed as a workflow-smell banner when > 20%.
-	QuickRatio30d  float64    `json:"quick_ratio_30d,omitempty"`
-	QuickSmell     bool       `json:"quick_smell,omitempty"`
+	QuickRatio30d float64 `json:"quick_ratio_30d,omitempty"`
+	QuickSmell    bool    `json:"quick_smell,omitempty"`
 }
 
 // New returns the cobra command.

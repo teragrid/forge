@@ -9,7 +9,9 @@ package main
 func LLMLoopExample(items []string) []string {
 	var results []string
 	// cost: llm-call-in-loop — for + completion on the same line
-	for i := range items { results = append(results, completion(items[i])) }
+	for i := range items {
+		results = append(results, completion(items[i]))
+	}
 	return results
 }
 

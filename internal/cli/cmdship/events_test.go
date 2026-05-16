@@ -13,8 +13,9 @@
 // limitations under the License.
 
 // Tests for G-004: structured NDJSON event stream.
-//   G-004: forge ship emits one NDJSON ShipEvent line per checkpoint when
-//          --json flag is active.
+//
+//	G-004: forge ship emits one NDJSON ShipEvent line per checkpoint when
+//	       --json flag is active.
 package cmdship
 
 import (

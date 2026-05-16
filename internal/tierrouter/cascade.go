@@ -89,7 +89,7 @@ func (c *Cascade) Complete(ctx context.Context, req llmprovider.Request, sourceP
 
 	// Store result in cache for future requests.
 	if c.cache != nil {
-			key := llmcache.Key(req.Model, systemPrompt, userPrompt)
+		key := llmcache.Key(req.Model, systemPrompt, userPrompt)
 		if storeErr := c.cache.StoreWithTokens(key, req.Model, systemPrompt, userPrompt, rr.Response, sourcePaths); storeErr != nil {
 			// Non-fatal — log but do not fail the request.
 			fmt.Printf("cascade: cache store warning: %v\n", storeErr)
