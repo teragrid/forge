@@ -39,14 +39,41 @@ function resolveBinary() {
 
   const [pkgName, binaryName] = entry;
 
-  // Walk up from this file to find the package inside node_modules.
-  // Works whether @forgeone/cli is installed globally, locally, or via npx.
-  let dir = __dirname;
-  for (let i = 0; i < 5; i++) {
-    dir = path.dirname(dir);
-    const candidate = path.join(dir, "node_modules", pkgName, "bin", binaryName);
-    if (fs.existsSync(candidate)) {
-      return candidate;
+  // Strategy 1: Look alongside node.exe (npm global prefix).
+  // process.execPath = "C:\Program Files\nodejs\node.exe" (or nvm equiv).
+  // Global node_modules live at dirname(execPath)/node_modules on Windows,
+  // and at dirname(dirname(execPath))/lib/node_modules on Unix/macOS.
+  // This is robust against junction/symlink chains that confuse __dirname.
+  const nodeDir = path.dirname(process.execPath);
+  const globalCandidates = [
+    path.join(nodeDir, "node_modules", pkgName, "bin", binaryName),           // Windows
+    path.join(nodeDir, "..", "lib", "node_modules", pkgName, "bin", binaryName), // Unix/macOS
+  ];
+  for (const candidate of globalCandidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  // Strategy 2: require.resolve — handles standard installs and NODE_PATH setups.
+  try {
+    const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
+    const candidate = path.join(path.dirname(pkgJsonPath), "bin", binaryName);
+    if (fs.existsSync(candidate)) return candidate;
+  } catch (_) {
+    // package not on require path — fall through to directory walk
+  }
+
+  // Strategy 3: Walk up from the script path as-passed (process.argv[1]).
+  // Handles junction links: argv[1] may be the pre-resolved junction path,
+  // while __dirname is the fully-resolved real path.
+  const scriptDirs = [process.argv[1], __filename].filter(Boolean).map(path.dirname);
+  for (const startDir of scriptDirs) {
+    let dir = startDir;
+    for (let i = 0; i < 6; i++) {
+      const candidate = path.join(dir, "node_modules", pkgName, "bin", binaryName);
+      if (fs.existsSync(candidate)) return candidate;
+      const parent = path.dirname(dir);
+      if (parent === dir) break; // reached filesystem root
+      dir = parent;
     }
   }
 
