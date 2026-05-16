@@ -177,12 +177,37 @@ forge ship --description "add hello-world handler" --dry-run=false
 ## Step 6 — Explore other verbs
 
 ```bash
-forge --help           # full verb list
-forge explain ship     # describe any verb's inputs, outputs, side-effects
-forge scan all         # run all 8 scanner families
-forge lint             # convention + hygiene checks
-forge upgrade --check  # show available codemods (dry-run)
-forge doctor           # environment health check
+forge --help                            # full verb list
+forge explain ship                      # describe any verb’s inputs, outputs, side-effects
+forge scan all                          # run all 9 scanner families
+forge lint                              # convention + hygiene checks
+forge upgrade --check                   # show available codemods (dry-run)
+forge doctor                            # environment health check
+
+# Learning loop
+forge learn teach                       # record a project convention
+forge learn share                       # opt-in/out of sharing anonymized counts
+forge learn promote                     # promote a spec to production
+
+# Incident management
+forge incident new --id INC-001 --title "API down" --severity S1
+forge incident triage INC-001           # AI auto-triage
+forge generate test --from-bug INC-001  # generate regression tests from incident
+
+# Semantic cache & streaming
+# (automatic — Forge caches LLM responses by token similarity and streams output)
+
+# Deploy & rollback
+forge deploy --dry-run                  # preview deploy
+forge rollback --advise <deploy-id>     # get AI-recommended rollback target
+
+# Privacy
+forge audit erase --subject <user-id>   # GDPR right-to-erasure
+forge context --redact                  # redact PII from context snapshots
+
+# Insights
+forge insights cli                      # unused verbs, schema drift
+forge insights hygiene                  # weekly hygiene digest
 ```
 
 ---
@@ -191,12 +216,14 @@ forge doctor           # environment health check
 
 | Goal | Where to look |
 |------|---------------|
-| Add a plugin | [docs/PLUGIN_AUTHORING.md](docs/PLUGIN_AUTHORING.md) |
+| Add a third-party scanner plugin | [docs/PLUGIN_AUTHORING.md](docs/PLUGIN_AUTHORING.md) |
 | Understand every verb and flag | [docs/VERBS.md](docs/VERBS.md) |
 | Install on another platform | [docs/INSTALLATION.md](docs/INSTALLATION.md) |
 | Contribute a change | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Architecture deep-dive | [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) |
-| Full specification | [docs/FORGE_FRAMEWORK_SPEC.md](docs/FORGE_FRAMEWORK_SPEC.md) |
+| Community plugin index | [docs/COMMUNITY_PLUGINS.md](docs/COMMUNITY_PLUGINS.md) |
+| Error code reference | [docs/ERROR_CODES.md](docs/ERROR_CODES.md) |
+| Air-gap / offline use | [docs/airgap.md](docs/airgap.md) |
 
 ---
 

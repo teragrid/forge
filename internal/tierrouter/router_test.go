@@ -186,7 +186,7 @@ func (e *errorOnFirstProvider) Name() string { return "error-on-first" }
 func (e *errorOnFirstProvider) Capabilities() llmprovider.Capabilities {
 	return llmprovider.Capabilities{MaxTokens: 4096, Models: []string{"mock"}}
 }
-func (e *errorOnFirstProvider) Complete(ctx context.Context, req *llmprovider.Request) (*llmprovider.Response, error) {
+func (e *errorOnFirstProvider) Complete(_ context.Context, req *llmprovider.Request) (*llmprovider.Response, error) {
 	*e.calls++
 	if *e.calls == 1 {
 		return nil, errors.New("first call fails")

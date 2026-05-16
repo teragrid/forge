@@ -242,7 +242,7 @@ func NewRollback() *cobra.Command {
 	// G-112: --advise flag: print advisor recommendation from deploy history
 	var adviseID string
 	cmd.Flags().StringVar(&adviseID, "advise", "", "Deploy ID to advise on (shows risk, suggested roll-back target)")
-	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+	cmd.PreRunE = func(cmd *cobra.Command, _ []string) error {
 		if adviseID == "" {
 			return nil
 		}

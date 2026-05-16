@@ -9,7 +9,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 )
 
-func TestReportFindingsCounts(t *testing.T) {
+func TestReportFindingsCounts(_ *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
 	root := filepath.Join(filepath.Dir(filename), "fixtures", "canonical-project")
 	families := []struct {

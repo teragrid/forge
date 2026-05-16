@@ -173,7 +173,7 @@ func GenerateCLISchemas(root string) error {
 			return fmt.Errorf("GenerateCLISchemas marshal %s: %w", m.Verb, err)
 		}
 		path := filepath.Join(schemaDir, m.Verb+".schema.json")
-		if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 			return fmt.Errorf("GenerateCLISchemas write %s: %w", m.Verb, err)
 		}
 	}

@@ -83,7 +83,7 @@ func StampOwnership(root, rel, verb string) error {
 	commentStyle := commentStyleFor(rel)
 	header := fmt.Sprintf("%s %s %s\n", commentStyle, forgeOwnerTag, verb)
 	newData := append([]byte(header), data...)
-	return os.WriteFile(path, newData, 0o644)
+	return os.WriteFile(path, newData, 0o600)
 }
 
 // commentStyleFor returns the appropriate single-line comment prefix for a file.
@@ -254,7 +254,7 @@ func EnsureGitleaksConfig(root string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil // already present
 	}
-	return os.WriteFile(path, []byte(gitleaksTemplate), 0o644)
+	return os.WriteFile(path, []byte(gitleaksTemplate), 0o600)
 }
 
 // ── G-069: Allowlist expiry gate ─────────────────────────────────────────────

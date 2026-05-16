@@ -87,25 +87,25 @@ func Define(name string, spec Spec) *Capability {
 	return &Capability{Name: name, Spec: spec}
 }
 
-// Register adds cap to the global registry. Panics if name already registered.
-func Register(cap *Capability) {
+// Register adds c to the global registry. Panics if name already registered.
+func Register(c *Capability) {
 	mu.Lock()
 	defer mu.Unlock()
-	if _, exists := registry[cap.Name]; exists {
-		panic(fmt.Sprintf("capability %q already registered", cap.Name))
+	if _, exists := registry[c.Name]; exists {
+		panic(fmt.Sprintf("capability %q already registered", c.Name))
 	}
-	registry[cap.Name] = cap
+	registry[c.Name] = c
 }
 
 // Execute looks up name in the global registry and calls its handler.
 func Execute(ctx context.Context, name string, input map[string]any) (map[string]any, error) {
 	mu.RLock()
-	cap, ok := registry[name]
+	c, ok := registry[name]
 	mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("capability %q not found", name)
 	}
-	return cap.Execute(ctx, input)
+	return c.Execute(ctx, input)
 }
 
 // List returns all registered capability manifests — used by LLM agents to
@@ -114,8 +114,8 @@ func List() []map[string]any {
 	mu.RLock()
 	defer mu.RUnlock()
 	out := make([]map[string]any, 0, len(registry))
-	for _, cap := range registry {
-		out = append(out, cap.Manifest())
+	for _, c := range registry {
+		out = append(out, c.Manifest())
 	}
 	return out
 }

@@ -486,7 +486,7 @@ func provisionPluginInstructions(root, pluginName string) error {
 	content := "# " + pluginName + " Plugin Instructions\n\n" +
 		"<!-- Add LLM instructions for the " + pluginName + " plugin here. -->\n" +
 		"<!-- This file is included in forge context bundles when the plugin is active. -->\n"
-	return os.WriteFile(path, []byte(content), 0o644)
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 // removePluginInstructions deletes the instructions file for pluginName.

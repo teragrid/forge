@@ -40,25 +40,25 @@ func newTestCapability(name string) *capability.Capability {
 // TestDefine_CreatesCapability verifies Define returns a non-nil Capability with correct name.
 func TestDefine_CreatesCapability(t *testing.T) {
 	t.Parallel()
-	cap := capability.Define("my-cap", capability.Spec{Description: "test"})
-	if cap == nil {
+	c := capability.Define("my-cap", capability.Spec{Description: "test"})
+	if c == nil {
 		t.Fatal("Define returned nil")
 	}
-	if cap.Name != "my-cap" {
-		t.Errorf("Name = %q, want %q", cap.Name, "my-cap")
+	if c.Name != "my-cap" {
+		t.Errorf("Name = %q, want %q", c.Name, "my-cap")
 	}
 }
 
 // TestCapability_Manifest returns expected fields.
 func TestCapability_Manifest(t *testing.T) {
 	t.Parallel()
-	cap := capability.Define("manifest-test", capability.Spec{
+	c := capability.Define("manifest-test", capability.Spec{
 		Description:  "a description",
 		InputSchema:  `{"type":"object"}`,
 		OutputSchema: `{"type":"string"}`,
 		Tags:         []string{"alpha", "beta"},
 	})
-	m := cap.Manifest()
+	m := c.Manifest()
 	if m["name"] != "manifest-test" {
 		t.Errorf("manifest name = %v", m["name"])
 	}
@@ -74,8 +74,8 @@ func TestCapability_Manifest(t *testing.T) {
 // TestCapability_Execute_HappyPath calls the handler and returns result.
 func TestCapability_Execute_HappyPath(t *testing.T) {
 	t.Parallel()
-	cap := newTestCapability("echo-cap-" + t.Name())
-	out, err := cap.Execute(context.Background(), map[string]any{"msg": "hello"})
+	c := newTestCapability("echo-cap-" + t.Name())
+	out, err := c.Execute(context.Background(), map[string]any{"msg": "hello"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -87,8 +87,8 @@ func TestCapability_Execute_HappyPath(t *testing.T) {
 // TestCapability_Execute_NilHandler returns error.
 func TestCapability_Execute_NilHandler(t *testing.T) {
 	t.Parallel()
-	cap := capability.Define("no-handler", capability.Spec{})
-	_, err := cap.Execute(context.Background(), nil)
+	c := capability.Define("no-handler", capability.Spec{})
+	_, err := c.Execute(context.Background(), nil)
 	if err == nil {
 		t.Error("expected error from nil handler")
 	}
@@ -97,12 +97,12 @@ func TestCapability_Execute_NilHandler(t *testing.T) {
 // TestCapability_Execute_HandlerError propagates handler errors.
 func TestCapability_Execute_HandlerError(t *testing.T) {
 	t.Parallel()
-	cap := capability.Define("err-cap", capability.Spec{
+	c := capability.Define("err-cap", capability.Spec{
 		Handler: func(_ context.Context, _ map[string]any) (map[string]any, error) {
 			return nil, fmt.Errorf("handler failed")
 		},
 	})
-	_, err := cap.Execute(context.Background(), nil)
+	_, err := c.Execute(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "handler failed") {
 		t.Errorf("expected handler error, got: %v", err)
 	}
@@ -112,8 +112,8 @@ func TestCapability_Execute_HandlerError(t *testing.T) {
 func TestRegistry_RegisterAndGet(t *testing.T) {
 	// Use unique names to avoid conflict with parallel tests.
 	name := "reg-cap-" + t.Name()
-	cap := newTestCapability(name)
-	capability.Register(cap)
+	c := newTestCapability(name)
+	capability.Register(c)
 
 	got := capability.Get(name)
 	if got == nil {
@@ -144,8 +144,8 @@ func TestRegistry_ExecuteUnknown(t *testing.T) {
 // TestRegistry_List returns manifests for all registered capabilities.
 func TestRegistry_List(t *testing.T) {
 	name := "list-cap-" + t.Name()
-	cap := newTestCapability(name)
-	capability.Register(cap)
+	c := newTestCapability(name)
+	capability.Register(c)
 
 	manifests := capability.List()
 	found := false
@@ -163,8 +163,8 @@ func TestRegistry_List(t *testing.T) {
 // TestRegistry_ExecuteRegistered calls a registered capability end-to-end.
 func TestRegistry_ExecuteRegistered(t *testing.T) {
 	name := "exec-reg-" + t.Name()
-	cap := newTestCapability(name)
-	capability.Register(cap)
+	c := newTestCapability(name)
+	capability.Register(c)
 
 	out, err := capability.Execute(context.Background(), name, map[string]any{"msg": "world"})
 	if err != nil {

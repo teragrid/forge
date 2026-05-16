@@ -200,9 +200,9 @@ func confidenceFor(f Finding) Confidence {
 }
 
 // filterByConfidence returns only findings at or above the minimum confidence.
-func filterByConfidence(findings []Finding, min Confidence) []Finding {
+func filterByConfidence(findings []Finding, minConf Confidence) []Finding {
 	order := map[Confidence]int{ConfidenceHigh: 3, ConfidenceMedium: 2, ConfidenceLow: 1}
-	minScore := order[min]
+	minScore := order[minConf]
 	var out []Finding
 	for _, f := range findings {
 		c := Confidence(f.Confidence)

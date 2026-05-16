@@ -50,11 +50,13 @@ You run Forge from a **terminal** — the window where you type commands. If you
 | The disaster | How it happens | What Forge does |
 |---|---|---|
 | **Your API key leaks on GitHub** | The AI pasted `API_KEY=sk-abc123` into a file | `forge scan secrets` finds it before you push |
-| **Surprise $4,000 OpenAI bill** | Buggy code calls the API in a loop | `forge spend` enforces daily/monthly limits |
+| **Surprise $4,000 OpenAI bill** | Buggy code calls the API in a loop | `forge spend` enforces daily/monthly limits; semantic cache deduplicates identical LLM calls |
 | **Prompt injection attack** | A user tells your chatbot "ignore all previous instructions" | `forge scan prompt-injection` flags risky patterns |
 | **A package contains malware** | The AI suggested a package with a typo in the name | `forge scan supply-chain` checks dependencies |
-| **You broke prod and can't undo it** | No record of what changed | `forge audit` keeps a tamper-proof change log |
-| **Works on your laptop, breaks in prod** | Untested edge cases | `forge ship` runs a 5-step pre-flight check |
+| **You broke prod and can't undo it** | No record of what changed | `forge audit` keeps a tamper-proof change log; `forge rollback --advise` recommends a safe revert target |
+| **Works on your laptop, breaks in prod** | Untested edge cases | `forge ship` runs a 5-step pre-flight check; `forge generate test --from-bug` creates regression tests from incidents |
+| **AI response regresses** | A model update changes chatbot behaviour | `forge eval` runs scenario regression tests; CI cost gate prevents runaway spend |
+| **Third-party scanner gap** | Your org uses a custom linter not shipped with Forge | Third-party scanner plugins via `forge plugin add` — full scanner-family contract |
 
 ---
 
@@ -147,19 +149,30 @@ forge ship auth/email              # the real thing
 |---|---|
 | `forge new <template> <name>` | Scaffold a new project (`ts-service`, `go-service`) |
 | `forge init` | Add Forge to an existing project |
-| `forge doctor` | Health check — Git, Go, Node, OS, permissions |
-| `forge scan <type>` | Scan for `secrets`, `prompt-injection`, `supply-chain`, `rls`, or `all` |
+| `forge doctor` | Health check — Git, Go, Node, OS, permissions, LLM drift |
+| `forge scan <type>` | Scan for `secrets`, `prompt-injection`, `supply-chain`, `rls`, `correctness`, `performance`, `reliability`, `accessibility`, `cost`, `compliance`, `dx`, or `all` |
 | `forge clean` | Remove AI cruft (placeholder comments, dead TODOs) |
 | `forge lint` | Check `.gitignore`, manifest, security markers |
 | `forge ship [<feature>] [--dry-run]` | Run the 5-checkpoint pre-push pipeline |
 | `forge upgrade <codemod>` | Apply automated fixes (`gitignore-marker`, `gitleaks-baseline`, `list`) |
-| `forge audit <show\|verify>` | View or verify the tamper-evident change log |
+| `forge audit <show\|verify\|query\|erase>` | View, verify, query, or GDPR-erase the tamper-evident change log |
 | `forge eval [path]` | Run AI regression scenarios (does the chatbot still answer correctly?) |
 | `forge explain <verb>` | Plain-English description of what a command does |
 | `forge spend <status\|set>` | Track and cap LLM API spend |
-| `forge incident <new\|list>` | Open and track production incidents |
-| `forge insights` | Summary of recent activity from the audit log |
+| `forge incident <new\|list\|triage>` | Open, track, and auto-triage production incidents |
+| `forge insights <cli\|hygiene>` | Analyse CLI usage patterns and weekly hygiene digest |
 | `forge telemetry <enable\|disable>` | Opt-in anonymous usage data (off by default) |
+| `forge learn <teach\|share\|promote>` | Record project conventions, share anonymized counts, promote a spec |
+| `forge generate test --from-bug <id>` | Generate regression tests from a bug/incident record |
+| `forge deploy [--advise <id>]` | Deploy with optional auto-rollback advisor |
+| `forge rollback [--advise <id>]` | Roll back a deployment; `--advise` shows risk and recommended target |
+| `forge optimize` | Self-optimise: run six-role debate to improve specs/prompts |
+| `forge bundle` | Bundle project context for offline / air-gapped use |
+| `forge context` | Manage project context snapshots and privacy redactions |
+| `forge backup` | Backup project state before destructive operations |
+| `forge plugin <list\|add\|remove>` | Manage third-party scanner and codemod plugins |
+| `forge waiver <list\|add\|expire>` | Manage time-boxed security-finding waivers |
+| `forge postmortem [path]` | Lint incident post-mortem documents (ADR-020) |
 | `forge version` | Print version and build info |
 
 Use `forge --help` or `forge <command> --help` for full flags.

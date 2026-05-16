@@ -43,8 +43,8 @@ const (
 	StatusFailed     EventStatus = "failed"
 )
 
-// OutboxEvent is one durable event record written before a mutation.
-type OutboxEvent struct {
+// Event is one durable event record written before a mutation.
+type Event struct {
 	// IdempotencyKey is a content-addressed hash that prevents double-processing.
 	IdempotencyKey string `json:"idempotency_key"`
 	// Verb is the forge verb that produced this event.
@@ -77,7 +77,7 @@ func Open(root string) (*Outbox, error) {
 	return &Outbox{dir: dir}, nil
 }
 
-// Emit writes an OutboxEvent with StatusPending. Returns the idempotency key.
+// Emit writes an Event with StatusPending. Returns the idempotency key.
 // If an event with the same key already exists, it is a no-op (idempotent).
 func (o *Outbox) Emit(verb, intent string, payload map[string]any, correlationID string) (string, error) {
 	key := idempotencyKey(verb, intent, payload)
@@ -89,7 +89,7 @@ func (o *Outbox) Emit(verb, intent string, payload map[string]any, correlationID
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	event := OutboxEvent{
+	event := Event{
 		IdempotencyKey: key,
 		Verb:           verb,
 		Intent:         intent,
@@ -115,7 +115,7 @@ func (o *Outbox) Advance(key string, status EventStatus) error {
 	if err != nil {
 		return fmt.Errorf("outbox advance: read %s: %w", key, err)
 	}
-	var event OutboxEvent
+	var event Event
 	if err := json.Unmarshal(data, &event); err != nil {
 		return fmt.Errorf("outbox advance: parse %s: %w", key, err)
 	}
@@ -129,16 +129,16 @@ func (o *Outbox) Advance(key string, status EventStatus) error {
 }
 
 // PendingEvents returns all events in StatusPending.
-func (o *Outbox) PendingEvents() ([]OutboxEvent, error) {
+func (o *Outbox) PendingEvents() ([]Event, error) {
 	return o.eventsWithStatus(StatusPending)
 }
 
-func (o *Outbox) eventsWithStatus(status EventStatus) ([]OutboxEvent, error) {
+func (o *Outbox) eventsWithStatus(status EventStatus) ([]Event, error) {
 	entries, err := os.ReadDir(o.dir)
 	if err != nil {
 		return nil, fmt.Errorf("outbox list: %w", err)
 	}
-	var events []OutboxEvent
+	var events []Event
 	for _, e := range entries {
 		if filepath.Ext(e.Name()) != ".json" {
 			continue
@@ -147,7 +147,7 @@ func (o *Outbox) eventsWithStatus(status EventStatus) ([]OutboxEvent, error) {
 		if err != nil {
 			continue
 		}
-		var ev OutboxEvent
+		var ev Event
 		if err := json.Unmarshal(data, &ev); err != nil {
 			continue
 		}

@@ -4,6 +4,57 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-05-16 — All 82 gap tasks complete
+
+This release closes every item in the spec\u2013implementation gap list. All packages pass `go test ./... -count=1`; all golangci-lint checks pass.
+
+### Added
+
+- **Semantic LLM cache** (`internal/llmcache`) — token-based Jaccard similarity (threshold 0.85) deduplicates repeat LLM calls without CGO or vector databases. Fixed punctuation-stripping bug so trailing `.`/`,` no longer prevents cache hits.
+- **Tier-router cascade** (`internal/tierrouter`) — exact-hit → semantic-cache → remote-LLM cascade with configurable fallback policy.
+- **Streaming LLM adapter** (`internal/llmprovider/adapter.go`) — `StreamUntilComplete` with early-stop on sentinel tokens; `BatchComplete` for parallel inference.
+- **Token-budget YAML config** (`internal/contextbudgeter`) — per-verb token limits in `.forge/budget.yml`; `LoadBudgetConfig` + integration test.
+- **Six-role self-debate** (`forge optimize`, `docs/rfcs/ADR-025-six-role-self-debate.md`) — Architect / Devil\u2019s Advocate / Security / QA / Performance / Product roles debate specs before shipping.
+- **Third-party scanner plugins** (`tests/fixtures/scan-plugin/`) — full scanner-family contract; `TestThirdPartyPlugin_RegistersInScanFamily` integration test.
+- **forge learn share** (`internal/cli/cmdlearn/learn_extended.go`) — opt-in/out of anonymized convention-count sharing via `forge.yaml`; `forge learn promote` promotes a validated spec.
+- **forge generate test --from-bug** (`internal/cli/cmdgenerate/generate.go`) — generates regression tests from an incident/bug record.
+- **forge audit erase** (`internal/cli/cmdaudit/audit.go`) — GDPR right-to-erasure: removes all ledger entries for a subject.
+- **forge rollback --advise** (`internal/cli/cmddeploy/deploy.go`) — correlates deploy history with SLO regression and recommends a minimal revert target.
+- **Incident auto-triage** (`internal/cli/cmdincident/incident.go`) — `forge incident triage <id>` LLM-assisted root-cause classification.
+- **Doctor drift detector** (`internal/cli/cmddoctor/doctor.go`) — detects schema and convention drift between runs; added to `forge doctor` health check.
+- **Pre-commit hook gate** (`scripts/forge-pre-commit`) — runs `forge scan security` + `forge lint` on staged files; rejects commits with critical findings.
+- **CI cost gate** (`.github/workflows/ci-gates.yml`, `eval-cost-gate` job) — fails CI when `forge eval` total LLM spend exceeds configured threshold.
+- **Auto-generate PR body** (`internal/cli/cmdship/pr.go`) — `forge ship --pr` populates the GitHub PR description from `spec.md` + `tasks.md`.
+- **forge context privacy** (`internal/cli/cmdcontext/privacy.go`) — PII redaction for context snapshots; `--redact` flag.
+- **forge insights cli** (`internal/cli/cmdinsights/cli_insights.go`) — unused-verb detection, common misspellings, schema drift analysis.
+- **forge insights hygiene** (`internal/cli/cmdinsights/hygiene_digest.go`) — weekly hygiene digest: un-manifested patterns, stale artefacts, per-contributor debt.
+- **Canonical project fixture** (`tests/fixtures/canonical-project/`) — representative Go project for all 9 scanner families; `TestAllScannerFamilies_CanonicalProject`.
+- **Hygiene manifest schema + drift detection** (`internal/cli/cmdhygiene/hygiene_extended.go`) — `TestHygieneDriftDetection` validates schema round-trip.
+- **forge docs heal** (`internal/cli/cmddocs/docs.go`) — `newHealCmd` repairs stale doc cross-references.
+- **Capability registry** (`internal/capability/`) — `Define`/`Register`/`Execute`/`List` API for LLM-accessible tools.
+- **Prompt compiler** (`internal/promptcompiler/`) — template compilation with variable injection and safety validation.
+- **Outbox pattern** (`internal/outbox/`) — durable `Event` records written before mutations; idempotency key deduplication.
+- **Guardrails** (`internal/guardrails/`) — policy-based output filtering for LLM responses.
+- **Healer** (`internal/healer/`) — automated remediation suggestions for common scan findings.
+- **CLI config profiles** (`internal/config/profiles.go`) — named profiles (`--profile prod`) with per-profile LLM and budget overrides.
+- **Token ledger + KV cache** (`internal/tokenledger/`, `internal/llmprovider/kvcache.go`) — persistent token accounting and prompt/response KV cache.
+
+### Fixed
+
+- `tokenSet()` in `internal/llmcache/semantic.go` now strips trailing punctuation (`.`, `,`, `;`, `:`, `!`, `?`, quotes, brackets) so `"Go."` and `"Go"` tokenize identically.
+
+### Changed
+
+- README: expanded Commands table to 26 verbs; updated \u201cWhat it protects you from\u201d to include new capabilities.
+- `GETTING_STARTED.md`: updated Step 6 with learning loop, incident management, deploy/rollback, privacy, and insights examples.
+- All `os.WriteFile` calls use `0o600` permissions (OWASP A05 / gosec G306).
+- `forge doctor` extended to include LLM-provider drift detection.
+- `forge audit` extended with `query` and `erase` subcommands.
+- `forge incident` extended with `triage` subcommand.
+- `forge insights` split into `cli` and `hygiene` subcommands.
+
+## [Unreleased — previous batch]
+
 ### Added
 - **`forge spend`** (verb #15, DEV-M3-03) — LLM spend tracker. Subcommands: `status`, `set --daily USD --monthly USD`, `reset [--limits]`. Budget persisted as JSON at `.forge/llm-budget.json`. `--json` emits `daily_spend_usd / monthly_spend_usd / daily_limit_usd / monthly_limit_usd / record_count`. Zero limit = unlimited. Error codes: FORGE-2400..2402.
 - **`forge incident`** (verb #16, DEV-M3-06) — ADR-021 incident lifecycle. Subcommands: `new --id INC-042 --title "…" --severity S1 --systems "CLI,Registry"`, `update <id> --state investigating [--note "…"]`, `list [--open] [--json]`, `close <id> [--postmortem path]`. State machine: `identified → investigating ↔ monitoring → mitigated → fixed → post-mortem-published`. Incidents stored as JSON at `.forge/incidents/<id>.json`. Error codes: FORGE-4000..4002.

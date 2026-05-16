@@ -61,7 +61,7 @@ func GenerateSchema(root string, cmd *cobra.Command) error {
 		return fmt.Errorf("mkdir cli-schemas: %w", err)
 	}
 	outPath := filepath.Join(dir, cmd.Name()+".schema.json")
-	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+	if err := os.WriteFile(outPath, data, 0o600); err != nil {
 		return fmt.Errorf("write schema %s: %w", outPath, err)
 	}
 	return nil

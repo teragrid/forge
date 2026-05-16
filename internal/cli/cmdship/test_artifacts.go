@@ -115,7 +115,7 @@ func writeTestArtifacts(root, slug, feature, specMarkdown string, pipe *LLMPipe)
 }
 
 // allTestArtifactsExist returns true when all four G-006 artifacts are present.
-func allTestArtifactsExist(root, slug string) bool {
+func allTestArtifactsExist(root, slug string) bool { //nolint:unused // used in ship dry-run gate
 	testsDir := filepath.Join(root, "tests")
 	for _, name := range []string{
 		slug + ".test.ts",

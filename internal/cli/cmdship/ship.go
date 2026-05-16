@@ -1121,11 +1121,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			// other checkpoints always use their natural event name.
 			if opts.EventWriter != nil {
 				cpLower := strings.ToLower(cp.Name)
-				if (cpLower == "ship" || cpLower == "verify") && cp.Status == "fail" {
+				switch {
+				case (cpLower == "ship" || cpLower == "verify") && cp.Status == "fail":
 					emitEvent(opts.EventWriter, cp, "ship.failed")
-				} else if cpLower == "ship" || cpLower == "verify" {
+				case cpLower == "ship" || cpLower == "verify":
 					emitEvent(opts.EventWriter, cp, "ship.passed")
-				} else {
+				default:
 					emitEvent(opts.EventWriter, cp, "")
 				}
 			}

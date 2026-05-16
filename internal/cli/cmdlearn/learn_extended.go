@@ -45,7 +45,7 @@ type ConventionEntry struct {
 }
 
 // NewPromoteCmd returns `forge learn promote` (G-030).
-func NewPromoteCmd(root *string, jsonOut *bool) *cobra.Command {
+func NewPromoteCmd(root *string, _ *bool) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "promote",
@@ -377,7 +377,7 @@ func NewShareCmd(root *string, _ *bool) *cobra.Command {
 					} else {
 						updated = string(data) + "\nlearn:\n  share: true\n"
 					}
-					if err := os.WriteFile(forgeYAML, []byte(updated), 0o644); err != nil {
+					if err := os.WriteFile(forgeYAML, []byte(updated), 0o600); err != nil {
 						return fmt.Errorf("learn share: write forge.yaml: %w", err)
 					}
 					fmt.Fprintln(cmd.OutOrStdout(), "learn share: opted IN — anonymized convention counts will be shared.")
@@ -385,7 +385,7 @@ func NewShareCmd(root *string, _ *bool) *cobra.Command {
 				} else {
 					// Remove share flag.
 					updated := strings.ReplaceAll(string(data), "  share: true\n", "")
-					if err := os.WriteFile(forgeYAML, []byte(updated), 0o644); err != nil {
+					if err := os.WriteFile(forgeYAML, []byte(updated), 0o600); err != nil {
 						return fmt.Errorf("learn share: write forge.yaml: %w", err)
 					}
 					fmt.Fprintln(cmd.OutOrStdout(), "learn share: opted OUT — no sharing.")

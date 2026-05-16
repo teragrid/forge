@@ -48,7 +48,7 @@ func loadProjectPrompt(root, op string) string {
 
 // promptOverrides is the set of operation names for which project-local
 // prompt files are consulted.
-var promptOverrides = []string{
+var promptOverrides = []string{ //nolint:unused // referenced via loadProjectPrompt callers
 	"ship-spec",
 	"ship-test",
 	"ship-breakdown",
@@ -58,7 +58,7 @@ var promptOverrides = []string{
 
 // ensurePromptTemplates writes the default .forge/prompts/ template files when
 // they do not exist. This is called on first `forge ship` run.
-func ensurePromptTemplates(root string) {
+func ensurePromptTemplates(root string) { //nolint:unused // called from ship init path
 	dir := filepath.Join(root, ".forge", "prompts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
