@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Forge CLI — AI-native developer framework. Scaffold, lint, scan, ship.",
   "keywords": ["forge", "scaffold", "cli", "ai", "developer-tools", "devex"],
   "homepage": "https://forgeframework.dev",
@@ -26,6 +26,9 @@
     "@forgeone/cli-darwin-x64": "1.0.0",
     "@forgeone/cli-darwin-arm64": "1.0.0",
     "@forgeone/cli-win32-x64": "1.0.0"
+  },
+  "scripts": {
+    "postinstall": "node -e \"try{require('child_process').execFileSync(process.execPath,[require('path').join(__dirname,'bin','forge.js'),'--version'],{stdio:'pipe',timeout:5000})}catch(e){process.exit(0)}\""
   },
   "engines": {
     "node": ">=18"
