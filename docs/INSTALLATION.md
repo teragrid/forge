@@ -166,13 +166,17 @@ npm-managed release, remove the old binary first to avoid PATH conflicts:
 # 1. Remove old binary
 Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
 
-# 2. Confirm it's gone (should return nothing or an error)
+# 2. Confirm it's gone (should return nothing)
 Get-Command forge -ErrorAction SilentlyContinue
 
 # 3. Install the npm release
 npm install -g @forgeone/cli
 
-# 4. Verify
+# 4. If forge still shows 0.0.0-dev, npm kept the old platform package.
+#    Force-install it explicitly:
+npm install -g @forgeone/cli-win32-x64@latest
+
+# 5. Verify
 forge version   # forge 1.0.1 (...)
 ```
 
