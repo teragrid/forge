@@ -696,7 +696,7 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 	if violations := testTimestampGuard(root); len(violations) > 0 {
 		cp.Status = "fail"
 		cp.Detail = fmt.Sprintf(
-			"tests-precede-code violation: %d production file(s) were modified more than 60s before their test file — write failing tests first: %s",
+			"tests-precede-code violation: %d production file(s) modified without a corresponding test update — write/update tests first: %s",
 			len(violations), strings.Join(violations[:min3(len(violations))], ", "),
 		)
 		// G-011: record this failure for future learning context.
@@ -751,68 +751,47 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 	return cp
 }
 
-// testTimestampGuard returns the names of production Go files whose last git
-// commit is more than 60 seconds newer than their corresponding _test.go file's
-// last git commit. Git commit timestamps are used instead of filesystem mtimes
-// to avoid false positives caused by formatting tools (gofmt, goimports) that
-// update file mtimes without making logical changes.
-// Falls back to filesystem mtime when git is unavailable or a file is untracked.
+// testTimestampGuard returns production .go files that are dirty in the working
+// tree without a corresponding dirty _test.go file. Scoping to the current
+// working tree keeps the TDD gate relevant to the active change set; historical
+// violations in already-committed files are not re-raised here.
+// Returns nil when the working tree is clean (nothing new to check).
 func testTimestampGuard(root string) []string {
-	const maxDrift = 60 * time.Second
-	var violations []string
-
-	// One batch git log call builds the commit-time map for all .go files.
-	var commitTimes map[string]time.Time
-	if gs, err := gitservice.New(root); err == nil {
-		commitTimes = gs.GoFileCommitTimes()
+	gs, err := gitservice.New(root)
+	if err != nil {
+		return nil // not a git repo — skip guard
+	}
+	statuses, err := gs.Status()
+	if err != nil || len(statuses) == 0 {
+		return nil // clean working tree — nothing to check for this change set
 	}
 
-	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			if d != nil && d.IsDir() {
-				n := d.Name()
-				if n == ".git" || n == "node_modules" || n == "vendor" || n == "dist" {
-					return filepath.SkipDir
-				}
-			}
-			return nil
+	// Build a forward-slash set of changed paths; handle "old -> new" renames.
+	dirty := make(map[string]bool, len(statuses))
+	for _, st := range statuses {
+		p := filepath.ToSlash(st.Path)
+		if i := strings.Index(p, " -> "); i >= 0 {
+			p = p[i+4:]
 		}
-		name := d.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		testPath := strings.TrimSuffix(p, ".go") + "_test.go"
-		if _, statErr := os.Stat(testPath); statErr != nil {
-			return nil // no test file — handled by a separate check
-		}
+		dirty[p] = true
+	}
 
-		// Resolve prod-file time: git commit preferred, mtime fallback.
-		relProd := filepath.ToSlash(strings.TrimPrefix(p, root+string(os.PathSeparator)))
-		prodTime, ok := commitTimes[relProd]
-		if !ok || prodTime.IsZero() {
-			info, infoErr := d.Info()
-			if infoErr != nil {
-				return nil
-			}
-			prodTime = info.ModTime()
+	var violations []string
+	for rel := range dirty {
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+			continue
 		}
-
-		// Resolve test-file time: git commit preferred, mtime fallback.
-		relTest := filepath.ToSlash(strings.TrimPrefix(testPath, root+string(os.PathSeparator)))
-		testTime, ok := commitTimes[relTest]
-		if !ok || testTime.IsZero() {
-			testInfo, statErr := os.Stat(testPath)
-			if statErr != nil {
-				return nil
-			}
-			testTime = testInfo.ModTime()
+		testRel := strings.TrimSuffix(rel, ".go") + "_test.go"
+		// No corresponding test file at all — not a timestamp violation (separate check).
+		if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(testRel))); statErr != nil {
+			continue
 		}
-
-		if prodTime.Sub(testTime) > maxDrift {
-			violations = append(violations, strings.TrimPrefix(p, root+string(os.PathSeparator)))
+		// Test file was also modified in the working tree — no violation.
+		if dirty[testRel] {
+			continue
 		}
-		return nil
-	})
+		violations = append(violations, filepath.FromSlash(rel))
+	}
 	return violations
 }
 
