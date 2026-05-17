@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/teragrid/forge/releases"><img src="https://img.shields.io/github/v/tag/teragrid/forge?sort=semver&color=orange&label=latest" alt="Latest release"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0"/></a>
-  <a href="https://github.com/teragrid/forge/actions"><img src="https://img.shields.io/github/actions/workflow/status/teragrid/forge/ci.yml?label=CI" alt="CI"/></a>
+  <a href="https://github.com/teragrid/forge/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/teragrid/forge/release.yml?label=release" alt="Release"/></a>
 </p>
 
 ---
