@@ -1,13 +1,9 @@
 {
   "name": "@forgeone/cli-win32-x64",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Windows x64 binary for @forgeone/cli",
   "os": ["win32"],
   "cpu": ["x64"],
-  "main": "bin/forge.exe",
-  "bin": {
-    "forge": "bin/forge.exe"
-  },
   "files": ["bin/forge.exe"],
   "license": "Apache-2.0",
   "repository": {

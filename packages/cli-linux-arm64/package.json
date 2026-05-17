@@ -1,13 +1,9 @@
 {
   "name": "@forgeone/cli-linux-arm64",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Linux arm64 binary for @forgeone/cli",
   "os": ["linux"],
   "cpu": ["arm64"],
-  "main": "bin/forge",
-  "bin": {
-    "forge": "bin/forge"
-  },
   "files": ["bin/forge"],
   "license": "Apache-2.0",
   "repository": {

@@ -81,7 +81,7 @@ jobs:
       - name: run via npx
         shell: bash
         working-directory: install-test
-        run: npx forge version
+        run: ./node_modules/.bin/forge version
 
   install-npx:
     name: ${{ matrix.os }} · npx (no install)
