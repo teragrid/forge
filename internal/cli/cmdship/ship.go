@@ -159,7 +159,7 @@ func makeInteractiveGate(scanner *bufio.Scanner, out io.Writer) Gate {
 		case "fail":
 			marker = "✗"
 		case "warning":
-			marker = "⚠"
+			marker = "\u25b3" // △ WHITE UP-POINTING TRIANGLE (Consolas-safe)
 		}
 		fmt.Fprintf(out, "\n  [%d/%d] %s %s — %s\n", idx+1, total, marker, cp.Name, cp.Detail)
 		fmt.Fprintf(out, "       → Approve and continue to checkpoint %d/%d? [y/N] ", idx+2, total)
@@ -1157,11 +1157,13 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	fmt.Fprintf(w, "%s\n", r.Message)
 	fmt.Fprintln(w, "\n5-checkpoint pipeline:")
 	for i, cp := range r.Checkpoints {
-		marker := "âŠ˜ "
+		marker := "\u25cb " // ○ default (unknown status)
 		if cp.Status == "ok" {
 			marker = "✓ "
 		} else if cp.Status == "fail" {
 			marker = "✗ "
+		} else if cp.Status == "warning" {
+			marker = "\u25b3 " // △ warning
 		}
 		approval := ""
 		if cp.Approved != nil {
@@ -1177,15 +1179,15 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 			if !d.Consensus {
 				consensusIcon = "✗"
 			}
-			fmt.Fprintf(w, "      âœ¦ self-debate [%d roles Â· %d rounds Â· consensus %s Â· %d improvement(s)]\n",
+			fmt.Fprintf(w, "      \u2726 self-debate [%d roles \u00b7 %d rounds \u00b7 consensus %s \u00b7 %d improvement(s)]\n",
 				len(d.Roles), len(d.Rounds), consensusIcon, len(d.Improvements))
 			for j, imp := range d.Improvements {
 				if j >= 3 {
-					fmt.Fprintf(w, "        â‹¯ and %d more (--json for full debate output)\n",
+					fmt.Fprintf(w, "        ... and %d more (--json for full debate output)\n",
 						len(d.Improvements)-3)
 					break
 				}
-				fmt.Fprintf(w, "        â€¢ %s\n", imp)
+				fmt.Fprintf(w, "        \u2022 %s\n", imp) // •
 			}
 		}
 	}

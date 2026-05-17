@@ -25,6 +25,7 @@
 package cmdship
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -1343,5 +1344,49 @@ func TestTimestampGuard_TestFileOnlyDirty_NoViolation(t *testing.T) {
 	got := testTimestampGuard(root)
 	if len(got) != 0 {
 		t.Fatalf("expected no violations when only test file is dirty, got %v", got)
+	}
+}
+
+// TC-RENDER-01: warning checkpoint uses △ (U+25B3) marker, not garbled bytes.
+// Regression for the Consolas-font mojibake bug where ⚠ (U+26A0) was
+// double-encoded and rendered as "â˜"" in PowerShell / cmd.exe.
+func TestRenderText_WarningMarker_IsTriangle(t *testing.T) {
+	t.Parallel()
+	res := &ShipResult{
+		DryRun: true,
+		Checkpoints: []Checkpoint{
+			{Name: "Breakdown", Status: "warning", Detail: "no breakdown.md found"},
+		},
+		Ready:   true,
+		Message: "test",
+	}
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	renderText(cmd, res)
+	got := out.String()
+	// Must contain the △ triangle (U+25B3), not any garbled multi-byte sequence.
+	if !strings.Contains(got, "\u25b3") {
+		t.Fatalf("warning marker must be △ (U+25B3); got output:\n%s", got)
+	}
+	for _, garbled := range []string{"\u00e2\u0160\u02dc", "\u00e2\u0161 ", "â˜"} {
+		if strings.Contains(got, garbled) {
+			t.Fatalf("warning marker must not contain garbled bytes %q; got output:\n%s", garbled, got)
+		}
+	}
+}
+
+// TC-RENDER-02: interactive gate warning marker is also △ (U+25B3).
+func TestInteractiveGate_WarningMarker_IsTriangle(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	// Feed "y\ny\n" so the gate approves both prompts.
+	scanner := bufio.NewScanner(strings.NewReader("y\ny\n"))
+	gate := makeInteractiveGate(scanner, &out)
+	cp := Checkpoint{Name: "Breakdown", Status: "warning", Detail: "no breakdown.md found"}
+	gate(2, 5, cp)
+	got := out.String()
+	if !strings.Contains(got, "\u25b3") {
+		t.Fatalf("interactive gate warning marker must be △ (U+25B3); got output:\n%s", got)
 	}
 }
