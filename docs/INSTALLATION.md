@@ -5,7 +5,36 @@ Pick whichever path suits your setup.
 
 ---
 
-## Option A — Download a Pre-built Binary
+## Option A — npm (recommended)
+
+```bash
+npm install -g @forgeone/cli
+forge version
+```
+
+Requires Node.js 18+. The correct pre-built binary for your platform is pulled
+automatically via optional dependencies.
+
+---
+
+## Option B — `go install`
+
+If you have **Go 1.24+** installed, compile and install directly from source:
+
+```bash
+go install github.com/teragrid/forge/cmd/forge@latest
+```
+
+Make sure `$(go env GOPATH)/bin` is on your `$PATH`. Confirm:
+
+```bash
+forge version
+# forge 1.0.1 (go1.26.3 ...)
+```
+
+---
+
+## Option C — Download a Pre-built Binary
 
 Pre-built binaries for every supported platform are attached to each
 [GitHub Release](https://github.com/teragrid/forge/releases).
@@ -95,13 +124,69 @@ sha256sum -c forge-linux-amd64.sha256
 
 ## Uninstalling
 
+### npm global install
+
 ```bash
-# If installed via go install
-rm "$(go env GOPATH)/bin/forge"
+npm uninstall -g @forgeone/cli
+```
 
-# If installed via Homebrew
+### `go install` binary
+
+**Windows (PowerShell):**
+```powershell
+Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
+```
+
+**macOS / Linux:**
+```bash
+rm -f "$(go env GOPATH)/bin/forge"
+```
+
+### Homebrew
+
+```bash
 brew uninstall forge
+```
 
-# If installed via Scoop
+### Scoop
+
+```powershell
 scoop uninstall forge
+```
+
+---
+
+## Switching from `go install` to npm
+
+If you installed an earlier version via `go install` and want to switch to the
+npm-managed release, remove the old binary first to avoid PATH conflicts:
+
+**Windows:**
+```powershell
+# 1. Remove old binary
+Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
+
+# 2. Confirm it's gone (should return nothing or an error)
+Get-Command forge -ErrorAction SilentlyContinue
+
+# 3. Install the npm release
+npm install -g @forgeone/cli
+
+# 4. Verify
+forge version   # forge 1.0.1 (...)
+```
+
+**macOS / Linux:**
+```bash
+# 1. Remove old binary
+rm -f "$(go env GOPATH)/bin/forge"
+
+# 2. Confirm it's gone
+which forge   # should return nothing
+
+# 3. Install the npm release
+npm install -g @forgeone/cli
+
+# 4. Verify
+forge version   # forge 1.0.1 (...)
 ```

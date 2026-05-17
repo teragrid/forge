@@ -49,7 +49,13 @@ pulled automatically via npm’s optional dependencies.
 npx @forge/cli@latest new my-app --template ts-service
 ```
 
-### Option C: Download a release binary
+### Option C: `go install` (contributors / Go-first users)
+
+```bash
+go install github.com/teragrid/forge/cmd/forge@latest
+```
+
+### Option D: Download a release binary
 
 Pre-built binaries for Linux, macOS, and Windows (amd64 + arm64) are attached to
 every [GitHub release](https://github.com/teragrid/forge/releases).
@@ -202,6 +208,51 @@ forge context --redact                  # redact PII from context snapshots
 # Insights
 forge insights cli                      # unused verbs, schema drift
 forge insights hygiene                  # weekly hygiene digest
+```
+
+---
+
+## Uninstalling / Switching to npm
+
+If you installed an earlier version via `go install` (which showed `0.0.0-dev`),
+remove it before installing the npm release to avoid PATH conflicts.
+
+**Windows (PowerShell):**
+
+```powershell
+# 1. Remove the old go-installed binary
+Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
+
+# 2. Confirm it's gone (should return nothing)
+Get-Command forge -ErrorAction SilentlyContinue
+
+# 3. Install the npm-managed release
+npm install -g @forgeone/cli
+
+# 4. Verify the correct version
+forge version   # forge 1.0.1 (...)
+```
+
+**macOS / Linux:**
+
+```bash
+# 1. Remove the old go-installed binary
+rm -f "$(go env GOPATH)/bin/forge"
+
+# 2. Confirm it's gone
+which forge   # should return nothing
+
+# 3. Install the npm-managed release
+npm install -g @forgeone/cli
+
+# 4. Verify
+forge version   # forge 1.0.1 (...)
+```
+
+To uninstall the npm release later:
+
+```bash
+npm uninstall -g @forgeone/cli
 ```
 
 ---
