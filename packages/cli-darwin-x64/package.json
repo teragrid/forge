@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli-darwin-x64",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "macOS x64 binary for @forgeone/cli",
   "os": ["darwin"],
   "cpu": ["x64"],
