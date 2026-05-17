@@ -51,21 +51,17 @@ forge version
 
 ## Option C — Homebrew (macOS / Linux)
 
-```bash
-brew tap teragrid/forge
-brew install forge
-```
+> **Coming soon.** The `teragrid/homebrew-tap` repository is not yet published.
+> Use Option A (npm) or Option B (binary) in the meantime.
 
 ---
 
 ## Option D — Scoop (Windows)
 
-```powershell
-scoop bucket add forge https://github.com/teragrid/scoop-forge.git
-scoop install forge
-```
+> **Coming soon.** The `teragrid/scoop-forge` bucket is not yet published.
+> Use Option A (npm) or Option B (binary) in the meantime.
 
-> **Note:** Winget support is on the roadmap for the 1.0 release.
+> **Note:** Winget support is on the roadmap for the 1.x release.
 
 ---
 

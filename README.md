@@ -85,7 +85,7 @@ npx @forgeone/cli version
 
 | Method | Command |
 |---|---|
-| **Homebrew** (macOS/Linux) | `brew install teragrid/tap/forge` |
+| **Homebrew** (macOS/Linux) | _coming soon — tap not yet published_ |
 | **Go install** | `go install github.com/teragrid/forge/cmd/forge@latest` |
 | **Download a binary** | Grab your OS from the [Releases page](https://github.com/teragrid/forge/releases) and put it on your PATH |
 

@@ -49,9 +49,7 @@ export OLLAMA_MODEL=llama3.2   # optional
 
 ### macOS (Homebrew)
 
-```bash
-brew install teragrid/tap/forge
-```
+> **Coming soon.** Use npm or Go install below for now.
 
 ### Linux (curl installer)
 
@@ -62,10 +60,7 @@ curl -fsSL https://install.forge.dev | sh
 
 ### Windows (Scoop)
 
-```powershell
-scoop bucket add teragrid https://github.com/teragrid/scoop-bucket
-scoop install forge
-```
+> **Coming soon.** Use npm or the direct binary download below for now.
 
 ### Go install (any platform)
 
