@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Forge CLI — AI-native developer framework. Scaffold, lint, scan, ship.",
   "keywords": ["forge", "scaffold", "cli", "ai", "developer-tools", "devex"],
   "homepage": "https://forgeframework.dev",
@@ -21,11 +21,11 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@forgeone/cli-linux-x64": "1.0.6",
-    "@forgeone/cli-linux-arm64": "1.0.6",
-    "@forgeone/cli-darwin-x64": "1.0.6",
-    "@forgeone/cli-darwin-arm64": "1.0.6",
-    "@forgeone/cli-win32-x64": "1.0.6"
+    "@forgeone/cli-linux-x64": "1.0.7",
+    "@forgeone/cli-linux-arm64": "1.0.7",
+    "@forgeone/cli-darwin-x64": "1.0.7",
+    "@forgeone/cli-darwin-arm64": "1.0.7",
+    "@forgeone/cli-win32-x64": "1.0.7"
   },
   "scripts": {},
   "engines": {

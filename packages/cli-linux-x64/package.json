@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli-linux-x64",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Linux x64 binary for @forgeone/cli",
   "os": ["linux"],
   "cpu": ["x64"],

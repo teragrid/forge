@@ -750,7 +750,9 @@ func scanWithBuiltinPatterns(root string) []Finding {
 		{"openai-key", regexp.MustCompile(`sk-[A-Za-z0-9]{20,}`)},
 		{"github-token", regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{30,}`)},
 		{"private-key-block", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
-		{"generic-bearer", regexp.MustCompile(`(?i)(bearer|api[_-]?key|token|secret|password)\s*[:=]\s*["']?[A-Za-z0-9_\-]{16,}["']?`)},
+		// generic-bearer: require the value to be a quoted string literal so that
+		// variable-name references (e.g. token = csrfTokenVar) are not flagged.
+		{"generic-bearer", regexp.MustCompile(`(?i)(bearer|api[_-]?key|token|secret|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{16,}["']`)},
 	}
 	return scanFiles(root, func(rel string, line int, text string) []Finding {
 		var out []Finding
@@ -835,7 +837,10 @@ func RunSupplyChain(root string) (*ScanResult, error) {
 		regexp.MustCompile(`(?i)(replace|exclude)\s+\S+\s+=>\s+`): "go-mod-replace-directive",
 	}
 	res.Findings = scanFilesExt(root,
-		[]string{"package.json", "package-lock.json", "Cargo.toml", "go.mod", "requirements.txt", "Gemfile"},
+		// package-lock.json / yarn.lock / pnpm-lock.yaml are auto-generated — their
+		// transitive-dependency version ranges are not developer choices and would
+		// produce hundreds of loose-version-range false positives.
+		[]string{"package.json", "Cargo.toml", "go.mod", "requirements.txt", "Gemfile"},
 		func(rel string, line int, text string) []Finding {
 			var out []Finding
 			for re, name := range risky {
@@ -890,7 +895,13 @@ func scanFilesExt(root string, exts []string, fn func(rel string, line int, text
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == ".git" || name == "node_modules" || name == "vendor" || name == ".forge" {
+			// Skip version-control, package trees, generated build output, and
+			// tool-managed directories — scanning them produces only noise.
+			switch name {
+			case ".git", "node_modules", "vendor", ".forge",
+				".next", ".nuxt", ".svelte-kit",
+				"dist", "build", "out", "output",
+				"coverage", ".nyc_output", ".cache", "tmp", ".tmp":
 				return filepath.SkipDir
 			}
 			return nil
