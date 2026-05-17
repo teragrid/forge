@@ -14,6 +14,8 @@
 package cmdclean
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -377,5 +379,44 @@ func TestRunWithTrash_EmptyTree(t *testing.T) {
 	}
 	if res.TrashDir != "" {
 		t.Error("TrashDir should be empty when no candidates found")
+	}
+}
+
+// ── Cobra command integration ─────────────────────────────────────────────────
+
+// TestNew_MutuallyExclusiveFlags verifies that combining --check and --apply
+// returns an error (G-061: only one mode flag is allowed at a time).
+func TestNew_MutuallyExclusiveFlags(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--root", root, "--check", "--apply"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error when both --check and --apply are passed")
+	}
+}
+
+// TestNew_JSONOutput verifies that --json produces valid JSON containing the
+// expected Result fields (G-061).
+func TestNew_JSONOutput(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--root", root, "--check", "--json"})
+	// Execute may return a non-nil error if candidates are found; that is fine.
+	_ = cmd.Execute()
+	body := bytes.TrimSpace(out.Bytes())
+	var result Result
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("--json output is not valid JSON: %v\noutput: %s", err, out.String())
+	}
+	if result.Mode == "" {
+		t.Error("expected non-empty Mode in JSON output")
 	}
 }

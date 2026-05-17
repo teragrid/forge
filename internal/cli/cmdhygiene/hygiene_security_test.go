@@ -292,3 +292,36 @@ func TestCheckAllowlistExpiry_NoFile(t *testing.T) {
 		t.Errorf("expected empty slice when no .gitleaks.toml, got %d entries", len(expired))
 	}
 }
+
+// TestCheckAllowlistExpiry_MalformedDate verifies that a malformed review-by
+// date is silently skipped (no error returned). G-069.
+func TestCheckAllowlistExpiry_MalformedDate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	content := "[allowlist]\npaths = [\"path/to/file\"] # review-by: not-a-valid-date\n"
+	if err := os.WriteFile(filepath.Join(root, ".gitleaks.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := cmdhygiene.CheckAllowlistExpiry(root)
+	if err != nil {
+		t.Fatalf("CheckAllowlistExpiry must not error on malformed review-by date: %v", err)
+	}
+	if len(expired) != 0 {
+		t.Errorf("expected 0 entries for malformed date, got %d", len(expired))
+	}
+}
+
+// TestValidateNegationDiscipline_NoGitignore verifies that a missing .gitignore
+// returns nil, nil: no violations, no error. G-067.
+func TestValidateNegationDiscipline_NoGitignore(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// No .gitignore present in the temp directory.
+	uncovered, err := cmdhygiene.ValidateNegationDiscipline(root)
+	if err != nil {
+		t.Fatalf("ValidateNegationDiscipline must not error when .gitignore is absent: %v", err)
+	}
+	if len(uncovered) != 0 {
+		t.Errorf("expected 0 uncovered files when .gitignore absent, got %v", uncovered)
+	}
+}

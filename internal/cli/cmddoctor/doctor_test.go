@@ -145,3 +145,37 @@ func TestRun_IncludesGitignoreDriftCheck(t *testing.T) {
 		t.Fatal("expected '.gitignore managed block' check in Report")
 	}
 }
+
+// ── G-114: schema-drift checks ────────────────────────────────────────────────
+
+// TestCmd_DriftFlag verifies that passing --drift does not panic and runs
+// without returning a stack trace in the output. G-114.
+func TestCmd_DriftFlag(t *testing.T) {
+	t.Parallel()
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--drift"})
+	_ = cmd.Execute()
+	if strings.Contains(out.String(), "panic") {
+		t.Errorf("--drift output must not contain 'panic': %s", out.String())
+	}
+}
+
+// TestCheckSchemaDrift_EmptyDir verifies that checkSchemaDrift on an empty
+// directory returns a non-nil slice of checks (all warn: missing generated
+// files) and that every Check has a non-empty Name. G-114.
+func TestCheckSchemaDrift_EmptyDir(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	checks := checkSchemaDrift(dir)
+	if checks == nil {
+		t.Fatal("checkSchemaDrift must return a non-nil slice")
+	}
+	for _, c := range checks {
+		if c.Name == "" {
+			t.Error("each Check returned by checkSchemaDrift must have a non-empty Name")
+		}
+	}
+}
