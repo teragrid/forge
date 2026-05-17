@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli-win32-x64",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Windows x64 binary for @forgeone/cli",
   "os": ["win32"],
   "cpu": ["x64"],
