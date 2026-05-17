@@ -62,12 +62,6 @@ curl -fsSL https://install.forge.dev | sh
 
 > **Coming soon.** Use npm or the direct binary download below for now.
 
-### Go install (any platform)
-
-```bash
-go install github.com/teragrid/forge/cmd/forge@latest
-```
-
 ### Air-gapped / offline install
 
 ```bash

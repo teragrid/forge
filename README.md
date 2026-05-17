@@ -86,7 +86,6 @@ npx @forgeone/cli version
 | Method | Command |
 |---|---|
 | **Homebrew** (macOS/Linux) | _coming soon — tap not yet published_ |
-| **Go install** | `go install github.com/teragrid/forge/cmd/forge@latest` |
 | **Download a binary** | Grab your OS from the [Releases page](https://github.com/teragrid/forge/releases) and put it on your PATH |
 
 For binaries, pick: `windows_amd64` (Windows), `darwin_arm64` (M1/M2/M3 Mac), `darwin_amd64` (Intel Mac), or `linux_amd64` (most Linux).

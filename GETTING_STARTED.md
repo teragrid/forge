@@ -49,13 +49,7 @@ pulled automatically via npm’s optional dependencies.
 npx @forge/cli@latest new my-app --template ts-service
 ```
 
-### Option C: `go install` (contributors / Go-first users)
-
-```bash
-go install github.com/teragrid/forge/cmd/forge@latest
-```
-
-### Option D: Download a release binary
+### Option C: Download a release binary
 
 Pre-built binaries for Linux, macOS, and Windows (amd64 + arm64) are attached to
 every [GitHub release](https://github.com/teragrid/forge/releases).

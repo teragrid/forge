@@ -5,24 +5,7 @@ Pick whichever path suits your setup.
 
 ---
 
-## Option A — `go install` (recommended during early access)
-
-If you have **Go 1.24+** installed, compile and install directly from source:
-
-```bash
-go install github.com/teragrid/forge/cmd/forge@latest
-```
-
-Make sure `$(go env GOPATH)/bin` is on your `$PATH`.  Confirm the install:
-
-```bash
-forge version
-# forge v0.2.0-m2-preview  (or whichever release you fetched)
-```
-
----
-
-## Option B — Download a Pre-built Binary
+## Option A — Download a Pre-built Binary
 
 Pre-built binaries for every supported platform are attached to each
 [GitHub Release](https://github.com/teragrid/forge/releases).
