@@ -323,6 +323,11 @@ func New() *cobra.Command {
 			"The --dry-run flag (default in MVP) validates checkpoints without executing.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Intercept built-in cobra subcommand words that can reach RunE
+			// when a positional arg is also accepted (cobra v1.8 behaviour).
+			if len(args) == 1 && args[0] == "help" {
+				return cmd.Help()
+			}
 			// G-001: positional <feature> arg.
 			if len(args) == 1 {
 				if description != "" {

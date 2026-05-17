@@ -86,11 +86,39 @@ func NewRootCommand(version string) *cobra.Command {
 
 	// Prepend the ASCII-art banner to the root help page only.
 	// Subcommand help (e.g. `forge scan --help`) is unaffected.
+	//
+	// The usage template is reordered so that "Available Commands" appears
+	// AFTER Flags. Without this, the long banner pushes the command list
+	// above the terminal viewport, making it invisible without scrolling.
+	root.SetUsageTemplate(`Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableSubCommands}}
+
+Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasHelpSubCommands}}
+
+Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
+  {{rpad .Name .NamePadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`)
+
+	// Show the banner on every help invocation (root or subcommand).
 	origHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		if cmd == root {
-			banner.Print(cmd.OutOrStdout())
-		}
+		banner.Print(cmd.OutOrStdout())
 		origHelp(cmd, args)
 	})
 

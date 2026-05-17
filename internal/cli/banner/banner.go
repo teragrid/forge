@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 )
 
 const (
@@ -28,6 +29,10 @@ const (
 	clrDim    = "\033[2;37m"
 	clrReset  = "\033[0m"
 )
+
+// once ensures the banner is printed at most once per process invocation,
+// even if Print is called from both PersistentPreRunE and a HelpFunc.
+var once sync.Once
 
 func isColorEnabled() bool {
 	if os.Getenv("NO_COLOR") != "" {
@@ -40,12 +45,16 @@ func isColorEnabled() bool {
 }
 
 // Print writes the Forge ASCII-art banner to w.
+// It is idempotent within a single process invocation: the banner is printed
+// at most once regardless of how many commands or help handlers call it.
 func Print(w io.Writer) {
-	if isColorEnabled() {
-		printColor(w)
-	} else {
-		printPlain(w)
-	}
+	once.Do(func() {
+		if isColorEnabled() {
+			printColor(w)
+		} else {
+			printPlain(w)
+		}
+	})
 }
 
 // printColor renders the banner with ANSI colors:
@@ -98,12 +107,11 @@ func printPlain(w io.Writer) {
 	fmt.Fprint(w, "                  ##\n")
 	fmt.Fprint(w, "             ______|______\n")
 	fmt.Fprint(w, "            |_____________|\n")
-	fmt.Fprint(w, "\n  ███████╗ ██████╗ ██████╗  ██████╗ ███████╗\n")
-	fmt.Fprint(w, "  ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝\n")
-	fmt.Fprint(w, "  █████╗  ██║   ██║██████╔╝██║  ███╗█████╗  \n")
-	fmt.Fprint(w, "  ██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝  \n")
-	fmt.Fprint(w, "  ██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗\n")
-	fmt.Fprint(w, "  ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n")
+	fmt.Fprint(w, "\n  FFFF   OOO  RRRR   GGG  EEEE\n")
+	fmt.Fprint(w, "  F     O   O R   R G     E   \n")
+	fmt.Fprint(w, "  FFF   O   O RRRR  G  GG EEE \n")
+	fmt.Fprint(w, "  F     O   O R  R  G   G E   \n")
+	fmt.Fprint(w, "  F      OOO  R   R  GGG  EEEE\n")
 	fmt.Fprint(w, "\n         < native-ai framework />\n")
 	fmt.Fprint(w, "  ----------------------------------------\n")
 	fmt.Fprint(w, "   VIBE IT AND SHIP IT.  BUILT TO LAST.\n\n")
