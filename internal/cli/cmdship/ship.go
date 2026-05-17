@@ -45,6 +45,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/errcode"
+	"github.com/teragrid/forge/internal/gitservice"
 	"github.com/teragrid/forge/internal/manifest"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
@@ -750,12 +751,22 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 	return cp
 }
 
-// testTimestampGuard returns the names of production Go files that are newer
-// than their corresponding _test.go files by more than 60 seconds.
-// Only files in the working tree (not .git/, vendor/, node_modules/) are checked.
+// testTimestampGuard returns the names of production Go files whose last git
+// commit is more than 60 seconds newer than their corresponding _test.go file's
+// last git commit. Git commit timestamps are used instead of filesystem mtimes
+// to avoid false positives caused by formatting tools (gofmt, goimports) that
+// update file mtimes without making logical changes.
+// Falls back to filesystem mtime when git is unavailable or a file is untracked.
 func testTimestampGuard(root string) []string {
-	const maxDrift = 60 * 1000000000 // 60 seconds in nanoseconds
+	const maxDrift = 60 * time.Second
 	var violations []string
+
+	// One batch git log call builds the commit-time map for all .go files.
+	var commitTimes map[string]time.Time
+	if gs, err := gitservice.New(root); err == nil {
+		commitTimes = gs.GoFileCommitTimes()
+	}
+
 	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			if d != nil && d.IsDir() {
@@ -770,19 +781,34 @@ func testTimestampGuard(root string) []string {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			return nil
 		}
-		// Find corresponding test file.
 		testPath := strings.TrimSuffix(p, ".go") + "_test.go"
-		prodInfo, err := d.Info()
-		if err != nil {
-			return nil
+		if _, statErr := os.Stat(testPath); statErr != nil {
+			return nil // no test file — handled by a separate check
 		}
-		testInfo, err := os.Stat(testPath)
-		if err != nil {
-			// No test file at all — not a timestamp violation (handled elsewhere).
-			return nil
+
+		// Resolve prod-file time: git commit preferred, mtime fallback.
+		relProd := filepath.ToSlash(strings.TrimPrefix(p, root+string(os.PathSeparator)))
+		prodTime, ok := commitTimes[relProd]
+		if !ok || prodTime.IsZero() {
+			info, infoErr := d.Info()
+			if infoErr != nil {
+				return nil
+			}
+			prodTime = info.ModTime()
 		}
-		diff := prodInfo.ModTime().UnixNano() - testInfo.ModTime().UnixNano()
-		if diff > maxDrift {
+
+		// Resolve test-file time: git commit preferred, mtime fallback.
+		relTest := filepath.ToSlash(strings.TrimPrefix(testPath, root+string(os.PathSeparator)))
+		testTime, ok := commitTimes[relTest]
+		if !ok || testTime.IsZero() {
+			testInfo, statErr := os.Stat(testPath)
+			if statErr != nil {
+				return nil
+			}
+			testTime = testInfo.ModTime()
+		}
+
+		if prodTime.Sub(testTime) > maxDrift {
 			violations = append(violations, strings.TrimPrefix(p, root+string(os.PathSeparator)))
 		}
 		return nil

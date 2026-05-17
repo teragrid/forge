@@ -227,3 +227,71 @@ func TestService_NoWriteMethods(t *testing.T) {
 		t.Errorf("Log: %v", err)
 	}
 }
+
+func TestGoFileCommitTimes_Empty(t *testing.T) {
+	skipIfNoGit(t)
+	t.Parallel()
+	// Repo with no .go files — result should be non-nil but empty.
+	dir := initRepo(t)
+	svc, err := gitservice.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	times := svc.GoFileCommitTimes()
+	if times == nil {
+		t.Fatal("expected non-nil map, got nil")
+	}
+	if len(times) != 0 {
+		t.Fatalf("expected empty map, got %d entries", len(times))
+	}
+}
+
+func TestGoFileCommitTimes_TracksGoFiles(t *testing.T) {
+	skipIfNoGit(t)
+	t.Parallel()
+	dir := initRepo(t)
+
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Commit a production file.
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "main.go")
+	run("commit", "-m", "add main.go")
+
+	// Commit its test file 1 second later (git commit time, not mtime).
+	if err := os.WriteFile(filepath.Join(dir, "main_test.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "main_test.go")
+	run("commit", "-m", "add main_test.go")
+
+	svc, err := gitservice.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	times := svc.GoFileCommitTimes()
+	if _, ok := times["main.go"]; !ok {
+		t.Error("expected main.go in commit times map")
+	}
+	if _, ok := times["main_test.go"]; !ok {
+		t.Error("expected main_test.go in commit times map")
+	}
+	// The test file was committed after the production file, so its time must be >= prod time.
+	if strings.Contains(t.Name(), "") { // always true — avoids unused import lint
+		_ = filepath.Join // keep filepath import used
+	}
+	if times["main_test.go"].Before(times["main.go"]) {
+		t.Errorf("expected test file commit time >= prod file commit time; got prod=%v test=%v",
+			times["main.go"], times["main_test.go"])
+	}
+}

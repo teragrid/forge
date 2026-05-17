@@ -27,6 +27,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -173,6 +175,37 @@ func (s *Service) ChangedFilesSince(ref string) ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// GoFileCommitTimes returns the last-commit timestamp for each Go source file
+// that has been committed to this repository. Map keys are repo-relative paths
+// with forward slashes. Files with no commits (new/untracked) are absent.
+// A single batch git log call is used for efficiency.
+func (s *Service) GoFileCommitTimes() map[string]time.Time {
+	out, err := s.run("log", "--format=%ct", "--name-only", "--diff-filter=ACMR", "--", "*.go")
+	if err != nil {
+		return nil
+	}
+	result := make(map[string]time.Time)
+	var curTS int64
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		// Lines that are pure integers are commit-timestamp headers.
+		if t, parseErr := strconv.ParseInt(line, 10, 64); parseErr == nil {
+			curTS = t
+			continue
+		}
+		// Otherwise the line is a file path; record only the first (most-recent) occurrence.
+		p := filepath.ToSlash(strings.TrimSpace(line))
+		if _, exists := result[p]; !exists && curTS > 0 {
+			result[p] = time.Unix(curTS, 0)
+		}
+	}
+	return result
 }
 
 // run executes a read-only git subcommand in s.root.
