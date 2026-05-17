@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1182,5 +1183,165 @@ func TestRunWithOptions_MockLLM_Idempotent(t *testing.T) {
 	}
 	if r1.Ready != r2.Ready {
 		t.Fatalf("idempotency: Ready differs: %v vs %v", r1.Ready, r2.Ready)
+	}
+}
+
+// ── testTimestampGuard unit tests ─────────────────────────────────────────────
+//
+// These tests exercise the working-tree-scoped TDD gate directly.
+// They require git to be in PATH; otherwise they are skipped.
+
+// skipIfNoGitShip skips the test when git is unavailable in PATH.
+func skipIfNoGitShip(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH; skipping git integration tests")
+	}
+}
+
+// initShipRepo initialises a bare git repo with an initial commit in a TempDir.
+func initShipRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "test@forge.local")
+	run("config", "user.name", "Forge Test")
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+	run("commit", "-m", "initial commit")
+	return dir
+}
+
+// commitFiles writes files and creates a commit in an existing repo.
+func commitFiles(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		full := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("add", ".")
+	run("commit", "-m", "test commit")
+}
+
+// TC-TTG-01: non-git directory → guard returns nil immediately.
+func TestTimestampGuard_NotGitRepo_ReturnsNil(t *testing.T) {
+	t.Parallel()
+	got := testTimestampGuard(t.TempDir())
+	if got != nil {
+		t.Fatalf("expected nil for non-git dir, got %v", got)
+	}
+}
+
+// TC-TTG-02: clean working tree → no dirty files → guard returns nil.
+func TestTimestampGuard_CleanWorkingTree_ReturnsNil(t *testing.T) {
+	skipIfNoGitShip(t)
+	t.Parallel()
+	root := initShipRepo(t)
+	got := testTimestampGuard(root)
+	if got != nil {
+		t.Fatalf("expected nil for clean working tree, got %v", got)
+	}
+}
+
+// TC-TTG-03: production file dirty, corresponding test file NOT dirty → violation.
+func TestTimestampGuard_ProdFileDirty_TestNotDirty_IsViolation(t *testing.T) {
+	skipIfNoGitShip(t)
+	t.Parallel()
+	root := initShipRepo(t)
+	commitFiles(t, root, map[string]string{
+		"foo.go":      "package main\nfunc Foo() {}\n",
+		"foo_test.go": "package main\nimport \"testing\"\nfunc TestFoo(t *testing.T) {}\n",
+	})
+	// Modify only foo.go (not foo_test.go).
+	if err := os.WriteFile(filepath.Join(root, "foo.go"), []byte("package main\nfunc Foo() { /* changed */ }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := testTimestampGuard(root)
+	found := false
+	for _, v := range got {
+		if filepath.ToSlash(v) == "foo.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected foo.go in violations, got %v", got)
+	}
+}
+
+// TC-TTG-04: both production and test files are dirty → no violation.
+func TestTimestampGuard_BothDirty_NoViolation(t *testing.T) {
+	skipIfNoGitShip(t)
+	t.Parallel()
+	root := initShipRepo(t)
+	commitFiles(t, root, map[string]string{
+		"bar.go":      "package main\nfunc Bar() {}\n",
+		"bar_test.go": "package main\nimport \"testing\"\nfunc TestBar(t *testing.T) {}\n",
+	})
+	os.WriteFile(filepath.Join(root, "bar.go"), []byte("package main\nfunc Bar() { /* changed */ }\n"), 0o644)        //nolint:errcheck
+	os.WriteFile(filepath.Join(root, "bar_test.go"), []byte("package main\nimport \"testing\"\nfunc TestBar(t *testing.T) { t.Skip() }\n"), 0o644) //nolint:errcheck
+	got := testTimestampGuard(root)
+	for _, v := range got {
+		if filepath.ToSlash(v) == "bar.go" {
+			t.Fatalf("bar.go should not be a violation when bar_test.go is also dirty; got %v", got)
+		}
+	}
+}
+
+// TC-TTG-05: dirty production file has no corresponding test file → not a violation.
+func TestTimestampGuard_NoTestFile_NoViolation(t *testing.T) {
+	skipIfNoGitShip(t)
+	t.Parallel()
+	root := initShipRepo(t)
+	commitFiles(t, root, map[string]string{
+		"baz.go": "package main\nfunc Baz() {}\n",
+	})
+	os.WriteFile(filepath.Join(root, "baz.go"), []byte("package main\nfunc Baz() { /* changed */ }\n"), 0o644) //nolint:errcheck
+	got := testTimestampGuard(root)
+	for _, v := range got {
+		if filepath.ToSlash(v) == "baz.go" {
+			t.Fatalf("baz.go has no test file — should not be a violation; got %v", got)
+		}
+	}
+}
+
+// TC-TTG-06: only the test file is dirty → no violation (updating tests alone is fine).
+func TestTimestampGuard_TestFileOnlyDirty_NoViolation(t *testing.T) {
+	skipIfNoGitShip(t)
+	t.Parallel()
+	root := initShipRepo(t)
+	commitFiles(t, root, map[string]string{
+		"qux.go":      "package main\nfunc Qux() {}\n",
+		"qux_test.go": "package main\nimport \"testing\"\nfunc TestQux(t *testing.T) {}\n",
+	})
+	// Only the test file is modified — this is fine, no TDD violation.
+	os.WriteFile(filepath.Join(root, "qux_test.go"), []byte("package main\nimport \"testing\"\nfunc TestQux(t *testing.T) { t.Skip() }\n"), 0o644) //nolint:errcheck
+	got := testTimestampGuard(root)
+	if len(got) != 0 {
+		t.Fatalf("expected no violations when only test file is dirty, got %v", got)
 	}
 }

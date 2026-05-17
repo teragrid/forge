@@ -892,3 +892,101 @@ func TestScannerFamilies_AllRegistered(t *testing.T) {
 		})
 	}
 }
+
+// ── False-positive regression tests (bugs fixed in v1.0.7) ───────────────────
+//
+// These tests pin the three root causes of 1703 false-positive security findings
+// discovered when running forge ship against a real Next.js project.
+
+// TC-FP-01: package-lock.json must never be scanned — it is auto-generated and
+// contains hundreds of "^" transitive-dependency version ranges that all match
+// the loose-version-range rule.
+func TestRunSupplyChain_PackageLockNotScanned(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "package-lock.json", `{
+  "name": "test",
+  "lockfileVersion": 3,
+  "packages": {
+    "node_modules/react": {
+      "version": "18.0.0",
+      "peerDependencies": { "react": "^17.0.0 || ^18.0.0" }
+    }
+  }
+}`)
+	res, err := RunSupplyChain(root)
+	if err != nil {
+		t.Fatalf("RunSupplyChain: %v", err)
+	}
+	for _, f := range res.Findings {
+		if f.File == "package-lock.json" {
+			t.Fatalf("package-lock.json must not be scanned — got finding: %+v", f)
+		}
+	}
+}
+
+// TC-FP-02: unquoted variable identifiers must NOT trigger generic-bearer.
+// The old regex matched e.g. `token = csrfTokenVariableName` because the
+// identifier was ≥16 chars with no quoting requirement.
+func TestRunSecrets_GenericBearerUnquotedVariable_NoFinding(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "handler.go",
+		"token = csrfTokenVariableName\npassword = hashedPasswordValue123\n")
+	res, err := RunSecrets(root)
+	if err != nil {
+		t.Fatalf("RunSecrets: %v", err)
+	}
+	if hasGitleaks() {
+		t.Skip("gitleaks installed; built-in patterns not exercised")
+	}
+	for _, f := range res.Findings {
+		if f.Rule == "generic-bearer" {
+			t.Fatalf("false positive: unquoted variable name triggered generic-bearer: %+v", f)
+		}
+	}
+}
+
+// TC-FP-03: a quoted string literal that looks like a bearer token IS flagged.
+func TestRunSecrets_GenericBearerQuotedLiteral_IsFlagged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "config.go",
+		`token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9_abcXYZ0123"`+"\n")
+	res, err := RunSecrets(root)
+	if err != nil {
+		t.Fatalf("RunSecrets: %v", err)
+	}
+	if hasGitleaks() {
+		t.Skip("gitleaks installed; built-in patterns not exercised")
+	}
+	found := false
+	for _, f := range res.Findings {
+		if f.Rule == "generic-bearer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected generic-bearer finding for quoted token literal; got: %+v", res.Findings)
+	}
+}
+
+// TC-FP-04: build output directories (.next, dist, build, out, coverage, etc.)
+// must be excluded — compiled/bundled code is not developer-authored.
+func TestScanFilesExt_SkipsBuildOutputDirs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, dir := range []string{".next", "dist", "build", "out", "coverage", ".nyc_output", "tmp"} {
+		writeFile(t, root, filepath.Join(dir, "bundle.js"), "const k = 'AKIAIOSFODNN7EXAMPLE';\n")
+	}
+	res, err := RunSecrets(root)
+	if err != nil {
+		t.Fatalf("RunSecrets: %v", err)
+	}
+	if hasGitleaks() {
+		t.Skip("gitleaks installed; built-in patterns not exercised")
+	}
+	if res.Count != 0 {
+		t.Fatalf("build output dirs must be excluded; got %d findings: %+v", res.Count, res.Findings)
+	}
+}
