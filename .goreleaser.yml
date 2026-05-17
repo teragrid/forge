@@ -70,29 +70,9 @@ signs:
     artifacts: checksum
     output: true
 
-# ── G-123: Homebrew tap ────────────────────────────────────────────────────
-brews:
-  - name: forge
-    repository:
-      owner: teragrid
-      name: homebrew-tap
-    homepage: "https://github.com/teragrid/forge"
-    description: "LLM-native framework CLI for shipping AI-generated code safely."
-    license: "Apache-2.0"
-    directory: Formula
-    install: |
-      bin.install "forge"
-    test: |
-      system "#{bin}/forge", "version"
-
-# ── G-123: Scoop bucket ────────────────────────────────────────────────────
-scoops:
-  - repository:
-      owner: teragrid
-      name: scoop-forge
-    homepage: "https://github.com/teragrid/forge"
-    description: "LLM-native framework CLI for shipping AI-generated code safely."
-    license: "Apache-2.0"
+# NOTE: homebrew-tap and scoop-forge repos will be added once created.
+# To re-enable: create teragrid/homebrew-tap and teragrid/scoop-forge, then
+# restore the brews: and scoops: sections here with a HOMEBREW_TAP_TOKEN PAT.
 
 sboms:
   - artifacts: archive
@@ -131,6 +111,7 @@ release:
     name: forge
   draft: false
   prerelease: auto
+  replace_existing_artifacts: true
   name_template: "Forge {{.Tag}}"
   footer: |
     ## Install via npm
