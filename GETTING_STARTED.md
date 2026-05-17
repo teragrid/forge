@@ -150,6 +150,24 @@ What you get:
 - `docker-compose.yml` — local Postgres
 - Same `.forge/`, `.gitignore`, `.gitleaks.toml`, CI workflow structure
 
+### Next.js app
+
+```bash
+forge new next-app my-app
+cd my-app
+npm install
+npm run dev       # Next.js dev server on :3000
+npm test          # Vitest unit tests
+npm run test:e2e  # Playwright end-to-end tests
+```
+
+What you get out of the box:
+- `app/` — Next.js 14 App Router with `layout.tsx`, `page.tsx`, and an API route
+- `tailwind.config.ts` + `postcss.config.js` — Tailwind CSS pre-configured
+- `next.config.ts` — security headers (CSP, X-Frame-Options, nosniff) applied to all routes
+- `tests/` — Vitest unit tests + Playwright e2e suite
+- Same `.forge/`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.windsurfrules`, CI workflow structure
+
 ### Initialise an existing directory
 
 ```bash

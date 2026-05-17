@@ -108,6 +108,10 @@ For binaries, pick: `windows_amd64` (Windows), `darwin_arm64` (M1/M2/M3 Mac), `d
 forge new ts-service my-app
 cd my-app && npm install && npm run dev
 
+# Next.js 14 app (Tailwind + App Router + Vitest)
+forge new next-app my-app
+cd my-app && npm install && npm run dev
+
 # Or a Go service
 forge new go-service my-app
 ```
@@ -153,7 +157,7 @@ forge ship auth/email              # the real thing
 
 | Command | What it does |
 |---|---|
-| `forge new <template> <name>` | Scaffold a new project (`ts-service`, `go-service`) |
+| `forge new <template> <name>` | Scaffold a new project (`ts-service`, `next-app`, `go-service`) |
 | `forge init` | Add Forge to an existing project |
 | `forge doctor` | Health check — Git, Go, Node, OS, permissions, LLM drift |
 | `forge scan <type>` | Scan for `secrets`, `prompt-injection`, `supply-chain`, `rls`, `correctness`, `performance`, `reliability`, `accessibility`, `cost`, `compliance`, `dx`, or `all` |

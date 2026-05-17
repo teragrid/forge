@@ -114,6 +114,8 @@ cd my-service
 
 | Template | Description |
 |----------|-------------|
+| `ts-service` | TypeScript service with Vitest and Forge CI gates |
+| `next-app` | Next.js 14, TypeScript, Tailwind CSS, App Router, Vitest + Playwright |
 | `go-api` | Go HTTP API with forge CI gates |
 | `go-cli` | Go CLI application with Cobra |
 | `python-service` | Python FastAPI service |

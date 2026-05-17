@@ -89,11 +89,21 @@ forge doctor --json    # machine-readable JSON
 Scaffold a new project from a built-in or plugin-provided template.
 
 ```bash
+forge new ts-service my-app
+forge new next-app my-app
 forge new go-service my-app --module github.com/yourname/my-app
 forge new go-service .      --module github.com/yourname/my-app --force
 ```
 
-The built-in `go-service` template generates a standard Forge project layout
+**Built-in templates:**
+
+| Template | Stack |
+|----------|-------|
+| `ts-service` | TypeScript + Vitest + Forge CI gates |
+| `next-app` | Next.js 14, TypeScript, Tailwind CSS, App Router, Vitest, Playwright |
+| `go-service` | Go HTTP service with graceful shutdown, `/healthz`, `/readyz` |
+
+The `go-service` template generates a standard Forge project layout
 including a pre-configured `.gitignore`, `.gitleaks.toml`, and
 `.forge/manifest`.
 
