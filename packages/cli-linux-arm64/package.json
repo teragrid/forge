@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli-linux-arm64",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Linux arm64 binary for @forgeone/cli",
   "os": ["linux"],
   "cpu": ["arm64"],

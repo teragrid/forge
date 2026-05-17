@@ -1,6 +1,6 @@
 {
   "name": "@forgeone/cli-darwin-arm64",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "macOS arm64 (Apple Silicon) binary for @forgeone/cli",
   "os": ["darwin"],
   "cpu": ["arm64"],
