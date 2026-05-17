@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmddocs implements `forge docs` (spec Â§4).
+// Package cmddocs implements `forge docs` (spec §4).
 //
 // Synchronises and heals project documentation from code and ADRs.
 // Sub-commands: sync, heal.
@@ -43,16 +43,16 @@ var (
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb:    "docs",
-		Summary: "Synchronise and heal project documentation from code and ADRs (spec Â§4).",
+		Summary: "Synchronise and heal project documentation from code and ADRs (spec §4).",
 		Inputs: []string{
-			"sync  â€” regenerate docs from code comments and ADRs",
-			"heal  â€” fix broken internal links and stale section headers",
+			"sync  — regenerate docs from code comments and ADRs",
+			"heal  — fix broken internal links and stale section headers",
 			"--root <path>",
 			"--dry-run",
 		},
 		Outputs:      []string{"stdout: sync/heal report"},
 		SideEffects:  []string{"sync/heal: writes to docs/ directory"},
-		GatesTouched: []string{"Â§4 docs"},
+		GatesTouched: []string{"§4 docs"},
 		ErrorCodes:   []errcode.Code{ErrDocsFailed},
 	})
 }
@@ -68,8 +68,8 @@ func New() *cobra.Command {
 		Short: "Sync and heal project documentation (M2).",
 		Long: "forge docs manages project documentation derived from code and ADRs.\n\n" +
 			"Sub-commands:\n" +
-			"  sync  â€” regenerate docs from code comments, error codes, and ADRs\n" +
-			"  heal  â€” fix broken internal links and stale section headers",
+			"  sync  — regenerate docs from code comments, error codes, and ADRs\n" +
+			"  heal  — fix broken internal links and stale section headers",
 	}
 	cmd.PersistentFlags().StringVar(&root, "root", "", "Project root (default: cwd)")
 	cmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing")

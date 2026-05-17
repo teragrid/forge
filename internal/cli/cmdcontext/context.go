@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmdcontext implements `forge context` (DEV-M1-46, spec Â§4).
+// Package cmdcontext implements `forge context` (DEV-M1-46, spec §4).
 //
 // Sub-commands:
 //
-//	generate â€” write .forge/context/snapshot.md from live project files
-//	show     â€” print snapshot.md contents
-//	budget   â€” estimate token counts for all AI context files
+//	generate — write .forge/context/snapshot.md from live project files
+//	show     — print snapshot.md contents
+//	budget   — estimate token counts for all AI context files
 package cmdcontext
 
 import (
@@ -59,17 +59,17 @@ type BudgetResult struct {
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb:    "context",
-		Summary: "Manage LLM context files and token budgets (spec Â§4, DEV-M1-46).",
+		Summary: "Manage LLM context files and token budgets (spec §4, DEV-M1-46).",
 		Inputs: []string{
-			"generate  â€” write .forge/context/snapshot.md",
-			"show      â€” print the snapshot",
-			"budget    â€” report token budget for all AI context files",
+			"generate  — write .forge/context/snapshot.md",
+			"show      — print the snapshot",
+			"budget    — report token budget for all AI context files",
 			"--root <path>",
-			"--json    â€” machine-readable output",
+			"--json    — machine-readable output",
 		},
 		Outputs:      []string{"stdout: context file contents or budget report"},
 		SideEffects:  []string{"generate: writes .forge/context/snapshot.md"},
-		GatesTouched: []string{"Â§4 context", "Â§5 llmbudget"},
+		GatesTouched: []string{"§4 context", "§5 llmbudget"},
 		ErrorCodes:   []errcode.Code{ErrContextFailed},
 	})
 }
@@ -84,9 +84,9 @@ func New() *cobra.Command {
 		Short: "Manage LLM context files and token budgets.",
 		Long: "forge context manages the AI agent context snapshot and token budgets.\n\n" +
 			"Sub-commands:\n" +
-			"  generate  â€” write .forge/context/snapshot.md from live project state\n" +
-			"  show      â€” print the current snapshot contents\n" +
-			"  budget    â€” estimate token usage across all AI context files",
+			"  generate  — write .forge/context/snapshot.md from live project state\n" +
+			"  show      — print the current snapshot contents\n" +
+			"  budget    — estimate token usage across all AI context files",
 	}
 
 	genCmd := &cobra.Command{
@@ -243,7 +243,7 @@ func renderBudget(cmd *cobra.Command, r BudgetResult) {
 	}
 	fmt.Fprintf(w, "\n  Total: %d bytes, ~%d tokens\n", r.TotalBytes, r.TotalTokens)
 	if r.TotalTokens > 128000 {
-		fmt.Fprintln(w, "  âš  Warning: combined context exceeds 128k token budget for some models")
+		fmt.Fprintln(w, "  ⚠ Warning: combined context exceeds 128k token budget for some models")
 	}
 }
 

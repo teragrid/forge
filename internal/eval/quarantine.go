@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package eval â€“ quarantine.go implements the ADR-023 eval flake quarantine
+// Package eval – quarantine.go implements the ADR-023 eval flake quarantine
 // policy (M3-21). Flaky scenarios are marked quarantined in a sidecar file so
 // the CI eval-proof gate skips them while the underlying cause is investigated.
 //
 // Quarantine lifecycle:
 //
-//	Active â†’ Quarantined (via QuarantineScenario)
-//	Quarantined â†’ Active  (via UnquarantineScenario)
-//	Quarantined â†’ Deleted (when the scenario is fixed and re-validated)
+//	Active → Quarantined (via QuarantineScenario)
+//	Quarantined → Active  (via UnquarantineScenario)
+//	Quarantined → Deleted (when the scenario is fixed and re-validated)
 //
 // The quarantine registry is stored at .forge/eval-quarantine.json and is
 // committed to version control so the exemption is visible in PRs.
@@ -115,7 +115,7 @@ func (r *QuarantineRegistry) UnquarantineScenario(scenarioName string) error {
 }
 
 // IsQuarantined returns true if scenarioName is currently quarantined
-// (regardless of expiry â€” expiry is checked separately by CheckExpired).
+// (regardless of expiry — expiry is checked separately by CheckExpired).
 func (r *QuarantineRegistry) IsQuarantined(scenarioName string) bool {
 	for _, e := range r.Entries {
 		if e.ScenarioName == scenarioName {

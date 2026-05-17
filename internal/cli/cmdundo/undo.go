@@ -15,7 +15,7 @@
 // Package cmdundo implements `forge undo` (M3-22 reversibility contract).
 //
 // forge undo reverses the last --apply operation by restoring the trash
-// snapshot written before the mutation (ADR-024, Â§17.1 #5).
+// snapshot written before the mutation (ADR-024, §17.1 #5).
 //
 // Every --apply verb must write a snapshot to .forge/trash/<run-id>/ before
 // mutating the filesystem. `forge undo` replays the most recent (or named)
@@ -64,8 +64,8 @@ func init() {
 		Verb:    "undo",
 		Summary: "Reverse the last --apply operation by restoring the pre-mutation snapshot (M3, ADR-024).",
 		Inputs: []string{
-			"--run-id <id>  â€” specific run to undo (default: latest)",
-			"--list         â€” list available snapshots",
+			"--run-id <id>  — specific run to undo (default: latest)",
+			"--list         — list available snapshots",
 			"--root <path>",
 			"--json",
 		},
@@ -233,7 +233,7 @@ func resolveRoot(root string) (string, error) {
 }
 
 // WriteTrashSnapshot saves a pre-mutation snapshot so `forge undo` can replay it.
-// Called by every --apply verb before mutating the filesystem (Â§17.1 #5, ADR-024).
+// Called by every --apply verb before mutating the filesystem (§17.1 #5, ADR-024).
 func WriteTrashSnapshot(root, verb string, origPaths []string) (string, error) {
 	runID := fmt.Sprintf("%s-%d", verb, time.Now().UnixMicro())
 	snapDir := filepath.Join(root, trashDir, runID)

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// gen_endpoint_proof.go â€” M1-22: in-tree generator-plugin proof.
+// gen_endpoint_proof.go — M1-22: in-tree generator-plugin proof.
 //
 // Demonstrates the plugin.Generator contract with an HTTP endpoint
 // scaffold generator registered as an in-process plugin. In M2 this

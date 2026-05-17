@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmdreport implements `forge report` â€” a structured project health
+// Package cmdreport implements `forge report` — a structured project health
 // report that aggregates scan findings, token spend, test coverage, hygiene
 // status, and incident history into a single human- or machine-readable
-// summary (DEV-M3 Â§18.1).
+// summary (DEV-M3 §18.1).
 //
 // Subcommands:
 //
-//	forge report            â€” full project report (default: text)
-//	forge report --json     â€” same report as JSON
-//	forge report --since    â€” limit findings/spend to a time window (e.g. "7d")
-//	forge report --out <f>  â€” write to file instead of stdout
+//	forge report            — full project report (default: text)
+//	forge report --json     — same report as JSON
+//	forge report --since    — limit findings/spend to a time window (e.g. "7d")
+//	forge report --out <f>  — write to file instead of stdout
 package cmdreport
 
 import (
@@ -55,7 +55,7 @@ func init() {
 		},
 		Outputs:      []string{"stdout: health report (text or JSON)"},
 		SideEffects:  []string{"none"},
-		GatesTouched: []string{"Â§18.1 â€” observability / reporting"},
+		GatesTouched: []string{"§18.1 — observability / reporting"},
 	})
 }
 
@@ -254,7 +254,7 @@ func buildReport(root, since string) (*Report, error) {
 // formatText produces a human-readable report.
 func formatText(r *Report) string {
 	out := "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—\n"
-	out += "â•‘            forge â€” Project Health Report                 â•‘\n"
+	out += "â•‘            forge — Project Health Report                 â•‘\n"
 	out += "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n"
 	out += fmt.Sprintf("Generated: %s\n", r.GeneratedAt.Format(time.RFC3339))
 	out += fmt.Sprintf("Root:      %s\n", r.ProjectRoot)

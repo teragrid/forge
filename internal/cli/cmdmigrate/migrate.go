@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package cmdmigrate implements `forge migrate` (DEV-M1-50, spec Â§4).
+// Package cmdmigrate implements `forge migrate` (DEV-M1-50, spec §4).
 //
 // Manages database schema migrations. The migration engine uses the filesystem
 // as the source of truth: SQL files in the migrations/ directory (or the path
@@ -20,11 +20,11 @@
 //
 // Sub-commands:
 //
-//	up [N]     â€” apply N pending migrations (default: all)
-//	down [N]   â€” roll back N applied migrations (default: 1; requires --allow-irreversible)
-//	status     â€” list applied/pending migrations
-//	suggest    â€” suggest a new migration from model changes (LLM-assisted)
-//	repair     â€” fix checksum mismatches in migration history
+//	up [N]     — apply N pending migrations (default: all)
+//	down [N]   — roll back N applied migrations (default: 1; requires --allow-irreversible)
+//	status     — list applied/pending migrations
+//	suggest    — suggest a new migration from model changes (LLM-assisted)
+//	repair     — fix checksum mismatches in migration history
 //
 // Migration history is stored in .forge/migrations/history.json.
 // The database driver adapters are in M2; the M1 implementation exercises the
@@ -72,21 +72,21 @@ type MigrateResult struct {
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb:    "migrate",
-		Summary: "Manage database schema migrations (DEV-M1-50, spec Â§4).",
+		Summary: "Manage database schema migrations (DEV-M1-50, spec §4).",
 		Inputs: []string{
-			"up [N]              â€” apply N pending migrations (default: all)",
-			"down [N]            â€” roll back N (default: 1; requires --allow-irreversible)",
-			"status              â€” list applied / pending migrations",
-			"suggest             â€” LLM-assisted new migration suggestion",
-			"repair              â€” fix checksum mismatches",
-			"--dir <path>        â€” migrations directory (default: migrations/)",
-			"--dry-run           â€” plan only; do not modify history",
-			"--allow-irreversible â€” allow destructive down migrations",
-			"--json              â€” machine-readable output",
+			"up [N]              — apply N pending migrations (default: all)",
+			"down [N]            — roll back N (default: 1; requires --allow-irreversible)",
+			"status              — list applied / pending migrations",
+			"suggest             — LLM-assisted new migration suggestion",
+			"repair              — fix checksum mismatches",
+			"--dir <path>        — migrations directory (default: migrations/)",
+			"--dry-run           — plan only; do not modify history",
+			"--allow-irreversible — allow destructive down migrations",
+			"--json              — machine-readable output",
 		},
 		Outputs:      []string{"stdout: migration status or confirmation"},
 		SideEffects:  []string{"up/down: updates .forge/migrations/history.json; DB writes in M2"},
-		GatesTouched: []string{"Â§4 migrate", "Â§16.5.4 #1 data safety", "ADR-024 reversibility"},
+		GatesTouched: []string{"§4 migrate", "§16.5.4 #1 data safety", "ADR-024 reversibility"},
 		ErrorCodes:   []errcode.Code{ErrMigrateFailed},
 	})
 }
@@ -105,11 +105,11 @@ func New() *cobra.Command {
 		Short: "Manage database schema migrations.",
 		Long: "forge migrate manages the database schema migration lifecycle.\n\n" +
 			"Sub-commands:\n" +
-			"  up [N]   â€” apply N pending migrations (default: all)\n" +
-			"  down [N] â€” roll back N applied migrations (default: 1)\n" +
-			"  status   â€” list applied and pending migrations\n" +
-			"  suggest  â€” suggest a new migration (LLM-assisted)\n" +
-			"  repair   â€” fix migration checksum mismatches\n\n" +
+			"  up [N]   — apply N pending migrations (default: all)\n" +
+			"  down [N] — roll back N applied migrations (default: 1)\n" +
+			"  status   — list applied and pending migrations\n" +
+			"  suggest  — suggest a new migration (LLM-assisted)\n" +
+			"  repair   — fix migration checksum mismatches\n\n" +
 			"Migration files live in migrations/ (override with --dir).\n" +
 			"History tracked in .forge/migrations/history.json.\n\n" +
 			"NOTE: Live DB execution requires DATABASE_URL; M1 exercises the\n" +
@@ -336,11 +336,11 @@ func runOp(root, migDir, op string, args []string, dryRun bool) (MigrateResult, 
 
 	case "suggest":
 		result.Operation = "suggest"
-		// Naming convention hint â€” LLM wiring in M2.
+		// Naming convention hint — LLM wiring in M2.
 
 	case "repair":
 		result.Operation = "repair"
-		// Checksum repair â€” wiring in M2.
+		// Checksum repair — wiring in M2.
 	}
 
 	return result, nil
@@ -366,11 +366,11 @@ func renderText(cmd *cobra.Command, r MigrateResult) {
 
 	fmt.Fprintf(w, "  Applied  (%d):\n", len(r.Applied))
 	for _, m := range r.Applied {
-		fmt.Fprintf(w, "    âœ“ %s %s (at %s)\n", m.Version, m.Name, m.AppliedAt)
+		fmt.Fprintf(w, "    ✓ %s %s (at %s)\n", m.Version, m.Name, m.AppliedAt)
 	}
 	fmt.Fprintf(w, "  Pending  (%d):\n", len(r.Pending))
 	for _, m := range r.Pending {
-		fmt.Fprintf(w, "    â—‹ %s %s\n", m.Version, m.Name)
+		fmt.Fprintf(w, "    ○ %s %s\n", m.Version, m.Name)
 	}
 	if len(r.Rolled) > 0 {
 		fmt.Fprintf(w, "  Rolled back (%d):\n", len(r.Rolled))

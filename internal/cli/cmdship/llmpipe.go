@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// llmpipe.go â€” LLM integration layer wiring llmprovider, secretrewriter, and
+// llmpipe.go — LLM integration layer wiring llmprovider, secretrewriter, and
 // tokenledger into a single callable unit for the forge ship checkpoint pipeline.
 //
 // Design
@@ -29,9 +29,9 @@
 //
 // Provider selection (via llmprovider.Detect):
 //
-//	ANTHROPIC_API_KEY â†’ AnthropicAdapter (Claude models)
-//	OPENAI_API_KEY    â†’ OpenAIAdapter (GPT models)
-//	neither           â†’ nil *LLMPipe (dry-run mode)
+//	ANTHROPIC_API_KEY → AnthropicAdapter (Claude models)
+//	OPENAI_API_KEY    → OpenAIAdapter (GPT models)
+//	neither           → nil *LLMPipe (dry-run mode)
 package cmdship
 
 import (
@@ -66,7 +66,7 @@ func newLLMPipe(root string) *LLMPipe {
 }
 
 // newLLMPipeWithProvider creates an LLMPipe backed by the given provider.
-// Intended for tests â€” inject a *llmprovider.MockProvider to exercise LLM
+// Intended for tests — inject a *llmprovider.MockProvider to exercise LLM
 // code paths without network calls.
 func newLLMPipeWithProvider(p llmprovider.Provider, root string) *LLMPipe {
 	return &LLMPipe{
@@ -101,7 +101,7 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 	if err != nil {
 		return "", err
 	}
-	// Best-effort ledger append â€” a write failure never blocks the pipeline.
+	// Best-effort ledger append — a write failure never blocks the pipeline.
 	_ = p.ledger.Append(tokenledger.Entry{
 		Model:        resp.Model,
 		InputTokens:  resp.InputTokens,
@@ -150,7 +150,7 @@ func llmErrNote(err error) string {
 }
 
 // estimateCost returns an approximate USD cost for a completion call.
-// Values are indicative only â€” intended for token-budget awareness, not billing.
+// Values are indicative only — intended for token-budget awareness, not billing.
 func estimateCost(model string, inputTokens, outputTokens int) float64 {
 	type rate struct{ in, out float64 } // USD per 1M tokens
 	rates := map[string]rate{

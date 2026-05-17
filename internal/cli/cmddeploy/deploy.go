@@ -20,9 +20,9 @@
 //
 // Sub-commands:
 //
-//	deploy run   â€” deploy HEAD artifact to the configured target
-//	deploy status â€” show last deployment record
-//	rollback     â€” re-deploy to a previous release tag
+//	deploy run   — deploy HEAD artifact to the configured target
+//	deploy status — show last deployment record
+//	rollback     — re-deploy to a previous release tag
 package cmddeploy
 
 import (
@@ -69,8 +69,8 @@ func init() {
 		Verb:    "deploy",
 		Summary: "Deploy the project to the configured adapter (Fly, Railway, or shell) (M2).",
 		Inputs: []string{
-			"run      â€” deploy HEAD to configured target",
-			"status   â€” show last deployment record",
+			"run      — deploy HEAD to configured target",
+			"status   — show last deployment record",
 			"--root <path>",
 			"--tag <version>",
 			"--dry-run",
@@ -78,7 +78,7 @@ func init() {
 		},
 		Outputs:      []string{"stdout: deployment result"},
 		SideEffects:  []string{"run: calls deployment adapter; appends to .forge/deploy-history.json"},
-		GatesTouched: []string{"Â§16.5.4 deploy"},
+		GatesTouched: []string{"§16.5.4 deploy"},
 		ErrorCodes:   []errcode.Code{ErrDeployFailed},
 	})
 	verbmeta.Register(verbmeta.Manifest{
@@ -90,7 +90,7 @@ func init() {
 			"calls deployment adapter with previous tag",
 			"appends to .forge/deploy-history.json",
 		},
-		GatesTouched: []string{"Â§16.5.4 rollback", "ADR-024 reversibility"},
+		GatesTouched: []string{"§16.5.4 rollback", "ADR-024 reversibility"},
 		ErrorCodes:   []errcode.Code{ErrDeployFailed},
 	})
 }
