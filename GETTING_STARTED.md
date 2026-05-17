@@ -30,18 +30,24 @@ what to configure first.
 ### Option A: npm (recommended — no Go required)
 
 ```bash
-npm install -g @forge/cli
+npm install -g @forgeone/cli
 ```
 
 Verify:
 
 ```bash
 forge version
-# forge 0.1.0  (or the release you installed)
+# forge 1.0.1  (or the release you installed)
 ```
 
 No Go installation needed. The right pre-compiled binary for your platform is
-pulled automatically via npm’s optional dependencies.
+pulled automatically via npm's optional dependencies.
+
+> **Windows only:** if `forge version` still shows `0.0.0-dev`, npm kept an
+> older platform package. Fix it with:
+> ```powershell
+> npm install -g @forgeone/cli-win32-x64@latest
+> ```
 
 ### Option B: `npx` (zero-install, try before committing)
 
@@ -229,7 +235,11 @@ Get-Command forge -ErrorAction SilentlyContinue
 # 3. Install the npm-managed release
 npm install -g @forgeone/cli
 
-# 4. Verify the correct version
+# 4. If forge still shows 0.0.0-dev, npm kept the old platform package.
+#    Force-install it explicitly:
+npm install -g @forgeone/cli-win32-x64@latest
+
+# 5. Verify the correct version
 forge version   # forge 1.0.1 (...)
 ```
 

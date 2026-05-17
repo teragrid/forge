@@ -86,7 +86,7 @@ See [airgap.md](airgap.md) for full instructions.
 
 ```bash
 forge --version
-# forge v1.0.0
+# forge 1.0.1
 
 forge doctor
 # ✓ go: 1.24.1
@@ -94,6 +94,12 @@ forge doctor
 # ✓ LLM provider: anthropic
 # ✓ network: online
 ```
+
+> **Windows only:** if `forge version` shows `0.0.0-dev` after
+> `npm install -g @forgeone/cli`, npm kept an older platform package. Fix:
+> ```powershell
+> npm install -g @forgeone/cli-win32-x64@latest
+> ```
 
 ---
 

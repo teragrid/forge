@@ -75,6 +75,12 @@ forge version    # confirm it works
 
 The `-g` means "install globally" so you can run `forge` from any folder.
 
+> **Windows only:** if `forge version` still shows `0.0.0-dev` after install,
+> npm kept an older platform package. Run:
+> ```powershell
+> npm install -g @forgeone/cli-win32-x64@latest
+> ```
+
 ### Try without installing
 
 ```sh
