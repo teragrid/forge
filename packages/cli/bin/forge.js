@@ -39,11 +39,23 @@ function resolveBinary() {
 
   const [pkgName, binaryName] = entry;
 
-  // Strategy 1: Look alongside node.exe (npm global prefix).
+  // Strategy 1: require.resolve — resolves the package relative to THIS file,
+  // so npm's own nesting/hoisting is respected and the version that
+  // @forgeone/cli declares as an optionalDependency is always preferred.
+  // This correctly handles the case where a different version of the platform
+  // package is installed globally at a higher level in node_modules.
+  try {
+    const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
+    const candidate = path.join(path.dirname(pkgJsonPath), "bin", binaryName);
+    if (fs.existsSync(candidate)) return candidate;
+  } catch (_) {
+    // package not on require path — fall through to directory search
+  }
+
+  // Strategy 2: Look alongside node.exe (npm global prefix) as a fallback.
   // process.execPath = "C:\Program Files\nodejs\node.exe" (or nvm equiv).
   // Global node_modules live at dirname(execPath)/node_modules on Windows,
   // and at dirname(dirname(execPath))/lib/node_modules on Unix/macOS.
-  // This is robust against junction/symlink chains that confuse __dirname.
   const nodeDir = path.dirname(process.execPath);
   const globalCandidates = [
     path.join(nodeDir, "node_modules", pkgName, "bin", binaryName),           // Windows
@@ -51,15 +63,6 @@ function resolveBinary() {
   ];
   for (const candidate of globalCandidates) {
     if (fs.existsSync(candidate)) return candidate;
-  }
-
-  // Strategy 2: require.resolve — handles standard installs and NODE_PATH setups.
-  try {
-    const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
-    const candidate = path.join(path.dirname(pkgJsonPath), "bin", binaryName);
-    if (fs.existsSync(candidate)) return candidate;
-  } catch (_) {
-    // package not on require path — fall through to directory walk
   }
 
   // Strategy 3: Walk up from the script path as-passed (process.argv[1]).
