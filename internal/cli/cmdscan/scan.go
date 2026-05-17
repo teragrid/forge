@@ -810,8 +810,19 @@ func RunPromptInjection(root string) (*ScanResult, error) {
 		{"system-prompt-leak", regexp.MustCompile(`(?i)(reveal|print|show|dump)\s+(your|the)\s+system\s+prompt`)},
 		{"unsafe-eval", regexp.MustCompile(`(?i)execute\s+(this\s+)?(arbitrary\s+)?code`)},
 	}
+	// Well-known documentation files commonly contain examples of attack
+	// patterns for educational purposes and must not trigger the scanner.
+	docFileNames := map[string]bool{
+		"README.md": true, "README.txt": true, "README.rst": true,
+		"CHANGELOG.md": true, "CONTRIBUTING.md": true, "CODE_OF_CONDUCT.md": true,
+		"SECURITY.md": true, "LICENSE.md": true, "NOTICE.md": true, "AUTHORS.md": true,
+	}
 	res.Findings = scanFilesExt(root, []string{".md", ".txt", ".prompt", ".tmpl", ".yaml", ".yml", ".json"},
 		func(rel string, line int, text string) []Finding {
+			// Skip well-known documentation files — they explain attacks, they are not attacks.
+			if docFileNames[filepath.Base(filepath.FromSlash(rel))] {
+				return nil
+			}
 			var out []Finding
 			for _, r := range rules {
 				if r.Pattern.MatchString(text) {
@@ -895,13 +906,15 @@ func scanFilesExt(root string, exts []string, fn func(rel string, line int, text
 		}
 		if d.IsDir() {
 			name := d.Name()
-			// Skip version-control, package trees, generated build output, and
-			// tool-managed directories — scanning them produces only noise.
+			// Skip version-control, package trees, generated build output,
+			// tool-managed directories, and test fixture trees — scanning
+			// them produces only noise (fixtures contain intentional examples).
 			switch name {
 			case ".git", "node_modules", "vendor", ".forge",
 				".next", ".nuxt", ".svelte-kit",
 				"dist", "build", "out", "output",
-				"coverage", ".nyc_output", ".cache", "tmp", ".tmp":
+				"coverage", ".nyc_output", ".cache", "tmp", ".tmp",
+				"fixtures", "testdata":
 				return filepath.SkipDir
 			}
 			return nil
