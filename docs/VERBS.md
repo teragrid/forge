@@ -1,7 +1,27 @@
 # Forge Verbs Reference
 
-> Complete reference for every `forge` CLI command.  One row per verb in the
+> Complete reference for every `forge` CLI command. One row per verb in the
 > summary table; detailed flags, examples, and error codes follow.
+
+---
+
+## New to Forge? Read this first.
+
+This page lists **every** command Forge offers (we call them "verbs"). It's a long reference page — you're not meant to read it top to bottom.
+
+In practice, most people start with these five and learn the rest as they need them:
+
+| Command | When to use it | What it gets you |
+|---|---|---|
+| `forge doctor` | Right after install | Confirms everything is wired up correctly |
+| `forge new <template> <name>` | Starting a new project | A production-grade project with tests, CI, and security defaults already in place |
+| `forge scan all` | Before sharing or pushing anything | Catches leaked secrets, broken dependencies, and AI-app vulnerabilities |
+| `forge ship` | Before every push or deploy | Full 5-stage quality gate — your code is ready to sell, not just run |
+| `forge audit show` | When a customer or investor asks for your change history | Tamper-proof log of every AI-generated change |
+
+> **Tip:** if you see a command below you don't recognize, run `forge explain <command>` in your terminal — it prints a plain-English description of what the command does, what flags it accepts, and what files it touches.
+
+If you're just getting started, read [GETTING_STARTED.md](../GETTING_STARTED.md) first and come back here when you want to look up a specific command.
 
 ---
 

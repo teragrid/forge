@@ -1,31 +1,65 @@
 # Installing Forge
 
-Forge ships as a single, statically-linked binary with no runtime dependencies.
-Pick whichever path suits your setup.
+Forge is one small program. You install it once, then it works everywhere — Mac, Windows, Linux. No background services, no daemons, no signup.
+
+Once it's installed, Forge does the rest of the heavy lifting: it scaffolds production-grade projects, runs quality gates before every push, enforces AI spending limits, and keeps a tamper-proof audit trail — automatically. Getting Forge installed is the only manual step.
+
+> **New to Forge?** Finish this page, then go to [GETTING_STARTED.md](../GETTING_STARTED.md) for the full walkthrough.
+
+---
+
+## Which install option is for me?
+
+| If you... | Pick |
+|---|---|
+| Already have Node.js (most vibe-coders) | **Option A — npm** |
+| Want to try Forge without installing it permanently | **Option B — npx** |
+| Are a Go developer | **Option C — go install** |
+| Don't have Node.js or Go, and don't want to install them | **Option D — download a binary** |
+| Use a Mac with Homebrew | **Option E — Homebrew** (coming soon) |
+| Need to install on a machine with no internet | See [airgap.md](airgap.md) |
 
 ---
 
 ## Option A — npm (recommended)
+
+This is the easiest path for almost everyone.
 
 ```bash
 npm install -g @forgeone/cli
 forge version
 ```
 
-Requires Node.js 18+. The correct pre-built binary for your platform is pulled
-automatically via optional dependencies.
+**Requires:** Node.js 18 or newer ([download here](https://nodejs.org)).
+
+The `-g` flag installs Forge globally so you can run `forge` from any folder. npm automatically downloads the correct binary for your operating system — no compilation needed.
+
+> **Windows quirk:** if `forge version` shows `0.0.0-dev` after install, npm cached an old version. Run this once to fix:
+> ```powershell
+> npm install -g @forgeone/cli-win32-x64@latest
+> ```
 
 ---
 
-## Option B — `go install`
+## Option B — npx (try without installing)
 
-If you have **Go 1.24+** installed, compile and install directly from source:
+```bash
+npx @forgeone/cli version
+```
+
+This runs Forge once and discards it. Great for kicking the tyres before committing.
+
+---
+
+## Option C — `go install`
+
+For developers who already have **Go 1.24+** installed.
 
 ```bash
 go install github.com/teragrid/forge/cmd/forge@latest
 ```
 
-Make sure `$(go env GOPATH)/bin` is on your `$PATH`. Confirm:
+Make sure `$(go env GOPATH)/bin` is on your `PATH`. Confirm with:
 
 ```bash
 forge version
@@ -34,15 +68,24 @@ forge version
 
 ---
 
-## Option C — Download a Pre-built Binary
+## Option D — Download a pre-built binary
 
-Pre-built binaries for every supported platform are attached to each
-[GitHub Release](https://github.com/teragrid/forge/releases).
+If you don't have Node.js or Go, grab a binary directly from the [Releases page](https://github.com/teragrid/forge/releases).
 
-**Linux / macOS:**
+Pick the file that matches your computer:
+
+| Your computer | Download this file |
+|---|---|
+| Windows (any modern PC) | `forge-windows-amd64.exe` |
+| Mac with M1/M2/M3/M4 chip | `forge-darwin-arm64` |
+| Mac with Intel chip | `forge-darwin-amd64` |
+| Linux (most desktops/servers) | `forge-linux-amd64` |
+| Linux on Raspberry Pi or ARM server | `forge-linux-arm64` |
+
+**Mac / Linux:**
 
 ```bash
-# Replace linux-amd64 with darwin-arm64, linux-arm64, etc. as needed
+# Example for Linux amd64 — substitute your file
 curl -Lo forge https://github.com/teragrid/forge/releases/latest/download/forge-linux-amd64
 chmod +x forge
 sudo mv forge /usr/local/bin/
@@ -54,143 +97,105 @@ forge version
 ```powershell
 Invoke-WebRequest -Uri https://github.com/teragrid/forge/releases/latest/download/forge-windows-amd64.exe `
   -OutFile forge.exe
-# Move forge.exe to a directory on your PATH, e.g.:
 Move-Item forge.exe "$env:USERPROFILE\bin\forge.exe"
+# Make sure "$env:USERPROFILE\bin" is in your PATH
 forge version
 ```
 
 ---
 
-## Option C — Homebrew (macOS / Linux)
+## Option E — Homebrew (Mac/Linux)
 
-> **Coming soon.** The `teragrid/homebrew-tap` repository is not yet published.
-> Use Option A (npm) or Option B (binary) in the meantime.
+> **Coming soon.** The Homebrew tap is not yet published. Use Option A (npm) until then.
 
----
+## Option F — Scoop / Winget (Windows)
 
-## Option D — Scoop (Windows)
-
-> **Coming soon.** The `teragrid/scoop-forge` bucket is not yet published.
-> Use Option A (npm) or Option B (binary) in the meantime.
-
-> **Note:** Winget support is on the roadmap for the 1.x release.
+> **Coming soon.** Use Option A (npm) or Option D (binary) until then.
 
 ---
 
-## Connecting Forge to your LLM
+## Connect Forge to your AI
 
-Forge **never stores your API keys**.  Instead it reads the credential that your
-IDE already manages:
+Forge does NOT store your AI API keys. Instead it reads the key your IDE or coding tool already uses.
 
-| IDE / tool | What Forge reads |
-|------------|-----------------|
-| **VS Code + GitHub Copilot** | Copilot token from the VS Code credential store |
-| **Claude Code** | `ANTHROPIC_API_KEY` env var or the Claude Code session token |
-| **Cursor / Windsurf** | `OPENAI_API_KEY` env var or the Cursor credential store |
-| **CI / GitHub Actions** | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` as repository secrets |
+| If you use... | Forge reads |
+|---|---|
+| **VS Code + GitHub Copilot** | Your Copilot login (stored by VS Code) |
+| **Claude Code** | The `ANTHROPIC_API_KEY` environment variable |
+| **Cursor or Windsurf** | The `OPENAI_API_KEY` environment variable |
+| **GitHub Actions / CI** | Repository secrets exposed as env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) |
+| **Nothing yet** | Set `ANTHROPIC_API_KEY=sk-ant-...` — get a key at [console.anthropic.com](https://console.anthropic.com) |
 
-After configuring your IDE, verify everything is wired up:
+After configuring, check everything is wired up:
 
 ```bash
 forge doctor
 ```
 
-Expected output (all green):
+Expected output (all green checks):
 
 ```
-✓ git            found (git version 2.44.0)
-✓ go             1.24.x
-✓ .gitignore     managed block present
-✓ LLM provider   copilot (VS Code credential store)
+v git            found (git version 2.44.0)
+v .gitignore     managed block present
+v LLM provider   copilot (VS Code credential store)
 ```
 
-If any item is amber or red, `forge doctor` prints the exact remediation step
-and the `FORGE-XXXX` error code to look up in
-[`docs/ERROR_CODES.md`](docs/ERROR_CODES.md).
+If anything is missing, `forge doctor` prints the exact fix and an error code (like `FORGE-4001`) you can look up in [ERROR_CODES.md](ERROR_CODES.md).
 
 ---
 
-## Verifying the Binary Signature (optional, recommended for CI)
+## Verify the download (optional)
 
-Release binaries are signed via sigstore (planned for v0.3.0+).  Until then,
-verify the SHA-256 checksum published alongside each release:
+For paranoid setups and CI pipelines, every release ships with SHA-256 checksums:
 
 ```bash
-# Example (Linux amd64)
 sha256sum -c forge-linux-amd64.sha256
 ```
 
----
-
-## Uninstalling
-
-### npm global install
-
-```bash
-npm uninstall -g @forgeone/cli
-```
-
-### `go install` binary
-
-**Windows (PowerShell):**
-```powershell
-Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
-```
-
-**macOS / Linux:**
-```bash
-rm -f "$(go env GOPATH)/bin/forge"
-```
-
-### Homebrew
-
-```bash
-brew uninstall forge
-```
-
-### Scoop
-
-```powershell
-scoop uninstall forge
-```
+Sigstore signature verification is on the roadmap.
 
 ---
 
-## Switching from `go install` to npm
+## Uninstall
 
-If you installed an earlier version via `go install` and want to switch to the
-npm-managed release, remove the old binary first to avoid PATH conflicts:
+| Installed via | Uninstall command |
+|---|---|
+| **npm** | `npm uninstall -g @forgeone/cli` |
+| **go install** (Mac/Linux) | `rm -f "$(go env GOPATH)/bin/forge"` |
+| **go install** (Windows) | `Remove-Item "$(go env GOPATH)\bin\forge.exe"` |
+| **Homebrew** | `brew uninstall forge` |
+| **Scoop** | `scoop uninstall forge` |
+| **Binary download** | Delete the `forge` file you copied to your PATH |
+
+---
+
+## Switching from go install to npm
+
+If your `forge version` shows `0.0.0-dev`, you have an old go-installed copy on your PATH and need to remove it first.
 
 **Windows:**
+
 ```powershell
-# 1. Remove old binary
 Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
-
-# 2. Confirm it's gone (should return nothing)
-Get-Command forge -ErrorAction SilentlyContinue
-
-# 3. Install the npm release
+Get-Command forge -ErrorAction SilentlyContinue   # should print nothing
 npm install -g @forgeone/cli
-
-# 4. If forge still shows 0.0.0-dev, npm kept the old platform package.
-#    Force-install it explicitly:
-npm install -g @forgeone/cli-win32-x64@latest
-
-# 5. Verify
-forge version   # forge 1.0.1 (...)
+npm install -g @forgeone/cli-win32-x64@latest      # if still 0.0.0-dev
+forge version
 ```
 
-**macOS / Linux:**
+**Mac / Linux:**
+
 ```bash
-# 1. Remove old binary
 rm -f "$(go env GOPATH)/bin/forge"
-
-# 2. Confirm it's gone
-which forge   # should return nothing
-
-# 3. Install the npm release
+which forge        # should print nothing
 npm install -g @forgeone/cli
-
-# 4. Verify
-forge version   # forge 1.0.1 (...)
+forge version
 ```
+
+---
+
+## Stuck?
+
+- Run `forge doctor` — it diagnoses most environment issues and tells you the fix.
+- Look up your error code in [ERROR_CODES.md](ERROR_CODES.md).
+- Ask in [GitHub Discussions](https://github.com/teragrid/forge/discussions).

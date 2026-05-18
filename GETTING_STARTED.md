@@ -4,108 +4,110 @@
   <img src="forge-logo.png" alt="Forge logo" width="600" />
 </p>
 
-> **Goal:** zero to your first `forge ship` in under 10 minutes.
+> **Goal:** zero to your first `forge ship` in under 10 minutes — no prior coding experience required.
+
+You vibe-coded something with ChatGPT, Claude, or Cursor. Now what? Before you push it to the internet, you want to know: is there anything dangerous in here? Does it actually work? Did the AI accidentally paste my API key into the code?
+
+Forge answers all of that. Follow these steps.
 
 ---
 
-## Prerequisites
+## What you need before starting
 
-| Requirement | Version | Check |
-|-------------|---------|-------|
-| Node.js | ≥18 | `node --version` |
-| npm | ≥10 | `npm --version` |
-| Git | any recent | `git --version` |
-| An IDE with an LLM configured | VS Code + GitHub Copilot, Claude Code, or Cursor | see §3 below |
+| Thing | What it is | How to check you have it |
+|---|---|---|
+| **Node.js 18+** | Runs JavaScript on your computer | Open a terminal, type `node --version`. If you get a number ≥ 18, you're good. If "command not found", [download Node.js](https://nodejs.org) (free, 2 minutes). |
+| **npm 10+** | Comes with Node.js, installs packages | `npm --version` — should show 10 or higher |
+| **Git** | Tracks changes to your code | `git --version` — any version is fine. Install from [git-scm.com](https://git-scm.com) if missing. |
+| **An AI coding tool** | VS Code + Copilot, Cursor, Claude Code, or similar | You probably already have this if you're vibe-coding |
 
-> **Building a Go service?** Also install Go ≥01.24. TypeScript/React projects need only Node.js.
+> **Building a Go service?** You also need Go 1.24+. Check with `go version`. For TypeScript, React, or Next.js projects, Node.js is all you need.
 
-Forge **reads your IDE's LLM configuration** — it never stores credentials itself.
-If no IDE is detected, `forge ship` exits with `FORGE-4001` and tells you exactly
-what to configure first.
+> **How to open a terminal:**
+> - **Windows:** press `Win + R`, type `powershell`, press Enter
+> - **Mac:** press `Cmd + Space`, type `Terminal`, press Enter
+> - **VS Code (any OS):** press `` Ctrl + ` `` (the backtick key, top-left of keyboard)
 
 ---
 
 ## Step 1 — Install Forge
 
-### Option A: npm (recommended — no Go required)
+### The recommended way (npm)
 
 ```bash
 npm install -g @forgeone/cli
 ```
 
-Verify:
+The `-g` means "install globally" — so you can type `forge` from any folder, not just one project.
+
+Confirm it worked:
 
 ```bash
 forge version
-# forge 1.0.1  (or the release you installed)
+# Should print something like: forge 1.0.1
 ```
 
-No Go installation needed. The right pre-compiled binary for your platform is
-pulled automatically via npm's optional dependencies.
-
-> **Windows only:** if `forge version` still shows `0.0.0-dev`, npm kept an
-> older platform package. Fix it with:
+> **Windows only:** if `forge version` shows `0.0.0-dev` instead of a real number, npm cached an old version. Fix it with:
 > ```powershell
 > npm install -g @forgeone/cli-win32-x64@latest
 > ```
+> Then run `forge version` again — it should now show the real version.
 
-### Option B: `npx` (zero-install, try before committing)
-
-```bash
-npx @forge/cli@latest new my-app --template ts-service
-```
-
-### Option C: `go install` (contributors / Go-first users)
+### Try before installing (zero commitment)
 
 ```bash
-go install github.com/teragrid/forge/cmd/forge@latest
+npx @forgeone/cli version
 ```
 
-### Option D: Download a release binary
+This runs Forge once without permanently installing it. Good for a quick look.
 
-Pre-built binaries for Linux, macOS, and Windows (amd64 + arm64) are attached to
-every [GitHub release](https://github.com/teragrid/forge/releases).
+### Other ways
 
-```bash
-# Linux / macOS example
-curl -Lo forge https://github.com/teragrid/forge/releases/latest/download/forge-linux-amd64
-chmod +x forge
-sudo mv forge /usr/local/bin/
-```
+| Method | Command | When to use |
+|---|---|---|
+| **Go install** | `go install github.com/teragrid/forge/cmd/forge@latest` | If you're already a Go developer |
+| **Download binary** | [Releases page](https://github.com/teragrid/forge/releases) | No Node.js or Go installed |
+
+
 
 ---
 
-## Step 2 — Confirm your environment
+## Step 2 — Check your environment
+
+Run this after installing:
 
 ```bash
 forge doctor
 ```
 
-Expected output (all green):
+It checks that everything is set up correctly and tells you exactly what to fix if something is missing.
+
+Example output when all is good:
 
 ```
 ✓ git            found (git version 2.44.0)
 ✓ .gitignore     managed block present
-✓ gitleaks       found (v8.x)
 ✓ go             1.24.x
+✓ LLM provider   detected (Copilot)
 ```
 
-If any check is amber or red, `forge doctor` prints the exact remediation step.
+If any line shows a red ✗ instead of a green ✓, `forge doctor` prints the exact command to fix it. Follow the instructions and run `forge doctor` again.
 
 ---
 
-## Step 3 — Configure your LLM (if not already done)
+## Step 3 — Connect your AI tool
 
-Forge bridges to your IDE's LLM connection. You do not set credentials in Forge.
+Forge uses the same AI connection your coding tool already has — you don't create a separate account or API key for Forge itself.
 
-| IDE / tool | What Forge reads |
-|------------|-----------------|
-| **VS Code + GitHub Copilot** | Copilot token from the VS Code credential store |
-| **Claude Code** | `ANTHROPIC_API_KEY` or the Claude Code session token |
-| **Cursor / Windsurf** | `OPENAI_API_KEY` env var or the Cursor credential store |
-| **CI / GitHub Actions** | Secrets vault via env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) |
+| If you use… | What Forge does |
+|---|---|
+| **VS Code + GitHub Copilot** | Uses your existing Copilot login automatically |
+| **Claude Code** | Reads the `ANTHROPIC_API_KEY` environment variable you already set |
+| **Cursor or Windsurf** | Reads the `OPENAI_API_KEY` you configured in Cursor |
+| **No AI tool yet** | Set one env var: `ANTHROPIC_API_KEY=sk-ant-...` (get a key at [console.anthropic.com](https://console.anthropic.com)) |
 
-If none of the above is configured, `forge doctor` will show:
+If none is configured, `forge doctor` will show:
+
 
 ```
 ✗ LLM provider   none detected (FORGE-4001) — configure your IDE first
@@ -113,29 +115,43 @@ If none of the above is configured, `forge doctor` will show:
 
 ---
 
-## Step 4 — Scaffold your first project
+## Step 4 — Start or adopt a project
 
-### TypeScript service (recommended for most projects)
+### Option A: Start fresh — TypeScript (most common for AI projects)
+
+Most vibe-coded web apps, APIs, and chatbots land here.
 
 ```bash
 forge new ts-service my-app
 cd my-app
 npm install
-npm run dev       # starts the service with tsx watch
-npm test          # runs vitest (already passing out of the box)
+npm run dev       # starts the app — open http://localhost:3000
+npm test          # runs the tests (all pass out of the box)
 ```
 
-What you get out of the box:
-- `src/modules/auth/` — auth service, controller, types, and tests (vitest)
-- `migrations/20260101000000_init.sql` — workspaces + users + audit_log + RLS
-- `forge.config.ts` — typed project config (tenancy, auth, DB, observability)
-- `.github/workflows/ci.yml` — typecheck + lint + test + security scan
-- `.github/workflows/deploy-staging.yml` + `deploy-production.yml`
-- `.forge/conventions.json` and `.forge/hygiene.yml` — LLM instruction files
-- `.gitleaks.toml` — secret scanning baseline
-- `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.windsurfrules` — AI agent context
+What Forge creates for you:
+- A working TypeScript service with auth, database migrations, and tests already passing
+- A `forge.yaml` config file
+- A `.forge/` folder with instructions your AI tool reads automatically
+- GitHub Actions workflows for CI and deployment
+- Secret-scanning rules so API keys can't accidentally slip into commits
+- AI context files (`AGENTS.md`, `.cursorrules`) so Cursor/Copilot/Claude know your project's rules
 
-### Go HTTP service
+### Option B: Start fresh — Next.js app (React + Tailwind)
+
+For web apps and dashboards.
+
+```bash
+forge new next-app my-app
+cd my-app
+npm install
+npm run dev       # Next.js dev server at http://localhost:3000
+npm test          # Vitest unit tests
+```
+
+### Option C: Start fresh — Go service
+
+For high-performance APIs.
 
 ```bash
 forge new go-service my-app
@@ -144,140 +160,95 @@ go run ./...      # HTTP server on :8080
 go test ./...     # passes immediately
 ```
 
-What you get:
-- `main.go` — production HTTP server with graceful shutdown, `/healthz`, `/readyz`
-- `main_test.go` — passing tests against `httptest.Server`
-- `docker-compose.yml` — local Postgres
-- Same `.forge/`, `.gitignore`, `.gitleaks.toml`, CI workflow structure
-
-### Next.js app
-
-```bash
-forge new next-app my-app
-cd my-app
-npm install
-npm run dev       # Next.js dev server on :3000
-npm test          # Vitest unit tests
-npm run test:e2e  # Playwright end-to-end tests
-```
-
-What you get out of the box:
-- `app/` — Next.js 14 App Router with `layout.tsx`, `page.tsx`, and an API route
-- `tailwind.config.ts` + `postcss.config.js` — Tailwind CSS pre-configured
-- `next.config.ts` — security headers (CSP, X-Frame-Options, nosniff) applied to all routes
-- `tests/` — Vitest unit tests + Playwright e2e suite
-- Same `.forge/`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.windsurfrules`, CI workflow structure
-
-### Initialise an existing directory
+### Option D: You already have a project — add Forge to it
 
 ```bash
 cd my-existing-project
-forge init                       # auto-detects template from package.json / go.mod
-forge init --template ts-service # or specify explicitly
+forge init
 ```
+
+Forge detects what kind of project it is and sets up accordingly. It doesn't change your existing code.
+
 
 ---
 
-## Step 5 — Make a change with `forge ship`
+## Step 5 — Ship your first change safely
+
+This is the big moment. `forge ship` is Forge's full pre-flight check — it runs five stages automatically before your code goes anywhere.
 
 ```bash
-# Dry-run (safe; default)
-forge ship --description "add hello-world handler"
-
-# When you're ready to apply
-forge ship --description "add hello-world handler" --dry-run=false
+forge ship --dry-run    # preview what would happen — nothing changes
+forge ship              # do the real thing
 ```
 
-`forge ship` runs through five stages automatically:
+What happens under the hood (you don't need to do any of this manually):
 
-1. **Spec** — writes `.forge/specs/<slug>/spec.md` with intent + acceptance criteria.
-2. **Test** — generates failing tests from the spec (committed before code).
-3. **Breakdown** — produces `.forge/specs/<slug>/tasks.md`.
-4. **Code** — iterates until tests are green.
-5. **Ship** — runs `forge scan all`, `forge lint`, `forge eval`, creates a PR.
+| Stage | What Forge does | Why it matters |
+|---|---|---|
+| **1. Spec** | Checks that the code matches what you said you wanted to build | Catches "the AI went off-script" problems |
+| **2. Test** | Runs your test suite | Catches broken logic before it reaches users |
+| **3. Breakdown** | Scans for obvious logic problems or missing error handling | Catches edge cases the AI glossed over |
+| **4. Code** | Checks code quality and security patterns | Catches vulnerabilities |
+| **5. Ship** | Runs all scanners, confirms everything is clean | Final safety check |
+
+If any stage fails, the whole pipeline stops and Forge tells you exactly what failed and why. Fix it, run `forge ship` again.
 
 ---
 
-## Step 6 — Explore other verbs
+## Step 6 ? Other commands you'll use regularly
+
+You don't need to learn all of these now. Come back to this list as you need them.
 
 ```bash
-forge --help                            # full verb list
-forge explain ship                      # describe any verb’s inputs, outputs, side-effects
-forge scan all                          # run all 9 scanner families
-forge lint                              # convention + hygiene checks
-forge upgrade --check                   # show available codemods (dry-run)
-forge doctor                            # environment health check
+forge --help                    # see all available commands
+forge explain <command>         # plain-English explanation of any command
 
-# Learning loop
-forge learn teach                       # record a project convention
-forge learn share                       # opt-in/out of sharing anonymized counts
-forge learn promote                     # promote a spec to production
+# Safety scans
+forge scan all                  # run all safety checks at once
+forge scan secrets              # look for API keys hardcoded in files
+forge scan prompt-injection     # check if your AI app is vulnerable to manipulation
 
-# Incident management
+# Spend limits
+forge spend set --daily 2.00 --monthly 30.00
+forge spend status              # see how much you've used today and this month
+
+# Change history
+forge audit show                # see what Forge has done in this project
+forge audit verify              # confirm nothing was tampered with
+
+# When something goes wrong in production
 forge incident new --id INC-001 --title "API down" --severity S1
-forge incident triage INC-001           # AI auto-triage
-forge generate test --from-bug INC-001  # generate regression tests from incident
+forge incident triage INC-001   # Forge suggests what to do
+forge rollback --advise         # get a recommendation on what to roll back to
 
-# Semantic cache & streaming
-# (automatic — Forge caches LLM responses by token similarity and streams output)
-
-# Deploy & rollback
-forge deploy --dry-run                  # preview deploy
-forge rollback --advise <deploy-id>     # get AI-recommended rollback target
-
-# Privacy
-forge audit erase --subject <user-id>   # GDPR right-to-erasure
-forge context --redact                  # redact PII from context snapshots
-
-# Insights
-forge insights cli                      # unused verbs, schema drift
-forge insights hygiene                  # weekly hygiene digest
+# Hygiene
+forge clean                     # remove AI-generated placeholder comments and dead TODOs
+forge lint                      # check for missing .gitignore rules and other hygiene
 ```
-
 ---
 
-## Uninstalling / Switching to npm
+## Uninstalling or switching versions
 
-If you installed an earlier version via `go install` (which showed `0.0.0-dev`),
-remove it before installing the npm release to avoid PATH conflicts.
+If you installed an earlier version via `go install` (it showed `0.0.0-dev`), remove it first to avoid conflicts:
 
-**Windows (PowerShell):**
+**Windows:**
 
 ```powershell
-# 1. Remove the old go-installed binary
 Remove-Item "$(go env GOPATH)\bin\forge.exe" -ErrorAction SilentlyContinue
-
-# 2. Confirm it's gone (should return nothing)
-Get-Command forge -ErrorAction SilentlyContinue
-
-# 3. Install the npm-managed release
 npm install -g @forgeone/cli
-
-# 4. If forge still shows 0.0.0-dev, npm kept the old platform package.
-#    Force-install it explicitly:
-npm install -g @forgeone/cli-win32-x64@latest
-
-# 5. Verify the correct version
-forge version   # forge 1.0.1 (...)
+npm install -g @forgeone/cli-win32-x64@latest   # if version still shows 0.0.0-dev
+forge version   # should now show the real version
 ```
 
-**macOS / Linux:**
+**Mac / Linux:**
 
 ```bash
-# 1. Remove the old go-installed binary
 rm -f "$(go env GOPATH)/bin/forge"
-
-# 2. Confirm it's gone
-which forge   # should return nothing
-
-# 3. Install the npm-managed release
 npm install -g @forgeone/cli
-
-# 4. Verify
-forge version   # forge 1.0.1 (...)
+forge version   # should now show the real version
 ```
 
-To uninstall the npm release later:
+To uninstall Forge completely:
 
 ```bash
 npm uninstall -g @forgeone/cli
@@ -285,20 +256,18 @@ npm uninstall -g @forgeone/cli
 
 ---
 
-## Next steps
+## What to do next
 
-| Goal | Where to look |
-|------|---------------|
-| Add a third-party scanner plugin | [docs/PLUGIN_AUTHORING.md](docs/PLUGIN_AUTHORING.md) |
-| Understand every verb and flag | [docs/VERBS.md](docs/VERBS.md) |
-| Install on another platform | [docs/INSTALLATION.md](docs/INSTALLATION.md) |
-| Contribute a change | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Architecture deep-dive | [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) |
-| Community plugin index | [docs/COMMUNITY_PLUGINS.md](docs/COMMUNITY_PLUGINS.md) |
-| Error code reference | [docs/ERROR_CODES.md](docs/ERROR_CODES.md) |
-| Air-gap / offline use | [docs/airgap.md](docs/airgap.md) |
+| Goal | Where to go |
+|---|---|
+| I want to understand every flag for every command | [docs/VERBS.md](docs/VERBS.md) |
+| I want to add a custom scanner or tool | [docs/PLUGIN_AUTHORING.md](docs/PLUGIN_AUTHORING.md) |
+| I want to use Forge offline / without internet | [docs/airgap.md](docs/airgap.md) |
+| I want to contribute to Forge itself | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| I want to understand how Forge works under the hood | [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) |
+| I want to see community-built plugins | [docs/COMMUNITY_PLUGINS.md](docs/COMMUNITY_PLUGINS.md) |
+| I got an error code like FORGE-1234 | [docs/ERROR_CODES.md](docs/ERROR_CODES.md) |
 
 ---
 
-*Last updated: forge v0.M0 (pre-release). For issues, open a bug report using
-the template at `.github/ISSUE_TEMPLATE/bug.yml`.*
+*Questions? Open a [GitHub Discussion](https://github.com/teragrid/forge/discussions) or run `forge explain <command>` for help with any specific command.*

@@ -5,23 +5,34 @@
 > file for any change.  For the full engineering blueprint see
 > [ARCHITECTURE.md](ARCHITECTURE.md).
 
+> **Just want to *use* Forge, not build it?** Read
+> [GETTING_STARTED.md](../GETTING_STARTED.md) instead. This document is for
+> people who want to understand the internals or contribute code.
+
 ---
 
 ## 1. What Forge Actually Does
 
-Forge is the bridge between your AI assistant (GitHub Copilot, Cursor, Claude
-Code, etc.) and a production-grade repository.  Without Forge, the AI writes
-code that *looks* correct but may leak secrets, skip tests, or break conventions
-the moment it hits CI.  Forge closes that gap by running a local
-Scan → Fix → Learn loop before anything reaches a remote branch.
+### The one-paragraph version
 
-Three pillars hold up the whole system:
+AI coding tools (Copilot, Cursor, Claude Code) are great at writing code, but
+they don't notice when that code leaks an API key, skips a test, or breaks a
+project convention. Forge is a small command-line program that sits between
+your AI tool and your Git repository. Before any AI-generated code reaches a
+remote branch, Forge runs a local **Scan → Fix → Learn loop** that catches the
+mistakes humans usually miss in PR review.
+
+### The three pillars
+
+Three ideas hold the whole system together. Every architectural decision below
+traces back to one of them.
 
 ### 1.1  Convention as Code
 
-Project conventions live in `.forge/instructions/` as plain-text files.  Both
-the CLI linter and the LLM read the **same** source.  If a rule changes, you
-update one file and both enforcement paths stay in sync automatically.
+Project conventions live in `.forge/instructions/` as plain-text files. Both
+the CLI linter **and** the LLM read the **same** source. If a rule changes, you
+update one file and both enforcement paths stay in sync automatically — no more
+docs that say one thing while the linter does another.
 
 ### 1.2  Scan-Fix-Learn Loop
 
@@ -29,17 +40,20 @@ Every `forge ship` run triggers a pipeline:
 
 1. The **Scanner** families (secrets, RLS, prompt-injection, supply-chain) read
    your staged diff.
-2. If a finding is fixable, a **Codemod** patches it in place.
+2. If a finding is fixable, a **Codemod** patches it in place automatically.
 3. The outcome is written to the **Audit Ledger** (`.forge/audit.log`) — a
-   hash-chained JSONL file that records what the AI did and why.
-4. Telemetry (opt-in) aggregates patterns so future AI suggestions improve.
+   hash-chained JSONL file that records what the AI did and why. Each entry
+   links to the previous, so history can't be silently rewritten.
+4. Telemetry (opt-in) aggregates anonymised patterns so future AI suggestions
+   improve over time.
 
 ### 1.3  Safe Extensibility
 
-All custom scanners, codemods, and templates are **WebAssembly plugins**.  They
+All custom scanners, codemods, and templates are **WebAssembly plugins**. They
 run inside a `wazero` sandbox with an explicit capability allow-list — a plugin
 that declares only `fs:read` literally cannot make a network call, regardless
-of what its code contains.
+of what its code contains. This is how Forge stays single-binary while still
+being extensible.
 
 ---
 
