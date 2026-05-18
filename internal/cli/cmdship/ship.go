@@ -1158,11 +1158,12 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	fmt.Fprintln(w, "\n5-checkpoint pipeline:")
 	for i, cp := range r.Checkpoints {
 		marker := "\u25cb " // ○ default (unknown status)
-		if cp.Status == "ok" {
+		switch cp.Status {
+		case "ok":
 			marker = "✓ "
-		} else if cp.Status == "fail" {
+		case "fail":
 			marker = "✗ "
-		} else if cp.Status == "warning" {
+		case "warning":
 			marker = "\u25b3 " // △ warning
 		}
 		approval := ""
