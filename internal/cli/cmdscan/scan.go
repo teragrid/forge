@@ -819,8 +819,14 @@ func RunPromptInjection(root string) (*ScanResult, error) {
 	}
 	res.Findings = scanFilesExt(root, []string{".md", ".txt", ".prompt", ".tmpl", ".yaml", ".yml", ".json"},
 		func(rel string, line int, text string) []Finding {
+			base := filepath.Base(filepath.FromSlash(rel))
 			// Skip well-known documentation files — they explain attacks, they are not attacks.
-			if docFileNames[filepath.Base(filepath.FromSlash(rel))] {
+			if docFileNames[base] {
+				return nil
+			}
+			// Skip test files — by convention they contain intentional attack examples
+			// used to verify that guardrails work correctly.
+			if strings.HasPrefix(base, "test_") || strings.Contains(base, "_test.") {
 				return nil
 			}
 			var out []Finding
