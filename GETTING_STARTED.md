@@ -258,6 +258,7 @@ npm uninstall -g @forgeone/cli
 
 | Goal | Where to go |
 |---|---|
+| I want to see real products built with Forge | [docs/SHOWCASE.md](docs/SHOWCASE.md) |
 | I want to understand every flag for every command | [docs/VERBS.md](docs/VERBS.md) |
 | I want to add a custom scanner or tool | [docs/PLUGIN_AUTHORING.md](docs/PLUGIN_AUTHORING.md) |
 | I want to use Forge offline / without internet | [docs/airgap.md](docs/airgap.md) |

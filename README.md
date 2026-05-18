@@ -24,9 +24,10 @@
 4. [Your first 5 minutes](#your-first-5-minutes)
 5. [Commands at a glance](#commands-at-a-glance)
 6. [Real-world scenarios](#real-world-scenarios)
-7. [FAQ](#faq)
-8. [Troubleshooting](#troubleshooting)
-9. [License & community](#license--community)
+7. [Built with Forge](#built-with-forge)
+8. [FAQ](#faq)
+9. [Troubleshooting](#troubleshooting)
+10. [License & community](#license--community)
 
 ---
 
@@ -423,6 +424,21 @@ Read the warning — it always includes the exact fix. If you're unsure, run `fo
 | `go: module not found` | Forge needs Go 1.24 or newer. Check with `go version`, update at [golang.org/dl](https://golang.org/dl/) |
 
 Still stuck? Run `forge explain <command>` or open a [GitHub Discussion](https://github.com/teragrid/forge/discussions).
+
+---
+
+## Built with Forge
+
+Real products shipped by vibe-coders using the Forge framework:
+
+| Project | What it does | Forge features used |
+|---|---|---|
+| [**PromotAI**](https://promotiai.com) | AI-native marketing platform — generates, schedules, and optimises campaigns across channels using AI that learns your brand voice | `forge ship` · secret scanning · spend controls · audit trail · prompt-injection hardening |
+| *Your project* | [Submit yours →](docs/SHOWCASE.md#submit-your-project) | |
+
+PromotAI went from AI-generated code to an enterprise-ready, multi-tenant SaaS product — with a security posture and audit trail enterprise customers ask for during onboarding — in under a week, with no dedicated DevOps.
+
+**→ [See the full showcase and submit your project](docs/SHOWCASE.md)**
 
 ---
 
