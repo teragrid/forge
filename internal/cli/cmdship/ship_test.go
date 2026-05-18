@@ -1303,7 +1303,7 @@ func TestTimestampGuard_BothDirty_NoViolation(t *testing.T) {
 		"bar.go":      "package main\nfunc Bar() {}\n",
 		"bar_test.go": "package main\nimport \"testing\"\nfunc TestBar(t *testing.T) {}\n",
 	})
-	os.WriteFile(filepath.Join(root, "bar.go"), []byte("package main\nfunc Bar() { /* changed */ }\n"), 0o644)        //nolint:errcheck
+	os.WriteFile(filepath.Join(root, "bar.go"), []byte("package main\nfunc Bar() { /* changed */ }\n"), 0o644)                                     //nolint:errcheck
 	os.WriteFile(filepath.Join(root, "bar_test.go"), []byte("package main\nimport \"testing\"\nfunc TestBar(t *testing.T) { t.Skip() }\n"), 0o644) //nolint:errcheck
 	got := testTimestampGuard(root)
 	for _, v := range got {
