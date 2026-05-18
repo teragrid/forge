@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>You vibe it. Forge ships it like a senior dev team would.</strong>
+  <strong>The AI-native framework for vibe-coders who want to ship production-grade software.</strong>
 </p>
 
 <p align="center">
@@ -32,9 +32,9 @@
 
 ## What is Forge?
 
-**Forge is a CLI tool that turns AI-generated code into production-grade software** — with tests, CI, security guardrails, audit logging, and spend controls built in from the start.
+**Forge is an AI-native framework for vibe-coding** — it takes whatever your AI coding tool generates and turns it into production-grade, enterprise-ready software automatically.
 
-AI coding tools write code fast. They don't set up your test suite, configure CI, prevent secret leaks, cap your API spend, or keep a tamper-proof change log. Forge does all of that, so you can ship with confidence regardless of your technical background.
+AI tools write code fast. They don't set up your test suite, configure CI, prevent secret leaks, cap your API spend, or maintain a tamper-proof audit trail. Forge handles all of that as a first-class part of the development loop, so you ship with confidence at any level of technical background.
 
 ```sh
 forge new ts-service my-saas     # production-grade project scaffold in 30 seconds

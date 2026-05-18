@@ -6,9 +6,7 @@
 
 > **Goal:** zero to your first `forge ship` in under 10 minutes — no prior coding experience required.
 
-You vibe-coded something with ChatGPT, Claude, or Cursor. Now what? Before you push it to the internet, you want to know: is there anything dangerous in here? Does it actually work? Did the AI accidentally paste my API key into the code?
-
-Forge answers all of that. Follow these steps.
+You vibe-coded something with ChatGPT, Claude, or Cursor. Forge is the AI-native framework that takes it from there — turning your AI-generated code into a production-grade, shippable product with tests, CI, security guardrails, spend controls, and an audit trail, all set up automatically.
 
 ---
 
