@@ -1,0 +1,53 @@
+"""pgvector / Chroma long-term memory layer.
+
+``get_vector_store()`` returns the configured vector store instance.
+Queries must always include a ``workspace_id`` filter for tenant isolation.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from langchain_core.vectorstores import VectorStore
+from langchain_openai import OpenAIEmbeddings
+
+from src.shared.config import settings
+
+
+@lru_cache(maxsize=1)
+def _get_embeddings() -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(model=settings.embedding_model)
+
+
+async def get_vector_store() -> VectorStore:
+    """Return the configured vector store.
+
+    Uses pgvector backed by PostgreSQL by default.
+    Set ``VECTOR_STORE=chroma`` in the environment to switch to ChromaDB.
+    """
+    import os
+
+    backend = os.getenv("VECTOR_STORE", "pgvector").lower()
+
+    if backend == "chroma":
+        return _get_chroma()
+    return await _get_pgvector()
+
+
+async def _get_pgvector() -> VectorStore:
+    from langchain_community.vectorstores import PGVector
+
+    return PGVector(
+        collection_name=settings.vector_store_collection,
+        connection_string=str(settings.database_url),
+        embedding_function=_get_embeddings(),
+    )
+
+
+def _get_chroma() -> VectorStore:
+    from langchain_community.vectorstores import Chroma
+
+    return Chroma(
+        collection_name=settings.vector_store_collection,
+        embedding_function=_get_embeddings(),
+    )

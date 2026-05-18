@@ -1,0 +1,87 @@
+"""Executor agent — task execution and action taking.
+
+Responsibilities
+----------------
+- Execute the current plan step that requires action (code, API call, DB write).
+- Use research results from the researcher agent as context when available.
+- Write results into ``state["execution_results"]``.
+- Respect the human-in-the-loop interrupt: the graph pauses before this node
+  when ``interrupt_before=["executor"]`` is set in the compiled graph.
+"""
+
+from __future__ import annotations
+
+import structlog
+from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import ToolException
+
+from src.graph.state import AgentState
+from src.shared.config import settings
+from src.shared.errors import AgentError
+from src.shared.llm import get_llm
+
+log = structlog.get_logger(__name__)
+
+_SYSTEM_PROMPT = """\
+You are an execution agent. You receive a specific task and any research context,
+then produce a concrete output: code, a structured result, or a completed action.
+
+Rules:
+- Be precise and deterministic. The same input should produce the same output.
+- Never perform irreversible actions (file deletion, external API writes) without
+  including a reversal plan in the output.
+- Never output API keys, passwords, or credentials.
+- Return a JSON object with keys:
+    "result": str  (the primary output)
+    "artifacts": list of {"name": str, "content": str}  (any generated files/code)
+    "reversal_plan": str  (how to undo this action; empty if not applicable)
+"""
+
+
+class ExecutorAgent:
+    """Task execution agent."""
+
+    def __init__(self) -> None:
+        self._llm = get_llm(settings.executor_model)
+
+    async def run(self, state: AgentState, config: RunnableConfig) -> AgentState:  # noqa: ARG002
+        plan = state.get("plan", [])
+        step = state.get("current_step", 0)
+
+        if step >= len(plan):
+            raise AgentError(f"executor called with step={step} but plan has {len(plan)} steps")
+
+        task_step = plan[step]
+        research = state.get("research_results", [])
+        tool_errors: list[str] = list(state.get("tool_errors", []))
+
+        log.info("executor.run", step=step, task=task_step, research_items=len(research))
+
+        context = "\n\n".join(
+            f"Source: {r.get('source', 'unknown')}\n{r.get('content', '')}"
+            for r in research[:3]  # cap context size
+        )
+
+        messages = [
+            SystemMessage(content=_SYSTEM_PROMPT),
+            *state.get("messages", []),
+            AIMessage(content=f"Task: {task_step}\n\nResearch context:\n{context}"),
+        ]
+
+        try:
+            response: AIMessage = await self._llm.ainvoke(messages)
+        except Exception as exc:
+            tool_errors.append(f"executor llm error: {exc}")
+            log.error("executor_llm_error", error=str(exc))
+            return {**state, "tool_errors": tool_errors}
+
+        execution_results = list(state.get("execution_results", []))
+        execution_results.append({"step": step, "task": task_step, "output": str(response.content)})
+
+        return {
+            **state,
+            "messages": state.get("messages", []) + [response],
+            "execution_results": execution_results,
+            "tool_errors": tool_errors,
+        }

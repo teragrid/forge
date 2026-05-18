@@ -1,0 +1,36 @@
+"""LLM factory — returns a configured ChatModel for the given model name.
+
+Centralises model selection and provider routing. All agents call
+``get_llm(model_name)`` rather than instantiating ChatOpenAI directly.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from langchain_core.language_models.chat_models import BaseChatModel
+
+
+@lru_cache(maxsize=16)
+def get_llm(model: str, temperature: float = 0.0) -> BaseChatModel:
+    """Return a cached ChatModel instance for *model*.
+
+    Routing
+    -------
+    - ``gpt-*``     → ChatOpenAI
+    - ``claude-*``  → ChatAnthropic
+    - Anything else → raises ConfigurationError
+    """
+    from src.shared.errors import ConfigurationError
+
+    if model.startswith("gpt-") or model.startswith("o1") or model.startswith("o3"):
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(model=model, temperature=temperature)
+
+    if model.startswith("claude-"):
+        from langchain_anthropic import ChatAnthropic
+
+        return ChatAnthropic(model=model, temperature=temperature)  # type: ignore[call-arg]
+
+    raise ConfigurationError(f"Unknown model '{model}' — add routing in src/shared/llm.py")

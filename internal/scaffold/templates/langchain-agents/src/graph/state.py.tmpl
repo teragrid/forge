@@ -1,0 +1,55 @@
+"""Shared AgentState TypedDict — the only cross-agent communication channel.
+
+All nodes read from and return partial updates to this state.
+Never add module-level mutable variables as a communication shortcut.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any, TypedDict
+
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+
+
+class AgentState(TypedDict, total=False):
+    """Shared state flowing through the LangGraph StateGraph.
+
+    Fields
+    ------
+    messages:
+        Conversation history. Uses LangGraph's ``add_messages`` reducer so
+        that partial updates append rather than replace.
+    task:
+        The high-level task description supplied by the caller.
+    plan:
+        Ordered list of sub-tasks produced by the orchestrator.
+    current_step:
+        Index of the currently executing plan step.
+    research_results:
+        Outputs from the researcher agent (retrieved docs, search results).
+    execution_results:
+        Outputs from the executor agent (code output, action results).
+    tool_errors:
+        Errors raised by tools during this run; orchestrator uses these for
+        retry/fallback decisions.
+    workspace_id:
+        Tenant identifier. Must be set for all multi-tenant deployments and
+        forwarded to every DB / vector-store query.
+    metadata:
+        Arbitrary caller-supplied key/value pairs forwarded to LangSmith.
+    final_answer:
+        The agent system's final response to the caller. Set by the last node
+        before ``END``.
+    """
+
+    messages: Annotated[list[BaseMessage], add_messages]
+    task: str
+    plan: list[str]
+    current_step: int
+    research_results: list[dict[str, Any]]
+    execution_results: list[dict[str, Any]]
+    tool_errors: list[str]
+    workspace_id: str
+    metadata: dict[str, Any]
+    final_answer: str

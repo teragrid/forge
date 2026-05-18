@@ -1,0 +1,66 @@
+"""Prompt-injection guardrail.
+
+``validate_input()`` must be called on every user-supplied string before it
+reaches an LLM. ``forge scan prompt-injection`` enforces this via AST analysis.
+
+Add new detection patterns here and update tests/security/ accordingly.
+"""
+
+from __future__ import annotations
+
+import re
+
+from src.shared.errors import PromptInjectionError
+
+# ── Detection patterns ────────────────────────────────────────────────────
+# These are intentionally broad — tune for your use-case's false-positive tolerance.
+
+_INJECTION_PATTERNS: list[re.Pattern[str]] = [
+    # Classic jailbreak prefixes
+    re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
+    re.compile(r"forget\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
+    # Role hijacking
+    re.compile(r"you\s+are\s+now\s+(a|an)\s+\w+", re.IGNORECASE),
+    re.compile(r"act\s+as\s+(a|an)\s+\w+", re.IGNORECASE),
+    re.compile(r"pretend\s+(you\s+are|to\s+be)", re.IGNORECASE),
+    # System prompt exfiltration
+    re.compile(r"(print|repeat|show|reveal|output)\s+(your\s+)?(system\s+)?prompt", re.IGNORECASE),
+    re.compile(r"what\s+(are\s+your|is\s+your)\s+(system|initial)\s+(instructions?|prompt)", re.IGNORECASE),
+    # Delimiter injection
+    re.compile(r"<\|?(system|user|assistant|im_start|im_end)\|?>", re.IGNORECASE),
+]
+
+_MAX_INPUT_LENGTH = 32_000  # characters
+
+
+def validate_input(text: str) -> str:
+    """Validate user-supplied text before passing it to an LLM.
+
+    Parameters
+    ----------
+    text:
+        The raw user input to validate.
+
+    Returns
+    -------
+    str
+        The original text, unchanged (if valid).
+
+    Raises
+    ------
+    PromptInjectionError
+        If the input matches a known injection pattern.
+    ValueError
+        If the input exceeds the maximum allowed length.
+    """
+    if len(text) > _MAX_INPUT_LENGTH:
+        raise ValueError(f"Input exceeds maximum length of {_MAX_INPUT_LENGTH} characters")
+
+    for pattern in _INJECTION_PATTERNS:
+        if pattern.search(text):
+            raise PromptInjectionError(
+                f"Input rejected: matched injection pattern '{pattern.pattern}'"
+            )
+
+    return text

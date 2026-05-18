@@ -1,0 +1,49 @@
+# Forge-managed gitleaks rule pack (forge {{.ForgeVer}})
+# Extended for Python / LangChain projects.
+title = "forge gitleaks langchain-agents"
+
+[allowlist]
+description = "Files we never scan"
+paths = [
+  '''(.*?)/?\.forge/cache/''',
+  '''(.*?)/?.venv/''',
+  '''(.*?)/?__pycache__/''',
+  '''(.*?)/?.pytest_cache/''',
+  '''(.*?)/?htmlcov/''',
+]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key"
+regex = '''(?i)(api[_-]?key|api_secret|secret|token|password)[\"\']?\s*[:=]\s*[\"\']?[A-Za-z0-9_\-]{20,}'''
+tags = ["key", "generic"]
+
+[[rules]]
+id = "private-key-block"
+description = "Private key PEM header"
+regex = '''-----BEGIN ((EC|PGP|DSA|RSA|OPENSSH) )?PRIVATE KEY-----'''
+tags = ["key", "private"]
+
+[[rules]]
+id = "openai-key"
+description = "OpenAI API key"
+regex = '''sk-[A-Za-z0-9]{20,}'''
+tags = ["key", "openai"]
+
+[[rules]]
+id = "anthropic-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[A-Za-z0-9\-]{20,}'''
+tags = ["key", "anthropic"]
+
+[[rules]]
+id = "langsmith-key"
+description = "LangSmith API key"
+regex = '''ls__[A-Za-z0-9_\-]{20,}'''
+tags = ["key", "langsmith"]
+
+[[rules]]
+id = "huggingface-token"
+description = "Hugging Face token"
+regex = '''hf_[A-Za-z0-9]{20,}'''
+tags = ["key", "huggingface"]

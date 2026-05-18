@@ -1,0 +1,93 @@
+{
+  "name": "{{.Name}}",
+  "version": "0.1.0",
+  "description": "{{.Description}}",
+  "requires-python": ">=3.11",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "langchain": ">=0.3.0",
+    "langchain-core": ">=0.3.0",
+    "langchain-community": ">=0.3.0",
+    "langchain-openai": ">=0.2.0",
+    "langchain-anthropic": ">=0.3.0",
+    "langgraph": ">=0.2.0",
+    "langgraph-checkpoint-postgres": ">=2.0.0",
+    "langsmith": ">=0.2.0",
+    "langserve": ">=0.3.0",
+    "fastapi": ">=0.115.0",
+    "uvicorn": {
+      "version": ">=0.32.0",
+      "extras": ["standard"]
+    },
+    "pydantic": ">=2.9.0",
+    "pydantic-settings": ">=2.6.0",
+    "structlog": ">=24.4.0",
+    "asyncpg": ">=0.30.0",
+    "pgvector": ">=0.3.0",
+    "tenacity": ">=9.0.0",
+    "httpx": ">=0.28.0"
+  },
+  "optional-dependencies": {
+    "chromadb": ["chromadb>=0.5.0"],
+    "dev": [
+      "pytest>=8.3.0",
+      "pytest-asyncio>=0.24.0",
+      "pytest-cov>=6.0.0",
+      "pytest-mock>=3.14.0",
+      "anyio[trio]>=4.6.0",
+      "respx>=0.21.0",
+      "ruff>=0.8.0",
+      "mypy>=1.13.0",
+      "types-pydantic>=2.9.0"
+    ]
+  },
+  "build-system": {
+    "requires": ["hatchling"],
+    "build-backend": "hatchling.build"
+  },
+  "tool": {
+    "hatch": {
+      "version": {"path": "src/__version__.py"},
+      "build": {
+        "targets": {
+          "wheel": {"packages": ["src"]}
+        }
+      }
+    },
+    "ruff": {
+      "line-length": 100,
+      "target-version": "py311",
+      "select": ["E", "F", "I", "N", "UP", "S", "B", "ANN", "RUF"],
+      "ignore": ["ANN101", "ANN102", "S101"],
+      "per-file-ignores": {
+        "tests/**": ["S", "ANN"]
+      }
+    },
+    "mypy": {
+      "python_version": "3.11",
+      "strict": true,
+      "ignore_missing_imports": true
+    },
+    "pytest": {
+      "ini_options": {
+        "asyncio_mode": "auto",
+        "testpaths": ["tests"],
+        "addopts": ["--cov=src", "--cov-report=term-missing", "--cov-fail-under=80"]
+      }
+    }
+  },
+  "scripts": {
+    "dev": "uvicorn src.server:app --reload --port 8080",
+    "start": "uvicorn src.server:app --host 0.0.0.0 --port 8080",
+    "test": "pytest",
+    "test-cov": "pytest --cov=src --cov-report=html",
+    "lint": "forge lint && ruff check src tests",
+    "lint-fix": "ruff check src tests --fix",
+    "typecheck": "mypy src",
+    "format": "ruff format src tests",
+    "doctor": "forge doctor",
+    "scan": "forge scan security",
+    "scan-pi": "forge scan prompt-injection",
+    "ship": "forge ship"
+  }
+}

@@ -1,0 +1,24 @@
+"""Web search tool — wraps Tavily Search for the researcher agent.
+
+Requires TAVILY_API_KEY in the environment (add to .env).
+"""
+
+from __future__ import annotations
+
+from langchain_community.tools.tavily_search import TavilySearchResults
+
+# Bind tool configuration at module level; reused across all agents.
+# max_results: cap to control token usage and cost.
+web_search = TavilySearchResults(
+    max_results=5,
+    search_depth="advanced",
+    include_answer=True,
+    include_raw_content=False,
+    include_images=False,
+    name="web_search",
+    description=(
+        "Search the web for current information. "
+        "Use when the vector store does not have fresh or relevant data. "
+        "Input: a specific, concise search query."
+    ),
+)

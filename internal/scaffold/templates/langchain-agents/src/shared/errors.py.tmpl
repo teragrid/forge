@@ -1,0 +1,43 @@
+"""Typed error hierarchy for the agent system."""
+
+from __future__ import annotations
+
+
+class AgentError(Exception):
+    """Base class for all agent system errors."""
+
+    def __init__(self, message: str, *, recoverable: bool = False) -> None:
+        super().__init__(message)
+        self.recoverable = recoverable
+
+
+class OrchestratorError(AgentError):
+    """Raised when the orchestrator fails to plan or route."""
+
+
+class ResearcherError(AgentError):
+    """Raised when the researcher agent fails to retrieve information."""
+
+    def __init__(self, message: str, *, recoverable: bool = True) -> None:
+        super().__init__(message, recoverable=recoverable)
+
+
+class ExecutorError(AgentError):
+    """Raised when the executor agent fails to complete a task."""
+
+    def __init__(self, message: str, *, recoverable: bool = True) -> None:
+        super().__init__(message, recoverable=recoverable)
+
+
+class PromptInjectionError(AgentError):
+    """Raised when input fails the prompt-injection guardrail check."""
+
+    def __init__(self, message: str = "Input rejected by prompt-injection guardrail") -> None:
+        super().__init__(message, recoverable=False)
+
+
+class ConfigurationError(AgentError):
+    """Raised when required configuration is missing or invalid."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, recoverable=False)

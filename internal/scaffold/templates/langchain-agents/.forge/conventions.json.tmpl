@@ -1,0 +1,82 @@
+{
+  "version": "1",
+  "project": "{{.Name}}",
+  "forgeVersion": "{{.ForgeVer}}",
+  "runtime": "python",
+  "description": "Machine-readable convention registry for LangGraph multi-agent projects. Consumed by forge lint.",
+
+  "conventions": [
+    {
+      "id": "no-hardcoded-secrets",
+      "description": "Never hardcode API keys, tokens, or credentials — all secrets via environment variables through src/shared/config.py",
+      "severity": "error",
+      "tags": ["security", "secrets"]
+    },
+    {
+      "id": "validate-input-before-llm",
+      "description": "All user-supplied input must pass guardrails.validate_input() before reaching any LLM call",
+      "severity": "error",
+      "tags": ["security", "prompt-injection"]
+    },
+    {
+      "id": "state-only-channel",
+      "description": "Agents must only communicate through AgentState — no globals, singletons, or module-level variables as communication channels",
+      "severity": "error",
+      "tags": ["architecture", "correctness"]
+    },
+    {
+      "id": "idempotent-nodes",
+      "description": "Graph nodes must be safe to replay — do not rely on call count, wall time, or external mutable state inside a node",
+      "severity": "error",
+      "tags": ["correctness", "reliability"]
+    },
+    {
+      "id": "no-blocking-io-in-nodes",
+      "description": "Agent nodes are async — never use blocking IO (requests, time.sleep, open()) inside a node function",
+      "severity": "error",
+      "tags": ["correctness", "performance"]
+    },
+    {
+      "id": "typed-agent-errors",
+      "description": "Always raise typed subclasses of AgentError — never raise raw strings, Exception(), or swallow exceptions silently",
+      "severity": "error",
+      "tags": ["correctness", "dx"]
+    },
+    {
+      "id": "structured-logging",
+      "description": "Use structlog.get_logger() for all production logging — no print() in non-test code",
+      "severity": "error",
+      "tags": ["observability", "dx"]
+    },
+    {
+      "id": "decimal-for-costs",
+      "description": "Never use float for monetary values or LLM token costs — use Decimal",
+      "severity": "error",
+      "tags": ["correctness", "financial"]
+    },
+    {
+      "id": "workspace-id-filter",
+      "description": "Every DB query and vector store query against a tenant-scoped collection must filter by workspace_id",
+      "severity": "error",
+      "tags": ["security", "tenancy"]
+    },
+    {
+      "id": "injection-tests-for-prompts",
+      "description": "Every new prompt surface or user-input boundary requires at least one test in tests/security/",
+      "severity": "error",
+      "tags": ["security", "testing", "prompt-injection"]
+    },
+    {
+      "id": "no-sync-llm-in-async",
+      "description": "Do not call synchronous LLM or chain .invoke() methods inside async functions — use .ainvoke() instead",
+      "severity": "warning",
+      "tags": ["correctness", "performance"]
+    },
+    {
+      "id": "tool-errors-to-state",
+      "description": "Catch ToolException in agent nodes and write the error to state[\"tool_errors\"] — let the orchestrator decide retry/fallback strategy",
+      "severity": "warning",
+      "tags": ["reliability", "architecture"]
+    }
+  ]
+}

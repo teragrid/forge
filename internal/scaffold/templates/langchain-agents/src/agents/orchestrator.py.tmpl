@@ -1,0 +1,112 @@
+"""Orchestrator (supervisor) agent.
+
+Responsibilities
+----------------
+- Parse the incoming task into an ordered plan (list of sub-tasks).
+- Track plan progress via ``state["current_step"]``.
+- Handle tool errors: decide whether to retry the current step or skip.
+- Produce the ``final_answer`` once all plan steps are complete.
+
+The orchestrator never performs retrieval or code execution directly —
+it delegates to the researcher and executor agents via graph edges.
+"""
+
+from __future__ import annotations
+
+import structlog
+from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+
+from src.graph.state import AgentState
+from src.shared.config import settings
+from src.shared.errors import AgentError
+from src.shared.guardrails import validate_input
+from src.shared.llm import get_llm
+
+log = structlog.get_logger(__name__)
+
+_SYSTEM_PROMPT = """\
+You are a planning and coordination agent. Your job is:
+1. Receive a high-level task from the user.
+2. Break it into an ordered list of concrete sub-tasks.
+3. Track execution of each sub-task.
+4. Synthesise a final answer once all sub-tasks are complete.
+
+Rules:
+- Output a JSON object with keys: "plan" (list of strings) and "reasoning" (string).
+- Sub-tasks should be specific enough for a researcher or executor to handle independently.
+- If a tool error occurs, decide: retry the step (output same step) or skip (output next step).
+- Never include sensitive information (API keys, passwords) in the plan.
+"""
+
+
+class OrchestratorAgent:
+    """Supervisor agent: builds the plan and tracks progress."""
+
+    def __init__(self) -> None:
+        self._llm = get_llm(settings.orchestrator_model)
+
+    async def run(self, state: AgentState, config: RunnableConfig) -> AgentState:  # noqa: ARG002
+        task = state.get("task", "")
+        if not task:
+            raise AgentError("task is required in AgentState")
+
+        # Validate user input before LLM call (prompt-injection defence)
+        task = validate_input(task)
+
+        plan = state.get("plan", [])
+        step = state.get("current_step", 0)
+        tool_errors = state.get("tool_errors", [])
+
+        log.info("orchestrator.run", step=step, plan_length=len(plan), errors=len(tool_errors))
+
+        if not plan:
+            # First call: generate the plan
+            messages = [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                *state.get("messages", []),
+            ]
+            response: AIMessage = await self._llm.ainvoke(messages)
+            plan = _parse_plan(response.content)
+            step = 0
+            log.info("plan generated", steps=plan)
+        elif step >= len(plan):
+            # All steps done: synthesise final answer
+            final = await self._synthesise(state)
+            return {**state, "final_answer": final, "current_step": step}
+        else:
+            # Advance to next step (after researcher/executor returned)
+            step += 1
+
+        return {
+            **state,
+            "messages": state.get("messages", []) + [AIMessage(content=f"Plan step {step}: {plan[step] if step < len(plan) else 'done'}")],
+            "plan": plan,
+            "current_step": step,
+        }
+
+    async def _synthesise(self, state: AgentState) -> str:
+        messages = [
+            SystemMessage(content="Summarise the completed work into a clear final answer."),
+            *state.get("messages", []),
+        ]
+        response: AIMessage = await self._llm.ainvoke(messages)
+        return str(response.content)
+
+
+def _parse_plan(content: str) -> list[str]:
+    """Extract the plan list from the LLM response.
+
+    Falls back to splitting on newlines if JSON parsing fails.
+    """
+    import json  # local import to keep module-level imports clean
+
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and "plan" in data:
+            return [str(s) for s in data["plan"]]
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback: treat each non-empty line as a step
+    return [line.strip("- ").strip() for line in content.splitlines() if line.strip()]

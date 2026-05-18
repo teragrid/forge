@@ -1,0 +1,101 @@
+"""Researcher agent — retrieval and web search.
+
+Responsibilities
+----------------
+- Execute the current plan step that requires information gathering.
+- Search the vector store (long-term memory) for relevant documents.
+- Run web search tools when the vector store does not have fresh data.
+- Write results into ``state["research_results"]``.
+"""
+
+from __future__ import annotations
+
+import structlog
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import ToolException
+
+from src.graph.state import AgentState
+from src.memory.vector_store import get_vector_store
+from src.shared.config import settings
+from src.shared.errors import AgentError
+from src.shared.llm import get_llm
+from src.tools.web_search import web_search
+
+log = structlog.get_logger(__name__)
+
+_SYSTEM_PROMPT = """\
+You are a research agent. Given a task, retrieve the most relevant information using:
+1. The long-term memory (vector store) — prefer this for internal knowledge.
+2. Web search — for current, external information.
+
+Return a JSON object with keys:
+  "sources": list of {"title": str, "content": str, "source": str}
+  "summary": str  (concise answer to the task)
+
+Rules:
+- Never fabricate citations. Only return sources you actually retrieved.
+- Do not include API keys, passwords, or PII in the output.
+"""
+
+_TOOLS = [web_search]
+
+
+class ResearcherAgent:
+    """Retrieval and research agent."""
+
+    def __init__(self) -> None:
+        self._llm = get_llm(settings.researcher_model).bind_tools(_TOOLS)
+
+    async def run(self, state: AgentState, config: RunnableConfig) -> AgentState:  # noqa: ARG002
+        plan = state.get("plan", [])
+        step = state.get("current_step", 0)
+        workspace_id = state.get("workspace_id", "")
+
+        if step >= len(plan):
+            raise AgentError(f"researcher called with step={step} but plan has {len(plan)} steps")
+
+        task_step = plan[step]
+        log.info("researcher.run", step=step, task=task_step)
+
+        # ── 1. Vector-store retrieval ──────────────────────────────────────
+        vector_results: list[dict] = []
+        try:
+            vs = await get_vector_store()
+            docs = await vs.asimilarity_search_with_score(
+                task_step,
+                k=5,
+                filter={"workspace_id": workspace_id} if workspace_id else None,
+            )
+            vector_results = [
+                {"title": d.metadata.get("title", ""), "content": d.page_content, "source": "memory"}
+                for d, _score in docs
+            ]
+        except Exception as exc:
+            log.warning("vector_store_lookup_failed", error=str(exc))
+
+        # ── 2. LLM + tool call ────────────────────────────────────────────
+        messages = [
+            SystemMessage(content=_SYSTEM_PROMPT),
+            *state.get("messages", []),
+        ]
+        tool_errors: list[str] = list(state.get("tool_errors", []))
+
+        response: AIMessage = await self._llm.ainvoke(messages)
+        tool_call_results: list[dict] = list(vector_results)
+
+        if response.tool_calls:
+            for tc in response.tool_calls:
+                try:
+                    result = await web_search.ainvoke(tc["args"])
+                    tool_call_results.append({"title": tc["name"], "content": str(result), "source": "web"})
+                except ToolException as exc:
+                    tool_errors.append(f"{tc['name']}: {exc}")
+                    log.warning("tool_error", tool=tc["name"], error=str(exc))
+
+        return {
+            **state,
+            "messages": state.get("messages", []) + [response],
+            "research_results": tool_call_results,
+            "tool_errors": tool_errors,
+        }
