@@ -88,6 +88,13 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Verify npm authentication
+        run: |
+          echo "Checking npm registry auth…"
+          npm whoami || { echo "ERROR: NPM_TOKEN is missing, expired, or lacks publish rights. Re-generate an automation token at https://www.npmjs.com/ and update the NPM_TOKEN secret in GitHub → Settings → Environments → production → Secrets, then re-run this job." >&2; exit 1; }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Stamp versions + copy binaries
         run: bash scripts/npm-publish.sh --version "$VERSION" --dry-run false
 
