@@ -24,9 +24,24 @@ Thumbs.db
 # Forge runtime scratch (per spec §4 hygiene)
 .forge/cache/
 .forge/scratch/
+.forge/scan-history/
+# Runtime .forge dirs that tools write inside source packages
+*/.forge/scan-history/
+*/.forge/context/
+*/.forge/specs/
+*/.forge/audit.log
+**/.forge/audit.log
 
 # ── Private / development-phase files (kept local, never pushed) ──────────────
 /private/
+# ADRs live in private/docs/adr/ — if one accidentally lands here, block it.
+docs/rfcs/ADR-*.md
+# Knowledge base — proprietary IP, not in public repo.
+/forge-knowledge/
+# Generated encrypted knowledge index (private build artifact).
+internal/knowledge/zdata_private.go
+# Plain-text JSON index (intermediate artifact, contains unencrypted KB content).
+internal/knowledge/data/
 # ─────────────────────────────────────────────────────────────────────────────
 
 # forge:gitignore:start — patterns below are auto-managed by forge clean

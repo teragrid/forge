@@ -46,6 +46,10 @@ type TemplateData struct {
 	Files []string
 	// Extra holds verb-specific extra data.
 	Extra map[string]string
+	// KnowledgeDocs is an optional list of compact knowledge-base snippets
+	// (ADR-026). Each entry is one line: "id: intent | snippet".
+	// Populated by the knowledge.AppendDocs path; nil means no KB injection.
+	KnowledgeDocs []string
 }
 
 // Prompt contains the rendered system and user prompts for one LLM call.
@@ -110,6 +114,13 @@ You have access to the following project context:
 <context>
 {{.Context}}
 </context>
+{{- if .KnowledgeDocs}}
+<knowledge>
+{{- range .KnowledgeDocs}}
+- {{.}}
+{{- end}}
+</knowledge>
+{{- end}}
 Answer questions accurately and concisely. When referencing code, use fenced code blocks.
 If you are unsure, say so rather than guessing.`,
 		user: `{{.UserInput}}`,
@@ -166,6 +177,13 @@ Project context:
 <context>
 {{.Context}}
 </context>
+{{- if .KnowledgeDocs}}
+<knowledge>
+{{- range .KnowledgeDocs}}
+- {{.}}
+{{- end}}
+</knowledge>
+{{- end}}
 
 For each issue found, output a JSON object matching the forge Finding schema:
 {
@@ -193,9 +211,16 @@ Your role is to orchestrate the 5-checkpoint ship process:
 3. breakdown — verify tasks are tracked
 4. code — verify per-task diff loop is complete
 5. ship — run final gates (scan, lint, hygiene, secrets)
-
+{{- if .KnowledgeDocs}}
+<knowledge>
+{{- range .KnowledgeDocs}}
+- {{.}}
+{{- end}}
+</knowledge>
+{{- end}}
 Report your assessment for each checkpoint in JSON:
 {"checkpoint": "<name>", "status": "pass|fail|skip", "reason": "<detail>"}`,
+
 		user: `Run ship checkpoints for this project.
 Context:
 <context>

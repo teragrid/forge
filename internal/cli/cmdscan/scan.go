@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teragrid/forge/internal/errcode"
+	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -227,6 +228,22 @@ func New() *cobra.Command {
 					return err
 				}
 			} else {
+				// ADR-026: append relevant knowledge-base refs to the note field.
+				if idx, kbErr := knowledge.Load(); kbErr == nil {
+					entries := knowledge.SelectForScan(idx, scanner)
+					if len(entries) > 0 {
+						ids := make([]string, 0, len(entries))
+						for _, e := range entries {
+							ids = append(ids, e.ID)
+						}
+						ref := "Knowledge refs: " + strings.Join(ids, ", ")
+						if res.Note == "" {
+							res.Note = ref
+						} else {
+							res.Note = res.Note + " | " + ref
+						}
+					}
+				}
 				renderText(cmd, res)
 			}
 

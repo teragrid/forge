@@ -96,6 +96,12 @@ var reservedRanges = []struct {
 	{6100, 6199, "cli/backup"},
 	// DEV-M3-30/M3-31: pre-push gate + post-push CI monitor.
 	{6200, 6299, "cli/ci"},
+	// ADR-026: knowledge-base injection.
+	{6300, 6399, "internal/knowledge"},
+	// Template enhancement (TEMPLATE_ENHANCEMENT_SPEC.md).
+	{6400, 6449, "internal/tsd"},
+	{6450, 6499, "internal/scaffold/compose"},
+	{6500, 6549, "internal/cli/cmdtsd"},
 	{9000, 9099, "internal/test"},
 }
 

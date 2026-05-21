@@ -54,6 +54,12 @@ type Vars struct {
 	Module      string // Go module path (defaults to "example.com/<name>")
 	ForgeVer    string // forge CLI version stamping the managed blocks
 	Description string
+	// TSD-derived variables (populated in TSD mode; empty string in classic mode).
+	Domain       string // project.domain
+	AuthProvider string // stack.backend.auth
+	DBPrimary    string // stack.database.primary
+	Cloud        string // stack.infra.cloud
+	CIProvider   string // stack.infra.ci_cd
 }
 
 // Options controls the render.
@@ -181,7 +187,7 @@ func ensureTarget(target string, force bool) error {
 }
 
 func renderTemplate(name string, body []byte, vars Vars) ([]byte, error) {
-	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(body))
+	tmpl, err := template.New(name).Option("missingkey=zero").Parse(string(body))
 	if err != nil {
 		return nil, errcode.New(ErrTemplateRender, "parse "+name, err)
 	}

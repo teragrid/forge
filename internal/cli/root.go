@@ -62,7 +62,9 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdsla"
 	"github.com/teragrid/forge/internal/cli/cmdspend"
 	"github.com/teragrid/forge/internal/cli/cmdtelemetry"
+	"github.com/teragrid/forge/internal/cli/cmdtemplates"
 	"github.com/teragrid/forge/internal/cli/cmdtest"
+	"github.com/teragrid/forge/internal/cli/cmdtsd"
 	"github.com/teragrid/forge/internal/cli/cmdundo"
 	"github.com/teragrid/forge/internal/cli/cmdupgrade"
 	"github.com/teragrid/forge/internal/cli/cmdversion"
@@ -186,6 +188,10 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		cmdbackup.New(),
 		// DEV-M3-31: post-push CI monitor
 		cmdci.New(),
+		// Template enhancement: TSD subcommand group
+		cmdtsd.New(),
+		// Template enhancement: community template browser
+		cmdtemplates.New(),
 	)
 
 	// Universal flags (G-080): every verb inherits these via PersistentFlags.

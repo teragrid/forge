@@ -42,6 +42,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/llmprovider"
 	"github.com/teragrid/forge/internal/secretrewriter"
 	"github.com/teragrid/forge/internal/tokenledger"
@@ -110,6 +111,27 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 		Operation:    operation,
 	})
 	return resp.Content, nil
+}
+
+// InvokeWithKnowledge enriches the system prompt with relevant knowledge-base
+// entries (ADR-026) before calling Invoke. Knowledge injection is best-effort:
+// any failure (e.g. missing index file) falls back to plain Invoke.
+//
+// checkpoint, family, tmpl, and tags are forwarded to knowledge.Select to
+// score entries. Only entries above MinScore are appended, and
+// AppendDocsBudgeted ensures the total prompt stays within maxTokens.
+func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, maxTokens int, checkpoint, family, tmpl string, tags []string) (string, error) {
+	if p == nil {
+		return "", nil
+	}
+	idx, err := knowledge.Load()
+	if err != nil {
+		// Graceful degradation: log nothing (no PII risk), proceed without KB.
+		return p.Invoke(operation, model, system, user, maxTokens)
+	}
+	entries := knowledge.Select(idx, checkpoint, family, tmpl, tags)
+	enriched := knowledge.AppendDocsBudgeted(system, entries, maxTokens)
+	return p.Invoke(operation, model, enriched, user, maxTokens)
 }
 
 // ProviderName returns the active provider name or "none" for a nil receiver.
