@@ -158,7 +158,53 @@ go run ./...      # HTTP server on :8080
 go test ./...     # passes immediately
 ```
 
-### Option D: You already have a project — add Forge to it
+### Option D: Enterprise or complex project — use a TSD blueprint
+
+For larger projects where you know your full stack upfront, use TSD (Tech Stack Decision) mode. You describe every architectural choice once, and Forge composes all the matching modules into a production-grade scaffold.
+
+```bash
+forge tsd init                           # interactive wizard → writes .forge/tsd.yml
+forge new "campaign analytics service"   # reads .forge/tsd.yml automatically
+```
+
+What `forge tsd init` asks you (takes ~2 minutes):
+
+| Question | Example answers |
+|---|---|
+| Project type | `saas`, `api`, `data-platform`, `marketplace` |
+| Frontend framework | `nextjs-15-supabase`, `react-vite`, `none` |
+| Backend language | `go`, `typescript`, `python` |
+| Database | `postgresql`, `neon`, `sqlite` |
+| Auth provider | `supabase`, `auth0`, `clerk`, `none` |
+| Payments | `stripe`, `adyen`, `none` |
+| AI layer | `openai`, `anthropic`, `none` |
+| Infra | `gcp-cloud-run`, `vercel`, `fly-io`, `none` |
+| Observability | `datadog`, `opentelemetry`, `none` |
+
+The answers go into `.forge/tsd.yml`. You can edit it by hand any time. Run `forge tsd validate` to check it.
+
+```bash
+forge tsd validate       # lint the TSD file — catches unknown keys before scaffold runs
+forge templates list     # browse available community blueprints and enterprise modules
+```
+
+> **Why this matters:** when `forge new` runs in TSD mode it draws from a built-in knowledge base of 172 curated entries — reference architectures, compliance patterns, and best practices from real production systems — to decide which modules to compose. You get the same architectural judgement a senior engineer brings on day one, regardless of your own experience level.
+
+Browse available templates before scaffolding:
+
+```bash
+$ forge templates list
+ID                        MODE   DESCRIPTION
+enterprise-cloud-native   tsd    TSD-driven enterprise SaaS scaffold (multi-tenant, RBAC, audit-log, feature-flags)
+go-cloud-native           tsd    Go + Chi + Neon + GCP cloud-native service
+marketplace-platform      tsd    Next.js + Go + Adyen marketplace with multi-tenant payments
+data-platform             tsd    Python + FastAPI + dbt + Metabase data platform
+ts-service                classic  TypeScript + Vitest + Forge CI gates
+next-app                  classic  Next.js 14, TypeScript, Tailwind CSS, App Router
+go-service                classic  Go HTTP service with graceful shutdown, /healthz, /readyz
+```
+
+### Option E: You already have a project — add Forge to it
 
 ```bash
 cd my-existing-project
@@ -166,8 +212,6 @@ forge init
 ```
 
 Forge detects what kind of project it is and sets up accordingly. It doesn't change your existing code.
-
-
 ---
 
 ## Step 5 — Ship your first change safely

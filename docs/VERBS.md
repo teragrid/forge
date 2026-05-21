@@ -14,7 +14,9 @@ In practice, most people start with these five and learn the rest as they need t
 | Command | When to use it | What it gets you |
 |---|---|---|
 | `forge doctor` | Right after install | Confirms everything is wired up correctly |
-| `forge new <template> <name>` | Starting a new project | A production-grade project with tests, CI, and security defaults already in place |
+| `forge tsd init` | Before starting a complex project | Writes `.forge/tsd.yml` — a blueprint recording every stack decision |
+| `forge new <template> <name>` | Starting a simple project (classic mode) | A production-grade project with tests, CI, and security defaults |
+| `forge new "<description>"` | Starting a project with a TSD file (TSD mode) | Forge reads `.forge/tsd.yml` and composes the matching modules |
 | `forge scan all` | Before sharing or pushing anything | Catches leaked secrets, broken dependencies, and AI-app vulnerabilities |
 | `forge ship` | Before every push or deploy | Full 5-stage quality gate — your code is ready to sell, not just run |
 | `forge audit show` | When a customer or investor asks for your change history | Tamper-proof log of every AI-generated change |
@@ -31,7 +33,9 @@ If you're just getting started, read [GETTING_STARTED.md](../GETTING_STARTED.md)
 |------|----------|-------------|
 | `forge version` | Print binary version and build metadata | — |
 | `forge doctor` | Check the local environment for prerequisites | `FORGE-1000..1099` |
-| `forge new` | Scaffold a new project from a template | `FORGE-1100..1199` |
+| `forge new` | Scaffold a new project (classic mode or TSD mode) | `FORGE-1100..1199` |
+| `forge tsd` | Tech Stack Decision wizard: `init` writes `.forge/tsd.yml`; `validate` lints it | `FORGE-6500..6599` |
+| `forge templates` | Browse community templates and the enterprise module catalogue | — |
 | `forge clean` | Apply manifest-driven repo hygiene | `FORGE-1200..1299` |
 | `forge explain` | Introspect any verb or plugin manifest | `FORGE-1300..1399` |
 | `forge scan` | Run security / quality scanners | `FORGE-1400..1499` |
@@ -106,7 +110,9 @@ forge doctor --json    # machine-readable JSON
 
 ### `forge new`
 
-Scaffold a new project from a built-in or plugin-provided template.
+Scaffold a new project. Supports two modes:
+
+**Classic mode** — pick a built-in template by name:
 
 ```bash
 forge new ts-service my-app
@@ -115,7 +121,16 @@ forge new go-service my-app --module github.com/yourname/my-app
 forge new go-service .      --module github.com/yourname/my-app --force
 ```
 
-**Built-in templates:**
+**TSD mode** — describe the feature; Forge reads `.forge/tsd.yml` automatically:
+
+```bash
+forge new "payment processing service"
+forge new --tsd path/to/custom.tsd.yml "checkout API"
+```
+
+If `.forge/tsd.yml` exists in the current directory and `--tsd` is not explicitly set, TSD mode is activated automatically.
+
+**Built-in templates (classic mode):**
 
 | Template | Stack |
 |----------|-------|
@@ -127,17 +142,108 @@ The `go-service` template generates a standard Forge project layout
 including a pre-configured `.gitignore`, `.gitleaks.toml`, and
 `.forge/manifest`.
 
+**Mode selection logic:**
+
+| Condition | Mode activated |
+|-----------|---------------|
+| `--tsd <file>` flag present | TSD mode (explicit) |
+| `.forge/tsd.yml` exists in current dir | TSD mode (auto-detected) |
+| Neither | Classic mode |
+
 **Flags:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--module` | `""` | Go module path (required for `go-service`) |
+| `--tsd` | `""` | Path to a TSD file; activates TSD mode |
+| `--name` | `""` | Override the project name (default: basename of target path) |
+| `--module` | `""` | Go module path (required for `go-service` in classic mode) |
 | `--force` | `false` | Overwrite existing files |
+| `--list` | `false` | List available templates and exit |
 | `--json` | `false` | Emit machine-readable JSON |
 
 **Error codes:**
-- `FORGE-1100` — unknown template name
+- `FORGE-1100` — invalid usage (unknown template or missing required flag)
 - `FORGE-1101` — target directory not empty and `--force` not set
+
+---
+
+### `forge tsd`
+
+Tech Stack Decision wizard. Manages the `.forge/tsd.yml` file that describes every architectural choice for your project before scaffolding runs.
+
+> **The knowledge base advantage:** in TSD mode, `forge new` doesn't rely on templates alone — it consults Forge's built-in knowledge base (172 curated entries: reference architectures, compliance patterns, security standards, and production best practices) to select and compose the right modules for your stack. You get informed, production-proven architectural decisions automatically.
+
+#### `forge tsd init`
+
+Interactive wizard that writes (or overwrites) `.forge/tsd.yml`.
+
+```bash
+forge tsd init                 # interactive prompts, writes .forge/tsd.yml
+forge tsd init --force         # overwrite an existing .forge/tsd.yml
+forge tsd init --json          # emit machine-readable JSON summary after writing
+```
+
+The wizard collects: project type, frontend framework, backend language, database, auth provider, payments, AI layer, infra target, and observability stack. You can edit `.forge/tsd.yml` by hand afterwards — it's just YAML.
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--force` | `false` | Overwrite an existing TSD file without prompting |
+| `--json` | `false` | Emit machine-readable JSON summary after writing |
+
+#### `forge tsd validate`
+
+Lint a TSD file against the v1 schema. Exits non-zero if any required fields are missing or unknown keys are present.
+
+```bash
+forge tsd validate                        # validates .forge/tsd.yml
+forge tsd validate --tsd my-stack.yml    # validate a specific file
+forge tsd validate --json                 # machine-readable output
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tsd` | `.forge/tsd.yml` | Path to the TSD file to validate |
+| `--json` | `false` | Emit machine-readable JSON |
+
+**Error codes:**
+- `FORGE-6500` — invalid usage of `forge tsd`
+- `FORGE-6501` — failed to write TSD file
+
+---
+
+### `forge templates`
+
+Browse available community templates and the enterprise module catalogue.
+
+#### `forge templates list`
+
+```bash
+forge templates list           # human-readable table
+forge templates list --json    # machine-readable JSON
+```
+
+Example output:
+
+```
+ID                        MODE     DESCRIPTION
+enterprise-cloud-native   tsd      TSD-driven enterprise SaaS scaffold (multi-tenant, RBAC, audit-log, feature-flags)
+go-cloud-native           tsd      Go + Chi + Neon + GCP cloud-native service
+marketplace-platform      tsd      Next.js + Go + Adyen marketplace with multi-tenant payments
+data-platform             tsd      Python + FastAPI + dbt + Metabase data platform
+ts-service                classic  TypeScript + Vitest + Forge CI gates
+next-app                  classic  Next.js 14, TypeScript, Tailwind CSS, App Router, Vitest, Playwright
+go-service                classic  Go HTTP service with graceful shutdown, /healthz, /readyz
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--json` | `false` | Emit machine-readable JSON |
 
 ---
 
