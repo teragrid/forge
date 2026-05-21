@@ -214,6 +214,85 @@ func TestCompose_EmptyModuleList(t *testing.T) {
 	}
 }
 
+// ── TEST-COMP-08b: SkipMissing=true → no error, missing IDs collected ─────────
+
+func TestCompose_SkipMissing_NoError(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Only one module has a scaffold dir; the other two are absent.
+	makeModule(t, root, "present/module", map[string]string{
+		"main.go": "package main\n",
+	})
+
+	result, err := scaffold.Compose(
+		[]string{"absent/alpha", "present/module", "absent/beta"},
+		scaffold.CompositionOptions{ModulesRoot: root, SkipMissing: true},
+	)
+	if err != nil {
+		t.Fatalf("SkipMissing=true must not error on missing modules, got: %v", err)
+	}
+	// The present module's file must be included.
+	if _, ok := result.Files["main.go"]; !ok {
+		t.Error("main.go from present module not in result")
+	}
+	// Both absent modules must appear in MissingModules.
+	if len(result.MissingModules) != 2 {
+		t.Errorf("MissingModules = %v, want [absent/alpha absent/beta]", result.MissingModules)
+	}
+	for _, want := range []string{"absent/alpha", "absent/beta"} {
+		found := false
+		for _, m := range result.MissingModules {
+			if m == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("MissingModules does not contain %q; got %v", want, result.MissingModules)
+		}
+	}
+}
+
+// ── TEST-COMP-08c: SkipMissing=false (default) still errors ───────────────────
+
+func TestCompose_SkipMissing_DefaultFalse(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	_, err := scaffold.Compose(
+		[]string{"absent/module"},
+		scaffold.CompositionOptions{ModulesRoot: root, SkipMissing: false},
+	)
+	if err == nil {
+		t.Fatal("expected ModuleNotFoundError when SkipMissing=false, got nil")
+	}
+	var mnfe *scaffold.ModuleNotFoundError
+	if !isModuleNotFoundError(err, &mnfe) {
+		t.Errorf("want *scaffold.ModuleNotFoundError, got %T: %v", err, err)
+	}
+}
+
+// ── TEST-COMP-08d: all modules missing + SkipMissing → empty files, all listed ─
+
+func TestCompose_SkipMissing_AllMissing(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	result, err := scaffold.Compose(
+		[]string{"x/a", "x/b", "x/c"},
+		scaffold.CompositionOptions{ModulesRoot: root, SkipMissing: true},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Files) != 0 {
+		t.Errorf("expected zero files, got %d", len(result.Files))
+	}
+	if len(result.MissingModules) != 3 {
+		t.Errorf("MissingModules = %v, want 3 entries", result.MissingModules)
+	}
+}
+
 // ── TEST-COMP-09: WriteComposed writes all files ──────────────────────────────
 
 func TestWriteComposed_WritesFiles(t *testing.T) {

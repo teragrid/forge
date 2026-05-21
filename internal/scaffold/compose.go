@@ -64,12 +64,21 @@ type CompositionOptions struct {
 	// Each module ID maps to <ModulesRoot>/<module-id>/scaffold/.
 	// Defaults to "forge-knowledge/templates" relative to cwd.
 	ModulesRoot string
+
+	// SkipMissing, when true, silently skips modules whose scaffold directory
+	// does not exist instead of returning a ModuleNotFoundError. The IDs of
+	// skipped modules are collected in ComposedResult.MissingModules.
+	SkipMissing bool
 }
 
 // ComposedResult holds the composed in-memory file tree before it is written.
 type ComposedResult struct {
 	// Files maps relative path → file contents (bytes).
 	Files map[string][]byte
+
+	// MissingModules lists module IDs whose scaffold directory was not found.
+	// Populated only when CompositionOptions.SkipMissing is true.
+	MissingModules []string
 }
 
 // Compose merges the scaffold directories of the listed modules into an
@@ -90,6 +99,10 @@ func Compose(modules []string, opts CompositionOptions) (*ComposedResult, error)
 	for _, modID := range modules {
 		scaffoldDir := filepath.Join(opts.ModulesRoot, filepath.FromSlash(modID), "scaffold")
 		if _, err := os.Stat(scaffoldDir); os.IsNotExist(err) {
+			if opts.SkipMissing {
+				result.MissingModules = append(result.MissingModules, modID)
+				continue
+			}
 			return nil, &ModuleNotFoundError{ID: modID}
 		}
 

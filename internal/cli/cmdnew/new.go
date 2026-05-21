@@ -239,9 +239,14 @@ func runTSDMode(cmd *cobra.Command, tsdFile, description, outDir string, explici
 	fmt.Fprintf(cmd.OutOrStdout(), "Modules (%d): %s\n", len(modules), strings.Join(modules, ", "))
 
 	// 4. Compose scaffold modules.
-	composed, err := scaffold.Compose(modules, scaffold.CompositionOptions{})
+	// SkipMissing: scaffold dirs are populated incrementally; missing ones
+	// produce a warning rather than a hard error so the command is always usable.
+	composed, err := scaffold.Compose(modules, scaffold.CompositionOptions{SkipMissing: true})
 	if err != nil {
 		return errcode.New(ErrUsage, "scaffold composition failed", err)
+	}
+	for _, missing := range composed.MissingModules {
+		fmt.Fprintf(cmd.OutOrStdout(), "  warning: module scaffold not yet available: %q (skipped)\n", missing)
 	}
 
 	// 5. Determine output directory.
