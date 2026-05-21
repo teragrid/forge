@@ -393,3 +393,97 @@ func isModuleNotFoundError(err error, target **scaffold.ModuleNotFoundError) boo
 	}
 	return ok
 }
+
+// ── TEST-COMP-11: language-variant scaffold-python/ preferred (TG-14) ─────────
+
+func TestCompose_LanguageVariant_Python(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	// Module has both scaffold/ (Go) and scaffold-python/ (Python).
+	makeModule(t, root, "core/rbac", map[string]string{
+		"internal/middleware/rbac.go.tmpl": "package middleware\n",
+	})
+	// Create scaffold-python/ with a Python-specific file.
+	langDir := filepath.Join(root, "core/rbac", "scaffold-python")
+	if err := os.MkdirAll(filepath.Join(langDir, "backend/src/core"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(langDir, "backend/src/core", "permissions.py.tmpl"), []byte("# permissions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := scaffold.Compose(
+		[]string{"core/rbac"},
+		scaffold.CompositionOptions{ModulesRoot: root, Language: "python"},
+	)
+	if err != nil {
+		t.Fatalf("Compose with Language=python: %v", err)
+	}
+	// Should pick scaffold-python/ → Python file present.
+	if _, ok := result.Files["backend/src/core/permissions.py.tmpl"]; !ok {
+		t.Errorf("expected Python permissions file; got keys: %v", fileKeys(result))
+	}
+	// Should NOT include Go file from scaffold/.
+	if _, ok := result.Files["internal/middleware/rbac.go.tmpl"]; ok {
+		t.Errorf("Go file should not be present when scaffold-python/ was selected")
+	}
+}
+
+// ── TEST-COMP-12: no language-variant → falls back to scaffold/ (TG-14) ───────
+
+func TestCompose_LanguageVariant_Go(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	// Module has scaffold/ with a Go file and scaffold-python/ with a Python file.
+	makeModule(t, root, "core/rbac", map[string]string{
+		"internal/middleware/rbac.go.tmpl": "package middleware\n",
+	})
+	langDir := filepath.Join(root, "core/rbac", "scaffold-python")
+	if err := os.MkdirAll(filepath.Join(langDir, "backend/src/core"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(langDir, "backend/src/core", "permissions.py.tmpl"), []byte("# permissions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No Language set → should use default scaffold/.
+	result, err := scaffold.Compose(
+		[]string{"core/rbac"},
+		scaffold.CompositionOptions{ModulesRoot: root},
+	)
+	if err != nil {
+		t.Fatalf("Compose without Language: %v", err)
+	}
+	if _, ok := result.Files["internal/middleware/rbac.go.tmpl"]; !ok {
+		t.Errorf("expected Go rbac file from default scaffold/; got keys: %v", fileKeys(result))
+	}
+	if _, ok := result.Files["backend/src/core/permissions.py.tmpl"]; ok {
+		t.Errorf("Python file should not be present when Language is empty")
+	}
+}
+
+// ── TEST-COMP-13: language set but no variant exists → falls back to scaffold/ ─
+
+func TestCompose_LanguageVariant_FallsBackWhenMissing(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	// Module has only scaffold/ (no scaffold-go/).
+	makeModule(t, root, "core/rbac", map[string]string{
+		"internal/middleware/rbac.go.tmpl": "package middleware\n",
+	})
+
+	// Language=go but no scaffold-go/ exists → fall back to scaffold/.
+	result, err := scaffold.Compose(
+		[]string{"core/rbac"},
+		scaffold.CompositionOptions{ModulesRoot: root, Language: "go"},
+	)
+	if err != nil {
+		t.Fatalf("Compose with Language=go (no variant): %v", err)
+	}
+	if _, ok := result.Files["internal/middleware/rbac.go.tmpl"]; !ok {
+		t.Errorf("expected fallback to scaffold/ when scaffold-go/ absent; got keys: %v", fileKeys(result))
+	}
+}

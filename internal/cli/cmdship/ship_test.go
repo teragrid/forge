@@ -1132,11 +1132,13 @@ func TestRunWithOptions_CreatePR_GhAbsent(t *testing.T) {
 
 // TestRunWithOptions_MockLLM_FullPipeline — inject a MockProvider for the entire
 // 5-checkpoint pipeline. All checkpoints must pass; the LLM must be called.
+// The mock returns empty content so generateBreakdown does NOT write tasks.md,
+// which would otherwise cause the spec-audit gate in checkVerify to fail.
 func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{
-		Response: mockResponse("# LLM output\nGenerated content.\n"),
+		Response: mockResponse(""),
 	}
 	res := RunWithOptions(RunOptions{
 		Root:        root,

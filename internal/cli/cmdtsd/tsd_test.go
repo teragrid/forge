@@ -319,3 +319,27 @@ func TestTSDInit_IdempotentContent(t *testing.T) {
 		t.Errorf("init not idempotent: content differs")
 	}
 }
+
+// ── TG-01: forge tsd init --defaults produces skeleton with messaging: section ─
+
+func TestTSDInit_Defaults_HasMessagingSection(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	chdir(t, dir)
+	root := newRootForTest()
+	if _, _, err := runCmd(t, root, "tsd", "init", "--defaults"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, ".forge", "tsd.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "messaging:") {
+		t.Error("skeleton TSD should contain 'messaging:' section")
+	}
+	for _, key := range []string{"queue:", "realtime:", "email:", "sms:"} {
+		if !strings.Contains(string(content), key) {
+			t.Errorf("skeleton TSD should contain messaging sub-key %q", key)
+		}
+	}
+}

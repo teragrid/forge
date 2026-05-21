@@ -129,8 +129,13 @@ stack:
   payments:
     providers: [stripe]
 `)
-	if !containsModule(modules, "backend/payments-stripe") {
-		t.Errorf("expected 'backend/payments-stripe' in %v", modules)
+	// RES-PAY-01: stripe maps to the frontend nextjs-supabase-stripe module (B1 regression fix).
+	if !containsModule(modules, "frontend/nextjs-15-supabase-stripe") {
+		t.Errorf("expected 'frontend/nextjs-15-supabase-stripe' in %v", modules)
+	}
+	// Guard: old (wrong) ID must NOT be present.
+	if containsModule(modules, "backend/payments-stripe") {
+		t.Errorf("unexpected stale module 'backend/payments-stripe' in %v", modules)
 	}
 }
 
@@ -262,4 +267,311 @@ func isUnknownMappingError(err error, target **tsd.UnknownMappingError) bool {
 		*target = ume
 	}
 	return ok
+}
+
+// ── RES-PAY-01: paypal now maps to correct frontend module ────────────────────
+
+func TestResolve_PayPalPayment(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  payments:
+    providers: [paypal]
+`)
+	// RES-PAY-01: paypal maps to the frontend module.
+	if !containsModule(modules, "frontend/nextjs-15-supabase-paypal") {
+		t.Errorf("expected 'frontend/nextjs-15-supabase-paypal' in %v", modules)
+	}
+	// Guard: old (wrong) ID must NOT be present.
+	if containsModule(modules, "backend/payments-paypal") {
+		t.Errorf("unexpected stale module 'backend/payments-paypal' in %v", modules)
+	}
+}
+
+// ── RES-PAY-02: both stripe and paypal resolve correctly ─────────────────────
+
+func TestResolve_StripeAndPayPal(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  payments:
+    providers: [stripe, paypal]
+`)
+	if !containsModule(modules, "frontend/nextjs-15-supabase-stripe") {
+		t.Errorf("expected stripe module in %v", modules)
+	}
+	if !containsModule(modules, "frontend/nextjs-15-supabase-paypal") {
+		t.Errorf("expected paypal module in %v", modules)
+	}
+}
+
+// ── RES-PAY-03: empty providers → no payment modules ─────────────────────────
+
+func TestResolve_NoPayments(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, validMinimal)
+	for _, m := range modules {
+		if m == "frontend/nextjs-15-supabase-stripe" || m == "frontend/nextjs-15-supabase-paypal" {
+			t.Errorf("unexpected payment module %q in minimal TSD: %v", m, modules)
+		}
+	}
+}
+
+// ── RES-LLM-01: 2 LLM providers → fastapi-multi-llm included ─────────────────
+
+func TestResolve_MultiLLM_TwoProviders(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    llm_providers: [openai, anthropic]
+`)
+	if !containsModule(modules, "backend/fastapi-multi-llm") {
+		t.Errorf("expected 'backend/fastapi-multi-llm' for 2 LLM providers in %v", modules)
+	}
+}
+
+// ── RES-LLM-02: 3 LLM providers → fastapi-multi-llm included ─────────────────
+
+func TestResolve_MultiLLM_ThreeProviders(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    llm_providers: [openai, anthropic, google-gemini]
+`)
+	if !containsModule(modules, "backend/fastapi-multi-llm") {
+		t.Errorf("expected 'backend/fastapi-multi-llm' for 3 LLM providers in %v", modules)
+	}
+}
+
+// ── RES-LLM-03: 1 LLM provider → fastapi-multi-llm NOT included ──────────────
+
+func TestResolve_SingleLLM_NoMultiModule(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    llm_providers: [openai]
+`)
+	if containsModule(modules, "backend/fastapi-multi-llm") {
+		t.Errorf("unexpected 'backend/fastapi-multi-llm' for single LLM provider in %v", modules)
+	}
+}
+
+// ── RES-MQ-01: celery-redis queue → fastapi-redis-queue included ──────────────
+
+func TestResolve_CeleryRedisQueue(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    queue: celery-redis
+`)
+	if !containsModule(modules, "backend/fastapi-redis-queue") {
+		t.Errorf("expected 'backend/fastapi-redis-queue' for celery-redis queue in %v", modules)
+	}
+}
+
+// ── RES-MQ-02: queue: none → no messaging module ─────────────────────────────
+
+func TestResolve_NoQueue(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    queue: none
+`)
+	if containsModule(modules, "backend/fastapi-redis-queue") {
+		t.Errorf("unexpected messaging module for queue: none in %v", modules)
+	}
+}
+
+// ── RES-DO-01: cloud: digitalocean → digitalocean-app-platform included ──────
+
+func TestResolve_DigitalOceanCloud(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  infra:
+    cloud: digitalocean
+`)
+	if !containsModule(modules, "infra/digitalocean-app-platform") {
+		t.Errorf("expected 'infra/digitalocean-app-platform' for digitalocean cloud in %v", modules)
+	}
+}
+
+// ── RES-DO-02: cloud: aws → no module (forward-compat; no template yet) ──────
+
+func TestResolve_AWSCloud_NoModule(t *testing.T) {
+	t.Parallel()
+	// aws maps to "" in infraCloudModuleMap — should not error.
+	modules, err := resolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  infra:
+    cloud: aws
+`)
+	if err != nil {
+		t.Fatalf("unexpected error for cloud: aws: %v", err)
+	}
+	// No AWS-specific module expected yet.
+	_ = modules
+}
+
+// ── RES-TG32-01: ci_cd: github-actions → infra/github-actions-ci ─────────────
+
+func TestResolve_GithubActionsCICD(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  infra:
+    ci_cd: github-actions
+`)
+	if !containsModule(modules, "infra/github-actions-ci") {
+		t.Errorf("expected infra/github-actions-ci; got %v", modules)
+	}
+}
+
+// ── RES-TG32-02: ci_cd: none → no github-actions-ci module ──────────────────
+
+func TestResolve_NoCICD(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  infra:
+    ci_cd: none
+`)
+	if containsModule(modules, "infra/github-actions-ci") {
+		t.Errorf("unexpected infra/github-actions-ci for ci_cd: none; got %v", modules)
+	}
+}
+
+// ── RES-TG32-03: tracing: opentelemetry → observability/otel-prometheus ──────
+
+func TestResolve_OpenTelemetryTracing(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    tracing: opentelemetry
+`)
+	if !containsModule(modules, "observability/otel-prometheus") {
+		t.Errorf("expected observability/otel-prometheus; got %v", modules)
+	}
+}
+
+// ── RES-TG32-04: metrics: prometheus-grafana → observability/otel-prometheus ─
+
+func TestResolve_PrometheusMetrics(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    metrics: prometheus-grafana
+`)
+	if !containsModule(modules, "observability/otel-prometheus") {
+		t.Errorf("expected observability/otel-prometheus; got %v", modules)
+	}
+}
+
+// ── RES-TG32-05: tracing + metrics both otel → no duplicates ─────────────────
+
+func TestResolve_TracingAndMetricsNoDuplicates(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    tracing: opentelemetry
+    metrics: prometheus-grafana
+`)
+	count := 0
+	for _, m := range modules {
+		if m == "observability/otel-prometheus" {
+			count++
+		}
+	}
+	if count > 1 {
+		t.Errorf("observability/otel-prometheus included %d times (want ≤1); modules=%v", count, modules)
+	}
+}
+
+// ── RES-TG32-06: PromotAI full stack resolves all expected modules ─────────────
+
+func TestResolve_PromotAI_FullStack(t *testing.T) {
+	t.Parallel()
+	modules := mustResolve(t, `tsd_version: 1
+project:
+  name: "promotiai"
+  type: saas
+stack:
+  frontend:
+    framework: nextjs-15
+  backend:
+    language: python
+    framework: fastapi
+  ai:
+    orchestration: langgraph
+    llm_providers: [openai, anthropic, google-gemini]
+  payments:
+    providers: [stripe, paypal]
+  messaging:
+    queue: celery-redis
+  infra:
+    cloud: digitalocean
+    container: docker-compose
+    ci_cd: github-actions
+  observability:
+    tracing: opentelemetry
+    metrics: prometheus-grafana
+    logging: structlog
+`)
+	want := []string{
+		"core/multi-tenancy",
+		"core/rbac",
+		"frontend/nextjs-15-supabase",
+		"backend/fastapi-supabase",
+		"backend/langgraph-agent",
+		"backend/fastapi-multi-llm",
+		"frontend/nextjs-15-supabase-stripe",
+		"frontend/nextjs-15-supabase-paypal",
+		"infra/docker-compose-fullstack",
+		"infra/digitalocean-app-platform",
+		"backend/fastapi-redis-queue",
+		"infra/github-actions-ci",
+		"observability/otel-prometheus",
+		"observability/structured-logging",
+	}
+	for _, w := range want {
+		if !containsModule(modules, w) {
+			t.Errorf("expected module %q in result; got %v", w, modules)
+		}
+	}
 }

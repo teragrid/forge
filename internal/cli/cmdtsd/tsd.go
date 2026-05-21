@@ -113,6 +113,12 @@ stack:
     providers: []           # stripe | paypal | adyen | square | razorpay
     model: subscription     # subscription | one-time | usage-based | marketplace
 
+  messaging:
+    queue: none             # redis-bullmq | celery-redis | sqs | pubsub | none
+    realtime: none          # supabase-realtime | pusher | ably | websocket | none
+    email: none             # resend | sendgrid | ses | none
+    sms: none               # twilio | vonage | none
+
   infra:
     cloud: none             # digitalocean | aws | gcp | azure | fly-io | none
     container: docker-compose # docker-compose | kubernetes | none

@@ -94,7 +94,8 @@ func emitEvent(w io.Writer, cp Checkpoint, overrideEvent string) {
 
 // Reserved error codes (range 3200..3299).
 var (
-	ErrShipFailed = errcode.Register(errcode.Code(3200), "ship checkpoint failed")
+	ErrShipFailed      = errcode.Register(errcode.Code(3200), "ship checkpoint failed")
+	ErrSpecAuditFailed = errcode.Register(errcode.Code(3201), "spec audit: incomplete tasks or authz gaps detected")
 )
 
 // Gate is called after each checkpoint runs (0-based idx, total count, completed cp).
@@ -104,12 +105,13 @@ type Gate func(idx, total int, cp Checkpoint) bool
 
 // Checkpoint represents one step in the 5-checkpoint pipeline.
 type Checkpoint struct {
-	Name        string        `json:"name"`
-	Status      string        `json:"status"` // "ok", "skipped", "warning", "fail"
-	Detail      string        `json:"detail"`
-	AutoAdvance bool          `json:"auto_advance,omitempty"` // G-009: Code sets true when all tasks done
-	Approved    *bool         `json:"approved,omitempty"`     // nil=yolo/not-gated; true=approved; false=rejected
-	Debate      *DebateResult `json:"debate,omitempty"`       // populated when --yolo self-debate runs
+	Name        string           `json:"name"`
+	Status      string           `json:"status"` // "ok", "skipped", "warning", "fail"
+	Detail      string           `json:"detail"`
+	AutoAdvance bool             `json:"auto_advance,omitempty"` // G-009: Code sets true when all tasks done
+	Approved    *bool            `json:"approved,omitempty"`     // nil=yolo/not-gated; true=approved; false=rejected
+	Debate      *DebateResult    `json:"debate,omitempty"`       // populated when --yolo self-debate runs
+	GapAudit    *SpecAuditResult `json:"gap_audit,omitempty"`    // TG-39: spec-vs-code audit result
 }
 
 // ShipResult summarizes the ship run.
@@ -960,10 +962,10 @@ func countChangedFiles(root string) int {
 	return count
 }
 
-// checkVerify runs the security scanner, clean check, and checks the manifest.
-// This is the only checkpoint with real automated gates in MVP.
+// checkVerify runs the security scanner, clean check, checks the manifest,
+// and (TG-39) audits spec artefacts for incomplete tasks and authz gaps.
 // M1-10: forge clean --check is now wired here.
-func checkVerify(root string) Checkpoint {
+func checkVerify(root, description string) Checkpoint {
 	cp := Checkpoint{Name: "Ship"}
 
 	// Run security scan
@@ -996,11 +998,34 @@ func checkVerify(root string) Checkpoint {
 		return cp
 	}
 
-	// Check manifest
+	// Check manifest.
 	mf, _ := manifest.Load(filepath.Join(root, manifest.DefaultPath))
 	patternCount := len(mf.Scratch) + len(mf.Managed)
+
+	// TG-39: spec-vs-code audit — blocking gaps fail the checkpoint.
+	auditRes := auditSpecVsCode(root, description)
+	cp.GapAudit = &auditRes
+	if auditRes.HasBlockingGaps() {
+		blocking := 0
+		for _, g := range auditRes.Gaps {
+			if g.Severity == "blocking" {
+				blocking++
+			}
+		}
+		cp.Status = "fail"
+		cp.Detail = fmt.Sprintf(
+			"spec audit: %d blocking gap(s) detected — fix before shipping (run: forge ship spec)",
+			blocking,
+		)
+		return cp
+	}
+
 	cp.Status = "ok"
 	cp.Detail = fmt.Sprintf("security scan clean; hygiene OK; manifest OK (%d patterns)", patternCount)
+	if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+		// Warning-only gaps — note them but don't fail.
+		cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+	}
 	return cp
 }
 
@@ -1039,7 +1064,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		checkTest(root, opts.Description, pipe),
 		checkBreakdown(root, opts.Description, pipe),
 		checkCode(root, opts.Description, pipe),
-		checkVerify(root),
+		checkVerify(root, opts.Description),
 	}
 	// PR checkpoint: appended only for full-pipeline runs with --pr.
 	if opts.CreatePR && len(opts.Names) == 0 {
@@ -1086,8 +1111,19 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			res.Checkpoints = append(res.Checkpoints, cp)
 			res.Ready = false
 			res.Message = fmt.Sprintf("checkpoint %s failed; pipeline stopped", cp.Name)
-			// G-004: emit ship.failed event.
+			// TG-40: emit gap.detected events (for ship/verify) before ship.failed.
 			if opts.EventWriter != nil {
+				cpLower := strings.ToLower(cp.Name)
+				if (cpLower == "ship" || cpLower == "verify") && cp.GapAudit != nil {
+					for _, g := range cp.GapAudit.Gaps {
+						gapCP := Checkpoint{
+							Name:   cp.Name,
+							Status: g.Severity,
+							Detail: fmt.Sprintf("[%s] %s — hint: %s", g.Type, g.Description, g.Hint),
+						}
+						emitEvent(opts.EventWriter, gapCP, "gap.detected")
+					}
+				}
 				emitEvent(opts.EventWriter, cp, "ship.failed")
 			}
 			return res
@@ -1129,13 +1165,27 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			res.Checkpoints = append(res.Checkpoints, cp)
 			// G-004: emit event. Only the "ship"/"verify" checkpoint gets ship.passed/failed;
 			// other checkpoints always use their natural event name.
+			// TG-40: emit gap.detected events before the final ship event.
 			if opts.EventWriter != nil {
 				cpLower := strings.ToLower(cp.Name)
 				switch {
-				case (cpLower == "ship" || cpLower == "verify") && cp.Status == "fail":
-					emitEvent(opts.EventWriter, cp, "ship.failed")
 				case cpLower == "ship" || cpLower == "verify":
-					emitEvent(opts.EventWriter, cp, "ship.passed")
+					// Emit one gap.detected event per gap (before the terminal event).
+					if cp.GapAudit != nil {
+						for _, g := range cp.GapAudit.Gaps {
+							gapCP := Checkpoint{
+								Name:   cp.Name,
+								Status: g.Severity,
+								Detail: fmt.Sprintf("[%s] %s — hint: %s", g.Type, g.Description, g.Hint),
+							}
+							emitEvent(opts.EventWriter, gapCP, "gap.detected")
+						}
+					}
+					if cp.Status == "fail" {
+						emitEvent(opts.EventWriter, cp, "ship.failed")
+					} else {
+						emitEvent(opts.EventWriter, cp, "ship.passed")
+					}
 				default:
 					emitEvent(opts.EventWriter, cp, "")
 				}

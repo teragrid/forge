@@ -37,7 +37,7 @@ import (
 
 // ErrTestsGreenAtStubStage is returned when generated test stubs already pass.
 // This signals a TDD violation: tests must be RED at stub creation time.
-var ErrTestsGreenAtStubStage = errcode.Register(errcode.Code(3201),
+var ErrTestsGreenAtStubStage = errcode.Register(errcode.Code(3202),
 	"test stubs already passing — tests must be failing (red) at stub stage (TDD requirement)")
 
 // TestArtifactPaths holds the paths of the four G-006 test artifacts for a slug.

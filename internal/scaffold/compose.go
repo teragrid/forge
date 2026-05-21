@@ -65,6 +65,13 @@ type CompositionOptions struct {
 	// Defaults to "forge-knowledge/templates" relative to cwd.
 	ModulesRoot string
 
+	// Language, when set, causes Compose to prefer a language-specific scaffold
+	// variant. For each module, if <ModulesRoot>/<module-id>/scaffold-<Language>/
+	// exists it is used instead of the default scaffold/ directory.
+	// Example: Language="python" will pick scaffold-python/ over scaffold/ for
+	// modules that have a Python-specific scaffold.
+	Language string
+
 	// SkipMissing, when true, silently skips modules whose scaffold directory
 	// does not exist instead of returning a ModuleNotFoundError. The IDs of
 	// skipped modules are collected in ComposedResult.MissingModules.
@@ -98,6 +105,13 @@ func Compose(modules []string, opts CompositionOptions) (*ComposedResult, error)
 
 	for _, modID := range modules {
 		scaffoldDir := filepath.Join(opts.ModulesRoot, filepath.FromSlash(modID), "scaffold")
+		// TG-14: prefer language-specific scaffold variant when available.
+		if opts.Language != "" {
+			langDir := filepath.Join(opts.ModulesRoot, filepath.FromSlash(modID), "scaffold-"+opts.Language)
+			if _, statErr := os.Stat(langDir); statErr == nil {
+				scaffoldDir = langDir
+			}
+		}
 		if _, err := os.Stat(scaffoldDir); os.IsNotExist(err) {
 			if opts.SkipMissing {
 				result.MissingModules = append(result.MissingModules, modID)

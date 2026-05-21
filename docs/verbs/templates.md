@@ -25,6 +25,48 @@ forge templates list           # human-readable table
 forge templates list --json    # machine-readable JSON
 ```
 
+### `forge templates init --from <id>`
+
+Bootstrap a new `.forge/tsd.yml` from a named community blueprint without
+writing any source files. This is a faster alternative to `forge tsd init`
+when you already know which blueprint you want.
+
+```bash
+forge templates init --from promotiai      # writes .forge/tsd.yml pre-filled with PromotAI stack
+forge templates init --from go-cloud-native --out ./my-project
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--from <id>` | *(required)* | Template ID from `forge templates list` |
+| `--out <dir>` | `.` | Directory to write `.forge/tsd.yml` into |
+| `--overwrite` | `false` | Overwrite an existing `.forge/tsd.yml` |
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| 0 | TSD written successfully |
+| 1 | Unknown template ID |
+| 2 | `.forge/tsd.yml` already exists and `--overwrite` not set |
+
+**Workflow:**
+
+```bash
+# 1. Pick a blueprint
+forge templates list
+
+# 2. Bootstrap TSD
+forge templates init --from promotiai
+
+# 3. Edit .forge/tsd.yml to customise project name / domain / providers
+
+# 4. Scaffold
+forge new "my-saas-app"
+```
+
 **Example output:**
 
 ```

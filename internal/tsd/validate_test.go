@@ -258,3 +258,406 @@ func TestValidate_Nil(t *testing.T) {
 		t.Error("expected error for nil TSD")
 	}
 }
+
+// ── TG: Messaging field validations ──────────────────────────────────────────
+
+func TestValidate_Messaging_InvalidQueue(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    queue: bullmq
+`)
+	assertHasFieldError(t, errs, "stack.messaging.queue")
+}
+
+func TestValidate_Messaging_ValidQueue(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    queue: celery-redis
+`)
+	for _, e := range errs {
+		if e.Field == "stack.messaging.queue" {
+			t.Errorf("unexpected error for valid queue value: %v", e)
+		}
+	}
+}
+
+func TestValidate_Messaging_InvalidRealtime(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    realtime: firebase
+`)
+	assertHasFieldError(t, errs, "stack.messaging.realtime")
+}
+
+func TestValidate_Messaging_InvalidEmail(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    email: mailgun
+`)
+	assertHasFieldError(t, errs, "stack.messaging.email")
+}
+
+func TestValidate_Messaging_ValidEmail(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    email: resend
+`)
+	for _, e := range errs {
+		if e.Field == "stack.messaging.email" {
+			t.Errorf("unexpected error for valid email value: %v", e)
+		}
+	}
+}
+
+func TestValidate_Messaging_InvalidSMS(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  messaging:
+    sms: nexmo
+`)
+	assertHasFieldError(t, errs, "stack.messaging.sms")
+}
+
+// ── TG: AI sub-field validations ─────────────────────────────────────────────
+
+func TestValidate_AI_InvalidLLMProvider(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    llm_providers: [openai, cohere]
+`)
+	assertHasFieldError(t, errs, "stack.ai.llm_providers[]")
+}
+
+func TestValidate_AI_ValidLLMProviders(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    llm_providers: [openai, anthropic]
+`)
+	for _, e := range errs {
+		if e.Field == "stack.ai.llm_providers[]" {
+			t.Errorf("unexpected error for valid llm_providers: %v", e)
+		}
+	}
+}
+
+func TestValidate_AI_InvalidEmbedding(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    embedding: huggingface
+`)
+	assertHasFieldError(t, errs, "stack.ai.embedding")
+}
+
+func TestValidate_AI_InvalidVectorStore(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    vector_store: chroma
+`)
+	assertHasFieldError(t, errs, "stack.ai.vector_store")
+}
+
+func TestValidate_AI_InvalidObservability(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  ai:
+    observability: mlflow
+`)
+	assertHasFieldError(t, errs, "stack.ai.observability")
+}
+
+// ── TG: Observability sub-field validations ───────────────────────────────────
+
+func TestValidate_Observability_InvalidMetrics(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    metrics: cloudwatch-metrics
+`)
+	assertHasFieldError(t, errs, "stack.observability.metrics")
+}
+
+func TestValidate_Observability_ValidMetrics(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    metrics: prometheus-grafana
+`)
+	for _, e := range errs {
+		if e.Field == "stack.observability.metrics" {
+			t.Errorf("unexpected error for valid metrics value: %v", e)
+		}
+	}
+}
+
+func TestValidate_Observability_InvalidTracing(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    tracing: jaeger
+`)
+	assertHasFieldError(t, errs, "stack.observability.tracing")
+}
+
+func TestValidate_Observability_InvalidLogging(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    logging: logstash
+`)
+	assertHasFieldError(t, errs, "stack.observability.logging")
+}
+
+func TestValidate_Observability_ValidLogging_JSONStdout(t *testing.T) {
+	t.Parallel()
+	// json-stdout is the skeleton default — must not be rejected.
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    logging: json-stdout
+`)
+	for _, e := range errs {
+		if e.Field == "stack.observability.logging" {
+			t.Errorf("unexpected error for 'json-stdout' logging value: %v", e)
+		}
+	}
+}
+
+func TestValidate_Observability_InvalidAlerting(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  observability:
+    alerting: victorops
+`)
+	assertHasFieldError(t, errs, "stack.observability.alerting")
+}
+
+// ── TG: Compliance.secret_scanning validation ─────────────────────────────────
+
+func TestValidate_Compliance_InvalidSecretScanning(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  compliance:
+    secret_scanning: detect-secrets
+`)
+	assertHasFieldError(t, errs, "stack.compliance.secret_scanning")
+}
+
+func TestValidate_Compliance_ValidSecretScanning(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  compliance:
+    secret_scanning: gitleaks
+`)
+	for _, e := range errs {
+		if e.Field == "stack.compliance.secret_scanning" {
+			t.Errorf("unexpected error for valid secret_scanning value: %v", e)
+		}
+	}
+}
+
+// ── TG: Widened enum acceptance tests ────────────────────────────────────────
+
+func TestValidate_WideEnum_ProjectType_APIProduct(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+  type: api-product
+`)
+	for _, e := range errs {
+		if e.Field == "project.type" {
+			t.Errorf("unexpected error for 'api-product' project type: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_ProjectType_MobileBackend(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+  type: mobile-backend
+`)
+	for _, e := range errs {
+		if e.Field == "project.type" {
+			t.Errorf("unexpected error for 'mobile-backend' project type: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_FrontendFramework_ReactSPA(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  frontend:
+    framework: react-spa
+`)
+	for _, e := range errs {
+		if e.Field == "stack.frontend.framework" {
+			t.Errorf("unexpected error for 'react-spa' framework: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_Auth_Keycloak(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  backend:
+    auth: keycloak
+`)
+	for _, e := range errs {
+		if e.Field == "stack.backend.auth" {
+			t.Errorf("unexpected error for 'keycloak' auth: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_Auth_CustomJWT(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  backend:
+    auth: custom-jwt
+`)
+	for _, e := range errs {
+		if e.Field == "stack.backend.auth" {
+			t.Errorf("unexpected error for 'custom-jwt' auth: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_Container_FlyIO(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  infra:
+    container: fly-io
+`)
+	for _, e := range errs {
+		if e.Field == "stack.infra.container" {
+			t.Errorf("unexpected error for 'fly-io' container: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_Standards_SOC2Type2(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  compliance:
+    standards: [soc2-type2]
+`)
+	for _, e := range errs {
+		if e.Field == "stack.compliance.standards[]" {
+			t.Errorf("unexpected error for 'soc2-type2' standard: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_Standards_ISO27001(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  compliance:
+    standards: [iso27001]
+`)
+	for _, e := range errs {
+		if e.Field == "stack.compliance.standards[]" {
+			t.Errorf("unexpected error for 'iso27001' standard: %v", e)
+		}
+	}
+}
+
+func TestValidate_WideEnum_Backend_SpringBoot(t *testing.T) {
+	t.Parallel()
+	errs := validate(t, `tsd_version: 1
+project:
+  name: "test"
+stack:
+  backend:
+    framework: spring-boot
+`)
+	for _, e := range errs {
+		if e.Field == "stack.backend.framework" {
+			t.Errorf("unexpected error for 'spring-boot' framework: %v", e)
+		}
+	}
+}

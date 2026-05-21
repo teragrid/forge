@@ -71,9 +71,12 @@ var aiModuleMap = map[string]string{
 }
 
 // paymentModuleMap maps a payment provider name to a module ID.
+// stripe and paypal have full-stack frontend modules that include the payment
+// integration; other providers map to stub IDs that scaffold.Compose will skip
+// when SkipMissing is set (directories do not yet exist in forge-knowledge/).
 var paymentModuleMap = map[string]string{
-	"stripe":   "backend/payments-stripe",
-	"paypal":   "backend/payments-paypal",
+	"stripe":   "frontend/nextjs-15-supabase-stripe",
+	"paypal":   "frontend/nextjs-15-supabase-paypal",
 	"adyen":    "backend/payments-adyen",
 	"square":   "backend/payments-square",
 	"razorpay": "backend/payments-razorpay",
@@ -84,6 +87,49 @@ var infraModuleMap = map[string]string{
 	"docker-compose": "infra/docker-compose-fullstack",
 	"kubernetes":     "infra/kubernetes-base",
 	"none":           "",
+}
+
+// infraCloudModuleMap maps stack.infra.cloud to a module ID (TG-09).
+var infraCloudModuleMap = map[string]string{
+	"digitalocean": "infra/digitalocean-app-platform",
+	"aws":          "",
+	"gcp":          "",
+	"azure":        "",
+	"fly-io":       "",
+	"none":         "",
+}
+
+// infraCICDModuleMap maps stack.infra.ci_cd to a module ID (TG-32).
+var infraCICDModuleMap = map[string]string{
+	"github-actions": "infra/github-actions-ci",
+	"gitlab-ci":      "",
+	"circleci":       "",
+	"none":           "",
+}
+
+// observabilityTracingModuleMap maps stack.observability.tracing to a module ID (TG-32).
+var observabilityTracingModuleMap = map[string]string{
+	"opentelemetry": "observability/otel-prometheus",
+	"jaeger":        "observability/otel-prometheus",
+	"datadog":       "",
+	"none":          "",
+}
+
+// observabilityMetricsModuleMap maps stack.observability.metrics to a module ID (TG-32).
+var observabilityMetricsModuleMap = map[string]string{
+	"prometheus-grafana": "observability/otel-prometheus",
+	"datadog":            "",
+	"cloudwatch":         "",
+	"none":               "",
+}
+
+// messagingQueueModuleMap maps stack.messaging.queue to a module ID (TG-08).
+var messagingQueueModuleMap = map[string]string{
+	"celery-redis": "backend/fastapi-redis-queue",
+	"redis-bullmq": "backend/nestjs-redis-queue",
+	"sqs":          "",
+	"pubsub":       "",
+	"none":         "",
 }
 
 // Resolve returns the ordered list of module IDs to compose for the given TSD.
@@ -119,7 +165,7 @@ func Resolve(t *TSD) ([]string, error) {
 		}
 	}
 
-	// 4. AI module.
+	// 4. AI module (orchestration).
 	if t.Stack.AI.Orchestration != "" && t.Stack.AI.Orchestration != "none" {
 		mod, ok := aiModuleMap[t.Stack.AI.Orchestration]
 		if !ok {
@@ -128,6 +174,11 @@ func Resolve(t *TSD) ([]string, error) {
 		if mod != "" {
 			modules = append(modules, mod)
 		}
+	}
+
+	// 4a. Multi-LLM module when 2+ providers are declared (TG-07).
+	if len(t.Stack.AI.LLMProviders) >= 2 {
+		modules = append(modules, "backend/fastapi-multi-llm")
 	}
 
 	// 5. Payment modules — one per provider.
@@ -141,7 +192,7 @@ func Resolve(t *TSD) ([]string, error) {
 		}
 	}
 
-	// 6. Infra module.
+	// 6. Infra module (container).
 	if t.Stack.Infra.Container != "" && t.Stack.Infra.Container != "none" {
 		mod, ok := infraModuleMap[t.Stack.Infra.Container]
 		if !ok {
@@ -152,8 +203,60 @@ func Resolve(t *TSD) ([]string, error) {
 		}
 	}
 
+	// 6a. Infra cloud module (TG-09).
+	if t.Stack.Infra.Cloud != "" && t.Stack.Infra.Cloud != "none" {
+		if mod, ok := infraCloudModuleMap[t.Stack.Infra.Cloud]; ok && mod != "" {
+			modules = append(modules, mod)
+		}
+		// Unknown cloud values are silently skipped (forward-compat; no mapping yet).
+	}
+
+	// 6b. Messaging queue module (TG-08).
+	if t.Stack.Messaging.Queue != "" && t.Stack.Messaging.Queue != "none" {
+		if mod, ok := messagingQueueModuleMap[t.Stack.Messaging.Queue]; ok && mod != "" {
+			modules = append(modules, mod)
+		}
+		// Unmapped queue values are silently skipped (forward-compat).
+	}
+
+	// 6c. Infra CI/CD module (TG-32).
+	if t.Stack.Infra.CICD != "" && t.Stack.Infra.CICD != "none" {
+		if mod, ok := infraCICDModuleMap[t.Stack.Infra.CICD]; ok && mod != "" {
+			modules = append(modules, mod)
+		}
+	}
+
+	// 6d. Observability: tracing module (TG-32).
+	if t.Stack.Observability.Tracing != "" && t.Stack.Observability.Tracing != "none" {
+		if mod, ok := observabilityTracingModuleMap[t.Stack.Observability.Tracing]; ok && mod != "" {
+			// Deduplicate if metrics already added the same module.
+			if !containsStr(modules, mod) {
+				modules = append(modules, mod)
+			}
+		}
+	}
+
+	// 6e. Observability: metrics module (TG-32).
+	if t.Stack.Observability.Metrics != "" && t.Stack.Observability.Metrics != "none" {
+		if mod, ok := observabilityMetricsModuleMap[t.Stack.Observability.Metrics]; ok && mod != "" {
+			if !containsStr(modules, mod) {
+				modules = append(modules, mod)
+			}
+		}
+	}
+
 	// 7. Observability is always appended last.
 	modules = append(modules, "observability/structured-logging")
 
 	return modules, nil
+}
+
+// containsStr reports whether s is in slice.
+func containsStr(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
