@@ -173,7 +173,7 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 		t.Fatalf("step 3 (scan): fresh scaffold unexpectedly contains secrets: %+v", scanRes.Findings)
 	}
 
-	// Step 4 — ship dry-run: all 5 checkpoints present.
+	// Step 4 — ship dry-run: all 6 checkpoints present.
 	s4 := jStep(t, "ship", cmdship.New(), "--dry-run", "--root", dir, "--description", "onboarding", "--json")
 	var shipRes cmdship.ShipResult
 	if err := json.Unmarshal(firstJSON([]byte(s4)), &shipRes); err != nil {
@@ -182,8 +182,8 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 	if !shipRes.DryRun {
 		t.Fatal("step 4 (ship): expected dry_run=true")
 	}
-	if len(shipRes.Checkpoints) != 5 {
-		t.Fatalf("step 4 (ship): expected 5 checkpoints, got %d", len(shipRes.Checkpoints))
+	if len(shipRes.Checkpoints) != 6 {
+		t.Fatalf("step 4 (ship): expected 6 checkpoints, got %d", len(shipRes.Checkpoints))
 	}
 
 	// Idempotency guard (§4 in 9-point checklist): running ship again yields
@@ -681,17 +681,17 @@ func TestJourney_ForgeTest(t *testing.T) {
 	_ = r8
 }
 
-// TestJourney_ShipCheckpoints — user runs the forge ship 5-checkpoint pipeline
+// TestJourney_ShipCheckpoints — user runs the forge ship 6-checkpoint pipeline
 // both as a whole and one checkpoint at a time, verifying checkpoint isolation
 // and the ship → test integration.
 //
 // Workflow:
-//  1. forge ship --json        → 5 checkpoints, DryRun=true
+//  1. forge ship --json        → 6 checkpoints, DryRun=true
 //  2. forge ship spec --json   → 1 checkpoint named "Spec"
 //  3. forge ship verify --json → 1 checkpoint, status "ok"
 //  4. forge ship test --json   → 1 checkpoint named "Test", integrates with cmdtest
 //  5. Idempotency: spec twice  → same Ready
-//  6. Negative: parent without JSON → text output contains "5-checkpoint"
+//  6. Negative: parent without JSON → text output contains "6-checkpoint"
 func TestJourney_ShipCheckpoints(t *testing.T) {
 	t.Parallel()
 
@@ -721,8 +721,8 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	if !r1.DryRun {
 		t.Fatal("step 1 (ship full): expected dry_run=true")
 	}
-	if len(r1.Checkpoints) != 5 {
-		t.Fatalf("step 1 (ship full): expected 5 checkpoints, got %d", len(r1.Checkpoints))
+	if len(r1.Checkpoints) != 6 {
+		t.Fatalf("step 1 (ship full): expected 6 checkpoints, got %d", len(r1.Checkpoints))
 	}
 
 	// Step 2: spec subcommand → 1 checkpoint.
@@ -758,8 +758,8 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 
 	// Step 6: text output (no --json) must mention pipeline.
 	s6 := jStep(t, "ship (text)", cmdship.New(), "--root", dir)
-	if !strings.Contains(s6, "5-checkpoint") {
-		t.Fatalf("step 6 (text): missing 5-checkpoint in output\n%s", s6)
+	if !strings.Contains(s6, "6-checkpoint") {
+		t.Fatalf("step 6 (text): missing 6-checkpoint in output\n%s", s6)
 	}
 
 	_ = r1
