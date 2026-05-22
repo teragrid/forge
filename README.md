@@ -39,11 +39,11 @@ AI tools write code fast. They don't set up your test suite, configure CI, preve
 
 ```sh
 forge new ts-service my-saas     # production-grade project scaffold in 30 seconds
-forge ship                       # 5-stage quality gate before every push
+forge ship                       # 6-stage quality gate before every push
 forge audit show                 # enterprise-grade change log, always ready
 ```
 
-> **What makes Forge different?** A built-in knowledge base of 172 curated entries — reference architectures, compliance patterns, security standards, and best practices accumulated from real production systems. When Forge scaffolds a project or selects modules, it draws from this KB instead of guessing. No other open-source scaffolding tool ships with this depth of institutional knowledge baked in.
+> **What makes Forge different?** A built-in knowledge base of 172 curated entries — reference architectures, compliance patterns, security standards, and best practices accumulated from real production systems. When Forge scaffolds a project or selects modules, it draws from this KB instead of guessing. The `forge ship arch` checkpoint also injects relevant KB entries directly into every LLM call — so generated architecture docs, OpenAPI contracts, test stubs, task breakdowns, and code plans all reflect your project's conventions automatically. No other open-source scaffolding tool ships with this depth of institutional knowledge baked in.
 
 > **No IT background required.** If you can open a terminal and paste a command, you can use Forge. Every output tells you exactly what to do next.
 
@@ -90,7 +90,7 @@ forge new --tsd my-stack.tsd.yml "checkout service"
 
 > **The KB advantage:** Forge ships with a built-in knowledge base of 172 curated entries — reference architectures, compliance patterns, and best practices from real production systems. When you run `forge new` in TSD mode, Forge doesn't guess which modules to compose — it consults the KB to make informed, production-proven choices. This is the same depth of knowledge a senior architect brings on day one, available to every developer regardless of experience level.
 
-### 3. Runs a 5-stage quality gate before every push
+### 3. Runs a 6-stage quality gate before every push
 
 `forge ship` is the command you'll run the most. It's like having a meticulous senior developer review every change before it leaves your machine — except it takes 10 seconds instead of a day.
 
@@ -99,11 +99,12 @@ forge ship --dry-run    # preview what would happen (nothing changes)
 forge ship              # do the real thing
 ```
 
-The five stages, in plain English:
+The six stages, in plain English:
 
 | Stage | What it checks | Example of what it catches |
 |---|---|---|
 | **Spec** | Does the code match what you asked for? | "The AI added a payment feature you didn't ask for" |
+| **Arch** | Is the architecture and API contract documented? | `openapi.yaml` generated; REST vs Supabase RPC style declared; KB-enriched LLM call |
 | **Test** | Do all tests pass? | "This change broke the login function" |
 | **Breakdown** | Are there obvious logic gaps or missing error handling? | "What happens if the user enters an empty email?" |
 | **Code** | Is the code quality acceptable? | "This function will crash when the list is empty" |
@@ -305,7 +306,7 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 
 | Command | What it does |
 |---|---|
-| `forge ship [--dry-run]` | Run the full 5-stage quality gate before pushing |
+| `forge ship [--dry-run]` | Run the full 6-stage quality gate before pushing |
 | `forge scan all` | Run every quality and security check at once |
 | `forge scan secrets` | Look for API keys hardcoded in files |
 | `forge scan prompt-injection` | Check if your AI app can be manipulated by users |
@@ -357,7 +358,7 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | **Supply chain** | The chain of packages your code depends on — `forge scan supply-chain` checks all of them |
 | **TSD** | Tech Stack Decision — a `.forge/tsd.yml` file that records every architectural choice (frontend, backend, DB, auth, payments, AI, infra) before scaffolding runs |
 | **Module composition** | Forge merges multiple template modules into one scaffold — each module covers one concern (e.g. `core/rbac`, `frontend/nextjs-15-supabase`) |
-| **Knowledge base** | 172 built-in Forge KB entries covering reference architectures, compliance standards, and best practices — powers intelligent module selection in TSD mode |
+| **Knowledge base** | 172 built-in Forge KB entries covering reference architectures, compliance standards, and best practices — powers intelligent module selection in TSD mode, and is injected into the LLM prompts for the `arch`, `test`, `breakdown`, and `code` ship checkpoints |
 | **CI/CD** | Automated tests and deployment that run every time you push code — Forge sets this up for you |
 
 ---

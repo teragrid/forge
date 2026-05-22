@@ -216,7 +216,7 @@ Forge detects what kind of project it is and sets up accordingly. It doesn't cha
 
 ## Step 5 — Ship your first change safely
 
-This is the big moment. `forge ship` is Forge's full pre-flight check — it runs five stages automatically before your code goes anywhere.
+This is the big moment. `forge ship` is Forge's full pre-flight check — it runs six stages automatically before your code goes anywhere.
 
 ```bash
 forge ship --dry-run    # preview what would happen — nothing changes
@@ -228,10 +228,11 @@ What happens under the hood (you don't need to do any of this manually):
 | Stage | What Forge does | Why it matters |
 |---|---|---|
 | **1. Spec** | Checks that the code matches what you said you wanted to build | Catches "the AI went off-script" problems |
-| **2. Test** | Runs your test suite | Catches broken logic before it reaches users |
-| **3. Breakdown** | Scans for obvious logic problems or missing error handling | Catches edge cases the AI glossed over |
-| **4. Code** | Checks code quality and security patterns | Catches vulnerabilities |
-| **5. Ship** | Runs all scanners, confirms everything is clean | Final safety check |
+| **2. Arch** | Generates `arch.md` + `openapi.yaml`; declares API style (REST or Supabase RPC); KB-enriched LLM call | Produces the authoritative API contract before any tests or code are written |
+| **3. Test** | Runs your test suite | Catches broken logic before it reaches users |
+| **4. Breakdown** | Scans for obvious logic problems or missing error handling | Catches edge cases the AI glossed over |
+| **5. Code** | Checks code quality and security patterns | Catches vulnerabilities |
+| **6. Ship** | Runs all scanners, confirms everything is clean | Final safety check |
 
 If any stage fails, the whole pipeline stops and Forge tells you exactly what failed and why. Fix it, run `forge ship` again.
 

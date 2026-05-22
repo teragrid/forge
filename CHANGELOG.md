@@ -2,6 +2,23 @@
 
 All notable changes to forge will be documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] \u2014 2026-05-22
+
+### Added
+
+- **`forge ship arch` checkpoint** \u2014 a new checkpoint 2 (`arch`) inserted between `spec` and `test` makes the pipeline 6 stages: `spec \u2192 arch \u2192 test \u2192 breakdown \u2192 code \u2192 ship`. The arch checkpoint generates both `arch.md` and `openapi.yaml` under `.forge/specs/<slug>/` via a KB-enriched LLM call.
+- **KB injection in ship pipeline** (`InvokeWithKnowledge`, ADR-026) \u2014 all four LLM-backed checkpoints (`arch`, `test`, `breakdown`, `code`) now prepend the top-5 relevant knowledge-base entries to the system prompt automatically. Add project-specific guidance to `.forge/knowledge/` to influence all generated artifacts.
+- **Supabase RPC auto-detection** (`detectAPIStyle`) \u2014 after `arch` generates `openapi.yaml`, Forge reads path prefixes: if `/rest/v1/rpc/` paths are present the feature is flagged as `supabase-rpc`, and all downstream checkpoints inject targeted guidance (PostgreSQL function creation, `GRANT EXECUTE`, RLS policies, `.rpc()` TypeScript client calls, integration tests). Standard REST features are unaffected.
+- **`RoleAPIDesign` Supabase concern** \u2014 the six-role self-debate engine (ADR-025) now has a dedicated concern for undeclared API style, with actionable guidance to choose between `/rest/v1/rpc/{fn}` and `/api/v1/{resource}`.
+- **DAB Full template updated** (`docs/adr/dab-full/`) \u2014 sections 02, 03, 06, and 09 reflect the new arch checkpoint, KB injection note, API style declaration, and Supabase RPC governance rules.
+- **DAB Light template updated** (`docs/adr/dab-light/`) \u2014 same updates in condensed form.
+- **`docs/verbs/ship.md` updated** \u2014 synopsis, checkpoint list, and examples now document the full 6-stage pipeline including the `arch` checkpoint, KB injection callout, and Supabase RPC detection.
+
+### Changed
+
+- README: "5-stage quality gate" \u2192 "6-stage quality gate"; Arch stage added to the pipeline table; KB description updated to mention ship-checkpoint injection.
+- `GETTING_STARTED.md`: Step 5 updated to 6-stage table with Arch as stage 2.
+
 ## [Unreleased]
 
 ## [1.0.0] — 2026-05-16 — All 82 gap tasks complete
