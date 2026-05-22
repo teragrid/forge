@@ -1,0 +1,25 @@
+# Reviewers — DAB Full
+
+# Default reviewer assignments for DAB Full architecture reviews.
+# Format: GitHub username or team slug.
+
+arch_reviewer:
+  - "@tech-lead"
+
+security_reviewer:
+  - "@security-team"
+
+data_reviewer:
+  - "@data-platform"
+
+api_reviewer:
+  - "@platform-team"
+
+infra_reviewer:
+  - "@infrastructure"
+
+product_reviewer:
+  - "@product-owner"
+
+# Quorum: all reviewers must approve before status → Approved.
+required_approvals: 3

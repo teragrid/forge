@@ -228,19 +228,34 @@ func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) 
 		userPrompt.WriteString(specContent)
 		userPrompt.WriteString("\n\n")
 	}
-	userPrompt.WriteString(
-		"Generate failing unit test stubs in Go that will pass only after the feature is " +
-			"implemented. Use table-driven tests. Include: happy path, boundary cases, and " +
-			"at least one negative case. Wrap code in a ```go block.",
-	)
+	// Include OpenAPI contract when available — enables typed test stubs per operation.
+	apiStyle := "rest"
+	if data, err := os.ReadFile(filepath.Join(specsDir, "openapi.yaml")); err == nil {
+		apiStyle = detectAPIStyle(string(data))
+		userPrompt.WriteString("OpenAPI Contract:\n```yaml\n")
+		userPrompt.Write(data)
+		userPrompt.WriteString("\n```\n\n")
+	}
+	testInstruction := "Generate failing unit test stubs in Go that will pass only after the feature is " +
+		"implemented. Use table-driven tests. Include: happy path, boundary cases, and " +
+		"at least one negative case. For each API operation defined in the OpenAPI contract " +
+		"include a corresponding test case. Wrap code in a ```go block."
+	if apiStyle == "supabase-rpc" {
+		testInstruction += " For Supabase RPC operations (/rest/v1/rpc/{fn}), include tests that " +
+			"verify the RPC returns the correct JSON shape defined in the OpenAPI response schema, " +
+			"and cover the database-function behaviour via an integration test with a test schema."
+	}
+	userPrompt.WriteString(testInstruction)
 
-	content, err := pipe.Invoke(
+	content, err := pipe.InvokeWithKnowledge(
 		"ship:test:generate", "",
 		"You are a senior Go QA engineer generating test stubs for a TDD workflow. "+
 			"Write idiomatic Go tests using the standard testing package. "+
 			"Use t.Parallel() and t.TempDir() where appropriate.",
 		userPrompt.String(),
 		3000,
+		"test", "testing", "go-service",
+		[]string{"openapi", "tdd", "test-stubs"},
 	)
 	if err != nil {
 		return "", err
@@ -278,18 +293,34 @@ func generateBreakdown(root, description string, pipe *LLMPipe) (string, error) 
 		userPrompt.WriteString(specContent)
 		userPrompt.WriteString("\n\n")
 	}
-	userPrompt.WriteString(
-		"Decompose this feature into an atomic, ordered task list. " +
-			"For each task include: task ID, title, description, estimated effort (XS/S/M/L), " +
-			"dependencies, and acceptance criteria. Format as Markdown.",
-	)
+	// Include OpenAPI contract when available — enables typed task breakdown per endpoint.
+	breakdownAPIStyle := "rest"
+	if data, err := os.ReadFile(filepath.Join(specsDir, "openapi.yaml")); err == nil {
+		breakdownAPIStyle = detectAPIStyle(string(data))
+		userPrompt.WriteString("OpenAPI Contract:\n```yaml\n")
+		userPrompt.Write(data)
+		userPrompt.WriteString("\n```\n\n")
+	}
+	breakdownInstruction := "Decompose this feature into an atomic, ordered task list. " +
+		"For each task include: task ID, title, description, estimated effort (XS/S/M/L), " +
+		"dependencies, and acceptance criteria. " +
+		"If an OpenAPI contract is provided, include a task for implementing each API operation " +
+		"and a task for OpenAPI schema validation. Format as Markdown."
+	if breakdownAPIStyle == "supabase-rpc" {
+		breakdownInstruction += " For Supabase RPC operations: include tasks to create the PostgreSQL " +
+			"function, grant execute permissions, add RLS policies, and write an integration test " +
+			"that calls the function via the Supabase client."
+	}
+	userPrompt.WriteString(breakdownInstruction)
 
-	content, err := pipe.Invoke(
+	content, err := pipe.InvokeWithKnowledge(
 		"ship:breakdown:generate", "",
 		"You are a delivery lead decomposing a feature spec into an atomic task list "+
-			"for a development team. Each task should be completable in â‰¤ 1 day.",
+			"for a development team. Each task should be completable in ≤ 1 day.",
 		userPrompt.String(),
 		3000,
+		"breakdown", "", "dab",
+		[]string{"openapi", "task-decomposition"},
 	)
 	if err != nil {
 		return "", err
@@ -376,18 +407,35 @@ func generateCodePlan(root, description string, pipe *LLMPipe) (string, error) {
 		sb.Write(data)
 		sb.WriteString("\n\n")
 	}
+	// Include OpenAPI contract when available — enables typed implementation plan per endpoint.
+	codeAPIStyle := "rest"
+	if data, err := os.ReadFile(filepath.Join(specsDir, "openapi.yaml")); err == nil {
+		codeAPIStyle = detectAPIStyle(string(data))
+		sb.WriteString("OpenAPI Contract:\n```yaml\n")
+		sb.Write(data)
+		sb.WriteString("\n```\n\n")
+	}
 	if sb.Len() == 0 {
 		return "", nil // nothing to ground the code plan in
 	}
 
-	content, err := pipe.Invoke(
+	codeSystem := "You are a senior software engineer. Given a feature spec and task breakdown, " +
+		"produce a step-by-step code implementation plan. " +
+		"For each task: which files to create/modify, key function signatures, " +
+		"data structures, and test strategy. Format as Markdown."
+	if codeAPIStyle == "supabase-rpc" {
+		codeSystem += " For Supabase RPC endpoints: show the CREATE OR REPLACE FUNCTION SQL, " +
+			"the GRANT EXECUTE statement, and the Go/TypeScript client call using the " +
+			"Supabase client's .rpc() method with typed parameters matching the OpenAPI schema."
+	}
+
+	content, err := pipe.InvokeWithKnowledge(
 		"ship:code:generate", "",
-		"You are a senior software engineer. Given a feature spec and task breakdown, "+
-			"produce a step-by-step code implementation plan. "+
-			"For each task: which files to create/modify, key function signatures, "+
-			"data structures, and test strategy. Format as Markdown.",
+		codeSystem,
 		fmt.Sprintf("Feature: %s\n\n%s", description, sb.String()),
 		4000,
+		"code", "", "go-service",
+		[]string{"openapi", "implementation-plan"},
 	)
 	if err != nil {
 		return "", err

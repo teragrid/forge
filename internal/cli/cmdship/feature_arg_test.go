@@ -181,16 +181,16 @@ func TestCmd_ResumeSubcommandDeprecated(t *testing.T) {
 
 // ── G-003: Rename checkpoint 5 from verify → ship ────────────────────────────
 
-// TestCheckpoint5Name verifies that the 5th checkpoint returned by the full
+// TestCheckpoint6Name verifies that the 6th checkpoint returned by the full
 // pipeline is named "Ship" (not "Verify").
-func TestCheckpoint5Name(t *testing.T) {
+func TestCheckpoint6Name(t *testing.T) {
 	t.Parallel()
 	res := RunCheckpoints(t.TempDir(), "", nil)
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
-	if !strings.EqualFold(res.Checkpoints[4].Name, "ship") {
-		t.Fatalf("checkpoint 5 must be named 'Ship', got %q", res.Checkpoints[4].Name)
+	if !strings.EqualFold(res.Checkpoints[5].Name, "ship") {
+		t.Fatalf("checkpoint 6 must be named 'Ship', got %q", res.Checkpoints[5].Name)
 	}
 }
 

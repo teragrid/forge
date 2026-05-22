@@ -46,8 +46,8 @@ func TestRun_DryRun(t *testing.T) {
 	if !res.DryRun {
 		t.Fatal("expected dry_run=true")
 	}
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
 }
 
@@ -61,7 +61,7 @@ func TestCmd_Text(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "5-checkpoint") {
+	if !strings.Contains(out.String(), "6-checkpoint") {
 		t.Fatalf("missing pipeline output: %s", out.String())
 	}
 }
@@ -226,14 +226,14 @@ func TestRunCheckpoints_Verify_FreshDir_OK(t *testing.T) {
 //  6. Idempotency   — RunCheckpointsGated(nil gate) twice → same count
 //  7. Concurrency   — all tests t.Parallel() with isolated TempDirs
 //  8. Data-accuracy — Approved=true/false matches gate return value
-//  9. False-positive — --json disables gate: all 5 run, Approved=nil
+//  9. False-positive — --json disables gate: all 6 run, Approved=nil
 
-// TestRunCheckpointsGated_NilGate_YOLO — nil gate runs all 5, no Approved fields.
+// TestRunCheckpointsGated_NilGate_YOLO — nil gate runs all 6, no Approved fields.
 func TestRunCheckpointsGated_NilGate_YOLO(t *testing.T) {
 	t.Parallel()
 	res := RunCheckpointsGated(t.TempDir(), "", nil, nil)
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("yolo: expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("yolo: expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatal("yolo: expected Ready=true")
@@ -255,22 +255,22 @@ func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 		return true
 	})
 	res := RunCheckpointsGated(t.TempDir(), "", nil, gate)
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("all-approved: expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("all-approved: expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatal("all-approved: expected Ready=true")
 	}
-	if gateCalls != 4 {
-		t.Fatalf("all-approved: gate must be called 4 times (not for last), got %d", gateCalls)
+	if gateCalls != 5 {
+		t.Fatalf("all-approved: gate must be called 5 times (not for last), got %d", gateCalls)
 	}
-	for i, cp := range res.Checkpoints[:4] {
+	for i, cp := range res.Checkpoints[:5] {
 		if cp.Approved == nil || !*cp.Approved {
 			t.Fatalf("all-approved: checkpoint %d (%s) Approved must be true", i+1, cp.Name)
 		}
 	}
 	// Last checkpoint has no Approved field.
-	if res.Checkpoints[4].Approved != nil {
+	if res.Checkpoints[5].Approved != nil {
 		t.Fatal("all-approved: last checkpoint must not have Approved set")
 	}
 }
@@ -354,7 +354,7 @@ func TestRunCheckpointsGated_Idempotent(t *testing.T) {
 	}
 }
 
-// TestCmd_Yolo_JSON — forge ship --yolo --json: G-004 NDJSON stream with 5 events.
+// TestCmd_Yolo_JSON — forge ship --yolo --json: G-004 NDJSON stream with 6 events.
 func TestCmd_Yolo_JSON(t *testing.T) {
 	t.Parallel()
 	cmd := New()
@@ -367,10 +367,10 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	}
 	// G-004: --yolo + --json now emits NDJSON event stream (one line per checkpoint).
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("--yolo --json: expected 5 NDJSON lines, got %d\n%s", len(lines), out.String())
+	if len(lines) != 6 {
+		t.Fatalf("--yolo --json: expected 6 NDJSON lines, got %d\n%s", len(lines), out.String())
 	}
-	// Decode all 5 events.
+	// Decode all 6 events.
 	for i, line := range lines {
 		var ev ShipEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
@@ -382,7 +382,7 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	}
 	// Last event must be ship.passed or ship.failed.
 	var lastEv ShipEvent
-	_ = json.Unmarshal([]byte(lines[4]), &lastEv)
+	_ = json.Unmarshal([]byte(lines[5]), &lastEv)
 	if lastEv.Event != "ship.passed" && lastEv.Event != "ship.failed" {
 		t.Errorf("--yolo --json: last event must be ship.passed|ship.failed, got %q", lastEv.Event)
 	}
@@ -404,7 +404,7 @@ func TestCmd_Yolo_Text(t *testing.T) {
 	}
 }
 
-// TestCmd_JSON_DisablesGate — --json mode never prompts; all 5 checkpoints run
+// TestCmd_JSON_DisablesGate — --json mode never prompts; all 6 checkpoints run
 // without reading stdin. Approved=nil on all (false-positive guard: the gate
 // must NOT fire in --json mode).
 func TestCmd_JSON_DisablesGate(t *testing.T) {
@@ -423,8 +423,8 @@ func TestCmd_JSON_DisablesGate(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
 		t.Fatalf("--json gate-disabled: not JSON: %v\n%s", err, out.String())
 	}
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("--json gate-disabled: expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("--json gate-disabled: expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatal("--json gate-disabled: expected Ready=true")
@@ -440,7 +440,7 @@ func TestCmd_Interactive_AllApproved(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetIn(strings.NewReader("y\ny\ny\ny\n"))
+	cmd.SetIn(strings.NewReader("y\ny\ny\ny\ny\n"))
 	cmd.SetArgs([]string{"--root", t.TempDir()}) // full pipeline, no --yolo, no --json → interactive
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("interactive all-approved: %v\n%s", err, out.String())
@@ -682,8 +682,8 @@ func TestRunWithOptions_DebateEnabled(t *testing.T) {
 	if !res.Ready {
 		t.Fatalf("expected Ready=true, got message: %s", res.Message)
 	}
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
 	totalImprovements := 0
 	for _, cp := range res.Checkpoints {
@@ -1131,7 +1131,7 @@ func TestRunWithOptions_CreatePR_GhAbsent(t *testing.T) {
 // ── Full pipeline with MockProvider ──────────────────────────────────────────
 
 // TestRunWithOptions_MockLLM_FullPipeline — inject a MockProvider for the entire
-// 5-checkpoint pipeline. All checkpoints must pass; the LLM must be called.
+// 6-checkpoint pipeline. All checkpoints must pass; the LLM must be called.
 // The mock returns empty content so generateBreakdown does NOT write tasks.md,
 // which would otherwise cause the spec-audit gate in checkVerify to fail.
 func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
@@ -1146,8 +1146,8 @@ func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
 		LLMPipe:     mockPipe(root, mock),
 	})
 
-	if len(res.Checkpoints) != 5 {
-		t.Fatalf("expected 5 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 6 {
+		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatalf("expected Ready=true; message: %s", res.Message)

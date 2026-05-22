@@ -1,0 +1,10 @@
+# Reviewers — DAB Light
+
+arch_reviewer:
+  - "@tech-lead"
+
+security_reviewer:
+  - "@security-team"
+
+# Quorum: at least 2 approvals required.
+required_approvals: 2

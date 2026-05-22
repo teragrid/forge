@@ -70,7 +70,18 @@ const (
 	RoleCPO RoleID = "cpo" // Compliance & Privacy Officer
 )
 
-// Role is a stakeholder persona that reviews deliverables during self-debate.
+// Arch-checkpoint role IDs (used exclusively by checkArch; separate from DefaultRoles).
+const (
+	RoleSysArch   RoleID = "sys-arch"   // Systems Architect
+	RoleSecArch   RoleID = "sec-arch"   // Security Architect
+	RoleDatArch   RoleID = "dat-arch"   // Data Architect
+	RoleAPIDesign RoleID = "api-design" // API Designer
+	RolePerfEng   RoleID = "perf-eng"   // Performance Engineer
+	RolePlatArch  RoleID = "plat-arch"  // Platform Architect
+)
+
+// Role is a stakeholder persona that reviews deliverables during self-deb
+// ate.
 type Role struct {
 	ID         RoleID   `json:"id"`
 	Name       string   `json:"name"`
@@ -174,6 +185,82 @@ func DefaultRoles() []Role {
 	}
 }
 
+// DefaultArchRoles returns the six architecture-focused reviewer personas used
+// during the arch checkpoint self-debate. These roles are distinct from the
+// eight general roles returned by DefaultRoles and focus entirely on
+// architecture quality: structure, security, data, API, performance, and platform.
+func DefaultArchRoles() []Role {
+	return []Role{
+		{
+			ID:   RoleSysArch,
+			Name: "Systems Architect",
+			Hat:  "structure",
+			FocusAreas: []string{
+				"component topology & service boundaries",
+				"design patterns & architectural fitness",
+				"ADR triggers & tech-debt registry",
+				"monolith vs. microservice trade-offs",
+			},
+		},
+		{
+			ID:   RoleSecArch,
+			Name: "Security Architect",
+			Hat:  "threat",
+			FocusAreas: []string{
+				"threat modelling (STRIDE) & attack surface",
+				"zero-trust boundaries & mTLS",
+				"secret rotation & credential lifecycle",
+				"blast radius of a compromise",
+			},
+		},
+		{
+			ID:   RoleDatArch,
+			Name: "Data Architect",
+			Hat:  "data",
+			FocusAreas: []string{
+				"data model & schema design",
+				"migration reversibility & rollback safety",
+				"consistency model (eventual vs. strong)",
+				"schema version compatibility",
+			},
+		},
+		{
+			ID:   RoleAPIDesign,
+			Name: "API Designer",
+			Hat:  "contract",
+			FocusAreas: []string{
+				"API versioning strategy & deprecation policy",
+				"backward-compatibility contract",
+				"idempotency keys & safe retries",
+				"error envelope & status-code usage",
+				"Supabase RPC vs REST: PostgREST /rest/v1/rpc/{fn} vs resource-oriented paths",
+			},
+		},
+		{
+			ID:   RolePerfEng,
+			Name: "Performance Engineer",
+			Hat:  "efficiency",
+			FocusAreas: []string{
+				"latency budgets & p99/p999 targets",
+				"cache invalidation strategy & TTL",
+				"throughput ceiling & back-pressure",
+				"hot-path analysis & algorithmic complexity",
+			},
+		},
+		{
+			ID:   RolePlatArch,
+			Name: "Platform Architect",
+			Hat:  "reliability",
+			FocusAreas: []string{
+				"deployment topology & scaling strategy",
+				"observability: metrics, traces, structured logs",
+				"multi-region readiness & DR plan",
+				"infra-as-code conformance & runbook coverage",
+			},
+		},
+	}
+}
+
 // ── Debate types ──────────────────────────────────────────────────────────────
 
 // DebateConcern is a single observation raised by a Role during review.
@@ -224,7 +311,7 @@ type DebateOptions struct {
 type RunOptions struct {
 	Root        string
 	Description string
-	Names       []string       // nil = all five checkpoints
+	Names       []string       // nil = all six checkpoints
 	Gate        Gate           // nil = YOLO (no prompts)
 	DebateOpts  *DebateOptions // nil = no self-debate; set when --yolo is used
 	// LLMPipe is an optional pre-built pipe for testing. nil = auto-detect via
@@ -688,6 +775,137 @@ var genericCatalog = map[RoleID][]ct{
 	RoleCPO: {{"quality", "Review for compliance posture", "Confirm PII tagging and regulatory scope", SeverityMinor}},
 }
 
+// archCatalog contains the MVP stub concerns each arch role raises when reviewing
+// an architecture document. Three concerns per role, following the ct pattern.
+var archCatalog = map[RoleID][]ct{
+	RoleSysArch: {
+		{
+			"component coupling",
+			"Component boundaries not clearly defined — coupling risk identified",
+			"Draw a component diagram; enforce bounded-context boundaries with explicit interfaces",
+			SeverityMajor,
+		},
+		{
+			"ADR trigger",
+			"Significant architectural decision made without a corresponding ADR",
+			"Create ADR-NNN documenting the decision, alternatives considered, and rationale",
+			SeverityMajor,
+		},
+		{
+			"scalability ceiling",
+			"Scalability ceiling not assessed for the proposed topology",
+			"Define the maximum load the design handles before requiring re-architecture",
+			SeverityMinor,
+		},
+	},
+	RoleSecArch: {
+		{
+			"threat model missing",
+			"STRIDE threat model not produced for the proposed architecture",
+			"Produce a data-flow diagram and annotate each flow with applicable STRIDE threats",
+			SeverityMajor,
+		},
+		{
+			"zero-trust boundaries",
+			"Service-to-service calls not authenticated under zero-trust model",
+			"Require mTLS or short-lived signed tokens on every internal service boundary",
+			SeverityMajor,
+		},
+		{
+			"secret rotation plan",
+			"No credential or secret rotation plan defined for the new service",
+			"Define rotation frequency, automated rotation tooling, and break-glass procedure",
+			SeverityMinor,
+		},
+	},
+	RoleDatArch: {
+		{
+			"migration reversibility",
+			"Schema migration lacks a down-migration (rollback) script",
+			"Add down-migration; test rollback path in CI before merging",
+			SeverityMajor,
+		},
+		{
+			"data consistency model",
+			"Consistency model (strong vs. eventual) not specified for cross-service writes",
+			"Define the consistency guarantee: saga, two-phase commit, or eventual with compensations",
+			SeverityMajor,
+		},
+		{
+			"schema version compatibility",
+			"No schema versioning strategy defined for consumer backward compatibility",
+			"Adopt additive-only schema changes; version the schema and publish a compatibility matrix",
+			SeverityMinor,
+		},
+	},
+	RoleAPIDesign: {
+		{
+			"OpenAPI 3.1.0 contract missing",
+			"No openapi.yaml defined; downstream test/breakdown/code steps cannot generate typed stubs",
+			"Create openapi.yaml using OpenAPI 3.1.0; define all paths, request/response schemas, and error shapes",
+			SeverityMajor,
+		},
+		{
+			"backwards compat contract",
+			"Breaking changes introduced without a deprecation window or openapi.yaml diff",
+			"Add a deprecation policy: announce 90 days before removal; version the openapi.yaml; provide migration guide",
+			SeverityMajor,
+		},
+		{
+			"Supabase RPC vs REST undeclared",
+			"API style (Supabase RPC at /rest/v1/rpc/{fn} vs standard REST) not declared in openapi.yaml paths",
+			"Declare API style: use /rest/v1/rpc/{fn} paths for Supabase RPC or /api/v1/{resource} for REST; document the choice in arch.md Section 2",
+			SeverityMinor,
+		},
+		{
+			"idempotency keys",
+			"Mutating endpoints in openapi.yaml do not declare Idempotency-Key header",
+			"Add Idempotency-Key header parameter to all POST/PUT/PATCH operations in openapi.yaml",
+			SeverityMinor,
+		},
+	},
+	RolePerfEng: {
+		{
+			"latency budget unspecified",
+			"No p99 latency budget defined for the critical path",
+			"Define SLO targets per endpoint: p99 < X ms, p999 < Y ms with measurement strategy",
+			SeverityMajor,
+		},
+		{
+			"cache invalidation strategy",
+			"Cache invalidation strategy not defined — stale-read risk",
+			"Choose invalidation approach: TTL, write-through, or event-driven purge; document trade-offs",
+			SeverityMajor,
+		},
+		{
+			"throughput ceiling",
+			"Maximum sustainable throughput not modelled",
+			"Load-test the critical path at 2× expected peak; document the saturation point",
+			SeverityMinor,
+		},
+	},
+	RolePlatArch: {
+		{
+			"deployment topology",
+			"Deployment topology (replicas, regions, autoscaling) not defined",
+			"Specify Kubernetes/ECS manifest or IaC module; define HPA/KEDA scaling policy",
+			SeverityMajor,
+		},
+		{
+			"observability gaps",
+			"Metrics, traces, and structured log fields not specified for the new service",
+			"Add an observability spec: list all new counters, histograms, trace attributes, log schema",
+			SeverityMajor,
+		},
+		{
+			"multi-region readiness",
+			"Multi-region failover path not documented",
+			"Document the regional failover trigger, DNS TTL, and data-replication lag tolerance",
+			SeverityMinor,
+		},
+	},
+}
+
 // ── Debate engine ─────────────────────────────────────────────────────────────
 
 // SelfDebate runs a multi-round structured role-based review of a checkpoint
@@ -823,6 +1041,8 @@ func catalogFor(id RoleID, deliverable string) []ct {
 	switch strings.ToLower(deliverable) {
 	case "spec":
 		m = specCatalog
+	case "arch":
+		m = archCatalog
 	case "breakdown":
 		m = breakdownCatalog
 	case "code":
@@ -854,6 +1074,23 @@ func crossItems(deliverable string) []DebateConcern {
 				Area:       "cross: BA↔QE",
 				Content:    "BA edge cases (concurrent update, timeout) not reflected in test plan",
 				Suggestion: "Map each BA edge case to a corresponding test scenario",
+				Resolved:   true,
+			},
+		}
+	case "arch":
+		return []DebateConcern{
+			{
+				Role: RoleSecArch, Severity: SeverityMinor,
+				Area:       "cross: SysArch↔SecArch",
+				Content:    "Component boundaries defined but inter-service auth model not specified",
+				Suggestion: "Document the authentication mechanism on every cross-component call in the component diagram",
+				Resolved:   true,
+			},
+			{
+				Role: RolePerfEng, Severity: SeverityMinor,
+				Area:       "cross: DatArch↔PerfEng",
+				Content:    "Data consistency model chosen (saga) without latency impact analysis",
+				Suggestion: "Model the added latency of compensating transactions; include in the p99 budget",
 				Resolved:   true,
 			},
 		}

@@ -21,7 +21,7 @@
 //	code        – checkpoint 4: generate / iterate code until tests are green
 //	verify      – checkpoint 5: hygiene + scan + lint readiness check
 //
-// Running `forge ship` (no subcommand) runs all five checkpoints in sequence.
+// Running `forge ship` (no subcommand) runs all six checkpoints in sequence.
 //
 // The --dry-run mode (default in MVP) validates checkpoints without executing
 // the pipeline.  Full M1 implementation arrives with each checkpoint wired to
@@ -64,6 +64,7 @@ type ShipEvent struct {
 // checkpointEventName maps a checkpoint name to the NDJSON event type.
 var checkpointEventName = map[string]string{
 	"spec":      "spec.created",
+	"arch":      "arch.created",
 	"test":      "tests.generated",
 	"breakdown": "tasks.broken-down",
 	"code":      "task.completed",
@@ -103,7 +104,7 @@ var (
 // A nil Gate is YOLO mode: all checkpoints run without any prompt.
 type Gate func(idx, total int, cp Checkpoint) bool
 
-// Checkpoint represents one step in the 5-checkpoint pipeline.
+// Checkpoint represents one step in the 6-checkpoint pipeline.
 type Checkpoint struct {
 	Name        string           `json:"name"`
 	Status      string           `json:"status"` // "ok", "skipped", "warning", "fail"
@@ -128,14 +129,14 @@ type ShipResult struct {
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb: "ship",
-		Summary: "Deploy a change through the 5-checkpoint pipeline " +
-			"(spec → test → breakdown → code → verify). " +
+		Summary: "Deploy a change through the 6-checkpoint pipeline " +
+			"(spec → arch → test → breakdown → code → ship). " +
 			"Each checkpoint requires reviewer approval before the next runs (interactive mode). " +
 			"Use --yolo to skip all approval gates. " +
-			"Run a single checkpoint with: forge ship spec|test|breakdown|code|verify. " +
+			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship. " +
 			"M1 full impl; MVP is --dry-run preview.",
 		Inputs: []string{
-			"[subcommand]: spec | test | breakdown | code | verify (optional; runs all when omitted)",
+			"[subcommand]: spec | arch | test | breakdown | code | ship (optional; runs all when omitted)",
 			"--dry-run (validate checkpoints without executing; default in MVP)",
 			"--description <msg> (what this change does; required for full pipeline in M1)",
 			"--yolo (skip all approval gates — activates 6-role self-debate for quality polishing)",
@@ -145,7 +146,7 @@ func init() {
 		SideEffects: []string{
 			"--dry-run has no side effects; full workflow (M1) will commit, tag, and deploy",
 		},
-		GatesTouched: []string{"§16.5.2 ship workflow", "§4 5-checkpoint pipeline"},
+		GatesTouched: []string{"§16.5.2 ship workflow", "§4 6-checkpoint pipeline"},
 		ErrorCodes:   []errcode.Code{ErrShipFailed},
 	})
 }
@@ -226,7 +227,7 @@ func New() *cobra.Command {
 
 		// --from: drop all checkpoints before the named one.
 		if from != "" && len(names) == 0 {
-			order := []string{"spec", "test", "breakdown", "code", "ship"}
+			order := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
 			found := false
 			for _, cp := range order {
 				if cp == from {
@@ -238,14 +239,14 @@ func New() *cobra.Command {
 			}
 			if !found {
 				return errcode.Newf(ErrShipFailed, nil,
-					"--from: unknown checkpoint %q; one of: spec, test, breakdown, code, ship", from)
+					"--from: unknown checkpoint %q; one of: spec, arch, test, breakdown, code, ship", from)
 			}
 		}
 
 		// --skip-checkpoint: remove a named checkpoint from the run list.
 		if skipCheckpoint != "" {
 			if len(names) == 0 {
-				names = []string{"spec", "test", "breakdown", "code", "ship"}
+				names = []string{"spec", "arch", "test", "breakdown", "code", "ship"}
 			}
 			filtered := names[:0]
 			for _, n := range names {
@@ -313,16 +314,17 @@ func New() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ship [<feature>] [spec|test|breakdown|code|ship] [flags]",
-		Short: "Deploy a change through the 5-checkpoint pipeline.",
-		Long: "forge ship walks a change through 5 checkpoints:\n" +
+		Use:   "ship [<feature>] [spec|arch|test|breakdown|code|ship] [flags]",
+		Short: "Deploy a change through the 6-checkpoint pipeline.",
+		Long: "forge ship walks a change through 6 checkpoints:\n" +
 			"  (1) spec      — validate or generate the feature spec\n" +
-			"  (2) test      — generate failing tests (TDD gate)\n" +
-			"  (3) breakdown — decompose spec into AI-friendly tasks\n" +
-			"  (4) code      — generate / iterate code until tests pass\n" +
-			"  (5) verify    — hygiene + scan + lint readiness check\n\n" +
-			"Run a single checkpoint with: forge ship spec|test|breakdown|code|verify\n" +
-			"Run all five checkpoints with: forge ship (no subcommand)\n\n" +
+			"  (2) arch      — multi-role architecture debate → ADR document\n" +
+			"  (3) test      — generate failing tests (TDD gate)\n" +
+			"  (4) breakdown — decompose spec into AI-friendly tasks\n" +
+			"  (5) code      — generate / iterate code until tests pass\n" +
+			"  (6) ship      — hygiene + scan + lint readiness check\n\n" +
+			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship\n" +
+			"Run all six checkpoints with: forge ship (no subcommand)\n\n" +
 			"The --dry-run flag (default in MVP) validates checkpoints without executing.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -365,21 +367,23 @@ func New() *cobra.Command {
 		return c
 	}
 
-	// G-003: checkpoint 5 renamed "ship"; "verify" kept as deprecated alias.
+	// G-003: checkpoint 6 is "ship"; "verify" kept as deprecated alias.
 	verifyDeprecated := makeCheckpointCmd("verify",
-		"[deprecated] Checkpoint 5: use 'forge ship ship' instead.")
+		"[deprecated] Checkpoint 6: use 'forge ship ship' instead.")
 	verifyDeprecated.Deprecated = "use 'forge ship ship' instead"
 	cmd.AddCommand(
 		makeCheckpointCmd("spec",
 			"Checkpoint 1: validate or generate the feature spec"),
+		makeCheckpointCmd("arch",
+			"Checkpoint 2: multi-role architecture debate → ADR document"),
 		makeCheckpointCmd("test",
-			"Checkpoint 2: generate failing tests before any code (TDD gate)"),
+			"Checkpoint 3: generate failing tests before any code (TDD gate)"),
 		makeCheckpointCmd("breakdown",
-			"Checkpoint 3: decompose the spec into AI-friendly task list"),
+			"Checkpoint 4: decompose the spec into AI-friendly task list"),
 		makeCheckpointCmd("code",
-			"Checkpoint 4: generate / iterate code until tests pass"),
+			"Checkpoint 5: generate / iterate code until tests pass"),
 		makeCheckpointCmd("ship",
-			"Checkpoint 5: hygiene + scan + lint ship-readiness check"),
+			"Checkpoint 6: hygiene + scan + lint ship-readiness check"),
 		verifyDeprecated,
 	)
 
@@ -427,7 +431,7 @@ func New() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "feature %q not found in .forge/specs/\n", feature)
 				return nil
 			}
-			checkpoints := []string{"spec", "test", "breakdown", "code", "ship"}
+			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
 			fmt.Fprintf(cmd.OutOrStdout(), "forge ship status: %s\n", feature)
 			for i, cp := range checkpoints {
 				marker := "○ pending"
@@ -435,7 +439,7 @@ func New() *cobra.Command {
 				if _, err := os.Stat(cpFile); err == nil {
 					marker = "✓ done"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/5] %s — %s\n", i+1, cp, marker)
+				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/6] %s — %s\n", i+1, cp, marker)
 			}
 			return nil
 		},
@@ -466,7 +470,7 @@ func New() *cobra.Command {
 					"feature %q not found in .forge/specs/; start with: forge ship %s", feature, feature)
 			}
 			// Find first pending checkpoint
-			checkpoints := []string{"spec", "test", "breakdown", "code", "ship"}
+			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
 			resumeFrom := ""
 			for _, cp := range checkpoints {
 				cpFile := filepath.Join(specsDir, cp+".md")
@@ -510,7 +514,7 @@ func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 		return errcode.Newf(ErrShipFailed, nil,
 			"feature %q not found in .forge/specs/; start with: forge ship %s", feature, slug)
 	}
-	checkpoints := []string{"spec", "test", "breakdown", "code", "ship"}
+	checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
 	resumeFrom := ""
 	for _, cp := range checkpoints {
 		cpFile := filepath.Join(specsDir, cp+".md")
@@ -556,7 +560,7 @@ func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 	return nil
 }
 
-// Run executes the full 5-checkpoint dry-run validation (backward-compat entry point).
+// Run executes the full 6-checkpoint dry-run validation (backward-compat entry point).
 func Run(root, description string) *ShipResult {
 	return RunCheckpoints(root, description, nil)
 }
@@ -1061,6 +1065,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	allCPs := []Checkpoint{
 		checkSpec(root, opts.Description, pipe),
+		checkArch(root, opts.Description, pipe),
 		checkTest(root, opts.Description, pipe),
 		checkBreakdown(root, opts.Description, pipe),
 		checkCode(root, opts.Description, pipe),
@@ -1073,11 +1078,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	checkpointIndex := map[string]int{
 		"spec":      0,
-		"test":      1,
-		"breakdown": 2,
-		"code":      3,
-		"ship":      4, // G-003: primary name
-		"verify":    4, // G-003: deprecated alias
+		"arch":      1,
+		"test":      2,
+		"breakdown": 3,
+		"code":      4,
+		"ship":      5, // G-003: primary name
+		"verify":    5, // G-003: deprecated alias
 	}
 
 	var selected []Checkpoint
@@ -1090,7 +1096,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				selected = append(selected, Checkpoint{
 					Name:   n,
 					Status: "fail",
-					Detail: fmt.Sprintf("unknown checkpoint %q; one of: spec, test, breakdown, code, verify", n),
+					Detail: fmt.Sprintf("unknown checkpoint %q; one of: spec, arch, test, breakdown, code, ship", n),
 				})
 				continue
 			}
@@ -1205,7 +1211,7 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	}
 	fmt.Fprintf(w, "forge ship %s\n", mode)
 	fmt.Fprintf(w, "%s\n", r.Message)
-	fmt.Fprintln(w, "\n5-checkpoint pipeline:")
+	fmt.Fprintln(w, "\n6-checkpoint pipeline:")
 	for i, cp := range r.Checkpoints {
 		marker := "\u25cb " // ○ default (unknown status)
 		switch cp.Status {
