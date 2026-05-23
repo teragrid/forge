@@ -130,7 +130,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $ver = $env:GITHUB_SHA.Substring(0, 7)
           go build -ldflags "-s -w -X main.Version=$ver" -o "dist/forge-$env:GOOS-$env:GOARCH$ext" ./cmd/forge
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: forge-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/forge-*
