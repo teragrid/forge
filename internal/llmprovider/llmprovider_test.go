@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teragrid/forge/internal/config"
 	"github.com/teragrid/forge/internal/llmprovider"
 )
 
@@ -209,5 +210,97 @@ func TestAnthropicAdapter_CompleteReturnsStubError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "FORGE-4051") {
 		t.Fatalf("expected FORGE-4051, got: %v", err)
+	}
+}
+
+// ── WithActiveProfile / profileProvider ───────────────────────────────────────
+
+// capturingProvider records the last Request passed to Complete.
+type capturingProvider struct {
+	lastReq *llmprovider.Request
+}
+
+func (c *capturingProvider) Name() string { return "capture" }
+func (c *capturingProvider) Capabilities() llmprovider.Capabilities {
+	return llmprovider.Capabilities{Models: []string{"capture-v1"}}
+}
+func (c *capturingProvider) Complete(_ context.Context, req *llmprovider.Request) (*llmprovider.Response, error) {
+	c.lastReq = req
+	return &llmprovider.Response{Content: "ok", Model: "capture-v1"}, nil
+}
+
+// TestWithActiveProfile_AppliesBudgetWhenMaxTokensZero verifies that when a
+// profile is active and MaxTokens == 0, the profile's budget is applied.
+func TestWithActiveProfile_AppliesBudgetWhenMaxTokensZero(t *testing.T) {
+	// Cannot run parallel: mutates package-level profile state.
+	fast, _ := config.GetProfile(config.ProfileFast)
+	config.SetActiveProfile(fast)
+	defer config.SetActiveProfile(config.Profile{}) // reset
+
+	inner := &capturingProvider{}
+	wrapped := llmprovider.WithActiveProfile(inner)
+
+	req := &llmprovider.Request{UserPrompt: "hello", MaxTokens: 0}
+	if _, err := wrapped.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if inner.lastReq == nil {
+		t.Fatal("inner provider never called")
+	}
+	if inner.lastReq.MaxTokens != fast.MaxLLMTokenBudget {
+		t.Errorf("MaxTokens: got %d, want %d (fast budget)", inner.lastReq.MaxTokens, fast.MaxLLMTokenBudget)
+	}
+	// Original request must not be mutated.
+	if req.MaxTokens != 0 {
+		t.Error("original request was mutated — profileProvider must copy")
+	}
+}
+
+// TestWithActiveProfile_RespectsExplicitMaxTokens verifies that a non-zero
+// MaxTokens set by the caller is never overridden by the profile.
+func TestWithActiveProfile_RespectsExplicitMaxTokens(t *testing.T) {
+	// Cannot run parallel: mutates package-level profile state.
+	paranoid, _ := config.GetProfile(config.ProfileParanoid)
+	config.SetActiveProfile(paranoid)
+	defer config.SetActiveProfile(config.Profile{}) // reset
+
+	inner := &capturingProvider{}
+	wrapped := llmprovider.WithActiveProfile(inner)
+
+	const explicitBudget = 512
+	req := &llmprovider.Request{UserPrompt: "hello", MaxTokens: explicitBudget}
+	if _, err := wrapped.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if inner.lastReq.MaxTokens != explicitBudget {
+		t.Errorf("MaxTokens: got %d, want %d (caller's explicit value)", inner.lastReq.MaxTokens, explicitBudget)
+	}
+}
+
+// TestWithActiveProfile_NoProfileNoBudget verifies that when no profile is
+// active, MaxTokens is forwarded unchanged.
+func TestWithActiveProfile_NoProfileNoBudget(t *testing.T) {
+	// Cannot run parallel: mutates package-level profile state.
+	config.SetActiveProfile(config.Profile{}) // ensure zero-value / cleared
+
+	inner := &capturingProvider{}
+	wrapped := llmprovider.WithActiveProfile(inner)
+
+	req := &llmprovider.Request{UserPrompt: "hello", MaxTokens: 0}
+	if _, err := wrapped.Complete(context.Background(), req); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if inner.lastReq.MaxTokens != 0 {
+		t.Errorf("expected MaxTokens 0 (no profile), got %d", inner.lastReq.MaxTokens)
+	}
+}
+
+// TestWithActiveProfile_DelegatesName verifies that Name() delegates to the inner provider.
+func TestWithActiveProfile_DelegatesName(t *testing.T) {
+	t.Parallel()
+	inner := &capturingProvider{}
+	wrapped := llmprovider.WithActiveProfile(inner)
+	if wrapped.Name() != "capture" {
+		t.Errorf("Name: got %q, want %q", wrapped.Name(), "capture")
 	}
 }

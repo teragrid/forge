@@ -69,6 +69,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdundo"
 	"github.com/teragrid/forge/internal/cli/cmdupgrade"
 	"github.com/teragrid/forge/internal/cli/cmdversion"
+	"github.com/teragrid/forge/internal/config"
 	"github.com/teragrid/forge/internal/plugin"
 )
 
@@ -130,6 +131,14 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	// malformed JSON is logged to stderr so the user sees it but is not
 	// blocked from running the CLI).
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		// Resolve --profile before any verb runs.
+		if profileName, _ := cmd.Root().PersistentFlags().GetString("profile"); profileName != "" {
+			p, err := config.GetProfile(config.ProfileName(profileName))
+			if err != nil {
+				return err
+			}
+			config.SetActiveProfile(p)
+		}
 		wd, err := os.Getwd()
 		if err != nil {
 			return nil // can't determine root; skip discovery
@@ -220,7 +229,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	pf.BoolVar(&_globalNoColor, "no-color", false, "Disable ANSI color output")
 	pf.BoolVarP(&_globalQuiet, "quiet", "q", false, "Suppress non-essential output")
 	pf.StringVar(&_globalVerbose, "verbose", "", "Log verbosity level (debug|info|warn)")
-	pf.StringVar(&_globalProfile, "profile", "", "Named credentials profile to load")
+	pf.StringVar(&_globalProfile, "profile", "", "Behavior profile (fast|safe|paranoid): adjusts scan strictness, confidence threshold, and LLM token budget")
 
 	// Silence the linter about intentionally unused persistent-flag bindings.
 	// Commands read these via cmd.Root().PersistentFlags().GetBool/GetString.

@@ -140,3 +140,58 @@ func TestProfile_AppliedToScan(t *testing.T) {
 		})
 	}
 }
+
+// ── Active-profile state ──────────────────────────────────────────────────────
+
+// TestActiveProfile_NilBeforeSet verifies that after clearing via a zero-value
+// profile, ActiveProfile returns nil.
+func TestActiveProfile_NilBeforeSet(t *testing.T) {
+	// Cannot run parallel: mutates package-level state.
+	config.SetActiveProfile(config.Profile{}) // zero-value → clears active profile
+	if got := config.ActiveProfile(); got != nil {
+		t.Errorf("expected nil after clear, got %+v", got)
+	}
+}
+
+// TestSetActiveProfile_RoundTrip verifies that SetActiveProfile/ActiveProfile
+// form a consistent round-trip for all built-in profiles.
+func TestSetActiveProfile_RoundTrip(t *testing.T) {
+	// Cannot run parallel: mutates package-level state.
+	for _, name := range config.ProfileNames() {
+		p, err := config.GetProfile(name)
+		if err != nil {
+			t.Fatalf("GetProfile(%q): %v", name, err)
+		}
+		config.SetActiveProfile(p)
+		got := config.ActiveProfile()
+		if got == nil {
+			t.Fatalf("ActiveProfile() returned nil after SetActiveProfile(%q)", name)
+		}
+		if got.Name != name {
+			t.Errorf("round-trip name: got %q, want %q", got.Name, name)
+		}
+		if got.MaxLLMTokenBudget != p.MaxLLMTokenBudget {
+			t.Errorf("round-trip MaxLLMTokenBudget: got %d, want %d", got.MaxLLMTokenBudget, p.MaxLLMTokenBudget)
+		}
+	}
+}
+
+// TestActiveProfile_ReturnsCopy verifies that mutating the returned pointer
+// does not affect the stored profile (defensive copy).
+func TestActiveProfile_ReturnsCopy(t *testing.T) {
+	// Cannot run parallel: mutates package-level state.
+	fast, _ := config.GetProfile(config.ProfileFast)
+	config.SetActiveProfile(fast)
+
+	first := config.ActiveProfile()
+	if first == nil {
+		t.Fatal("expected non-nil profile")
+	}
+	// Modify the pointer — should not affect stored value.
+	first.MaxLLMTokenBudget = 999999
+
+	second := config.ActiveProfile()
+	if second.MaxLLMTokenBudget == 999999 {
+		t.Error("mutating returned pointer affected stored profile — SetActiveProfile must copy")
+	}
+}

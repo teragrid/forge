@@ -25,6 +25,7 @@ package config
 
 import (
 	"fmt"
+	"sync"
 )
 
 // ProfileName identifies a configuration profile.
@@ -85,4 +86,38 @@ func GetProfile(name ProfileName) (Profile, error) {
 // ProfileNames returns the list of valid profile names.
 func ProfileNames() []ProfileName {
 	return []ProfileName{ProfileFast, ProfileSafe, ProfileParanoid}
+}
+
+// ── Active-profile state ──────────────────────────────────────────────────────
+
+var (
+	activeProfileMu sync.Mutex
+	activeProfile   *Profile
+)
+
+// SetActiveProfile records p as the current run's active profile.
+// It is called by the CLI root command when --profile is supplied.
+// Passing a zero-value Profile (Name == "") clears the active profile.
+func SetActiveProfile(p Profile) {
+	activeProfileMu.Lock()
+	defer activeProfileMu.Unlock()
+	if p.Name == "" {
+		activeProfile = nil
+		return
+	}
+	cp := p
+	activeProfile = &cp
+}
+
+// ActiveProfile returns the active profile set for this run, or nil if
+// --profile was not supplied (i.e. built-in defaults govern behaviour).
+// The returned pointer is a fresh copy; callers may modify it safely.
+func ActiveProfile() *Profile {
+	activeProfileMu.Lock()
+	defer activeProfileMu.Unlock()
+	if activeProfile == nil {
+		return nil
+	}
+	cp := *activeProfile
+	return &cp
 }

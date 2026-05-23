@@ -30,6 +30,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/teragrid/forge/internal/config"
 	"github.com/teragrid/forge/internal/errcode"
 )
 
@@ -85,6 +86,34 @@ type Provider interface {
 	Capabilities() Capabilities
 }
 
+// ── Profile-aware provider wrapper ───────────────────────────────────────────
+
+// profileProvider wraps any Provider and applies the active profile's
+// MaxLLMTokenBudget when the caller leaves MaxTokens at zero.
+type profileProvider struct {
+	inner Provider
+}
+
+func (p *profileProvider) Name() string               { return p.inner.Name() }
+func (p *profileProvider) Capabilities() Capabilities { return p.inner.Capabilities() }
+
+func (p *profileProvider) Complete(ctx context.Context, req *Request) (*Response, error) {
+	if prof := config.ActiveProfile(); prof != nil && prof.MaxLLMTokenBudget > 0 {
+		if req != nil && req.MaxTokens == 0 {
+			copied := *req
+			copied.MaxTokens = prof.MaxLLMTokenBudget
+			req = &copied
+		}
+	}
+	return p.inner.Complete(ctx, req)
+}
+
+// WithActiveProfile wraps p so that every Complete call applies the active
+// profile's token budget when the caller leaves MaxTokens at zero.
+// Callers that bypass Detect() (e.g. tests, dependency injection) can use
+// this to opt in to the same profile-aware behaviour.
+func WithActiveProfile(p Provider) Provider { return &profileProvider{inner: p} }
+
 // ── Detection (IDE-config bridge) ────────────────────────────────────────────
 
 // Detect inspects the environment and returns the first available Provider.
@@ -99,30 +128,31 @@ type Provider interface {
 //
 // Returns ErrNoProvider (FORGE-4050) if no known credentials are present.
 func Detect() (Provider, error) {
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		return &AnthropicAdapter{apiKey: key}, nil
+	var inner Provider
+	switch {
+	case os.Getenv("ANTHROPIC_API_KEY") != "":
+		inner = &AnthropicAdapter{apiKey: os.Getenv("ANTHROPIC_API_KEY")}
+	case os.Getenv("OPENAI_API_KEY") != "":
+		inner = &OpenAIAdapter{apiKey: os.Getenv("OPENAI_API_KEY")}
+	default:
+		if p := newGeminiProvider(); p != nil {
+			inner = p
+		} else if p := newAzureOpenAIProvider(); p != nil {
+			inner = p
+		} else if p := newBedrockProvider(); p != nil {
+			inner = p
+		} else if p := newOllamaProvider(); p != nil {
+			inner = p
+		} else if p := newCopilotProvider(); p != nil {
+			inner = p
+		}
 	}
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		return &OpenAIAdapter{apiKey: key}, nil
+	if inner == nil {
+		return nil, errcode.New(ErrNoProvider,
+			"no LLM provider detected: set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, "+
+				"AZURE_OPENAI_API_KEY, AWS_BEDROCK_REGION, OLLAMA_HOST, or GH_TOKEN (GitHub Copilot)", nil)
 	}
-	if p := newGeminiProvider(); p != nil {
-		return p, nil
-	}
-	if p := newAzureOpenAIProvider(); p != nil {
-		return p, nil
-	}
-	if p := newBedrockProvider(); p != nil {
-		return p, nil
-	}
-	if p := newOllamaProvider(); p != nil {
-		return p, nil
-	}
-	if p := newCopilotProvider(); p != nil {
-		return p, nil
-	}
-	return nil, errcode.New(ErrNoProvider,
-		"no LLM provider detected: set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, "+
-			"AZURE_OPENAI_API_KEY, AWS_BEDROCK_REGION, OLLAMA_HOST, or GH_TOKEN (GitHub Copilot)", nil)
+	return &profileProvider{inner: inner}, nil
 }
 
 // ── Anthropic adapter ─────────────────────────────────────────────────────────
