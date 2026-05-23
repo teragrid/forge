@@ -1,0 +1,30 @@
+# forge.config.yml — {{.Name}}
+# Wired by `forge init --minimal` (forge {{.ForgeVer}}).
+# Run `forge doctor` to validate. Full schema: https://forgeframework.dev/docs/config
+
+version: "1"
+project: "{{.Name}}"
+description: "{{.Description}}"
+
+# ── Ship Workflow ──────────────────────────────────────────────────────────
+# forge ship runs 6 checkpoints: spec → arch → test → breakdown → code → ship.
+# Remove entries below to skip steps for this project.
+ship:
+  checkpoints:
+    - spec
+    - arch
+    - test
+    - breakdown
+    - code
+    - ship
+  # knowledgeTags filters which knowledge-base entries forge ship injects into
+  # every LLM call. Add tags matching your domain (see .forge/knowledge-index.json).
+  knowledgeTags: []
+
+# ── LLM Integration ────────────────────────────────────────────────────────
+llm:
+  # instructionsFormat: github-copilot | cursor | windsurf | all
+  instructionsFormat: all
+  # knowledgeIndex is written by `forge init --minimal` and updated by
+  # `forge context generate`. AI tools read this file directly.
+  knowledgeIndex: .forge/knowledge-index.json

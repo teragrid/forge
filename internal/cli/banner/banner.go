@@ -89,7 +89,7 @@ func printColor(w io.Writer) {
 	fmt.Fprintf(w, "  %s██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗%s\n", wh, r)
 	fmt.Fprintf(w, "  %s╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝%s\n", wh, r)
 	// Tagline
-	fmt.Fprintf(w, "\n         %s< native-ai framework />%s\n", o, r)
+	fmt.Fprintf(w, "\n         %s< ai-native framework />%s\n", o, r)
 	fmt.Fprintf(w, "  %s────────────────────────────────────────%s\n", d, r)
 	fmt.Fprintf(w, "   VIBE IT AND SHIP IT.  %sBUILT TO LAST.%s\n\n", o, r)
 }
@@ -112,7 +112,7 @@ func printPlain(w io.Writer) {
 	fmt.Fprint(w, "  FFF   O   O RRRR  G  GG EEE \n")
 	fmt.Fprint(w, "  F     O   O R  R  G   G E   \n")
 	fmt.Fprint(w, "  F      OOO  R   R  GGG  EEEE\n")
-	fmt.Fprint(w, "\n         < native-ai framework />\n")
+	fmt.Fprint(w, "\n         < ai-native framework />\n")
 	fmt.Fprint(w, "  ----------------------------------------\n")
 	fmt.Fprint(w, "   VIBE IT AND SHIP IT.  BUILT TO LAST.\n\n")
 }

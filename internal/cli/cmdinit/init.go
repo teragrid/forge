@@ -28,19 +28,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/teragrid/forge/internal/errcode"
+	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/scaffold"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
 // Reserved error codes (range 5100..5199).
 var (
-	ErrInitFailed = errcode.Register(errcode.Code(5100), "forge init failed")
-	ErrInitUsage  = errcode.Register(errcode.Code(5101), "invalid usage of `forge init`")
+	ErrInitFailed     = errcode.Register(errcode.Code(5100), "forge init failed")
+	ErrInitUsage      = errcode.Register(errcode.Code(5101), "invalid usage of `forge init`")
+	ErrKnowledgeWrite = errcode.Register(errcode.Code(5102), "knowledge injection failed")
 )
 
 func init() {
@@ -51,6 +54,7 @@ func init() {
 		Inputs: []string{
 			"--template <name>  (override auto-detection; default: auto)",
 			"--name <name>      (project name; default: current directory name)",
+			"--minimal          (inject only forge runtime files + knowledge index into an existing project)",
 			"--force            (overwrite files that already exist)",
 			"--json             (machine-readable output)",
 		},
@@ -58,9 +62,12 @@ func init() {
 			"<cwd>/* — rendered template files",
 			"stdout  — created file list (text or JSON)",
 		},
-		SideEffects:  []string{"writes Forge scaffolding into the current directory"},
+		SideEffects: []string{
+			"writes Forge scaffolding into the current directory",
+			"--minimal: writes .forge/ config + AGENTS.md + knowledge-index.json + global.instructions.md",
+		},
 		GatesTouched: []string{"§4 scaffold"},
-		ErrorCodes:   []errcode.Code{ErrInitFailed, ErrInitUsage},
+		ErrorCodes:   []errcode.Code{ErrInitFailed, ErrInitUsage, ErrKnowledgeWrite},
 	})
 }
 
@@ -70,6 +77,7 @@ func New(forgeVersion string) *cobra.Command {
 		tmplFlag string
 		name     string
 		force    bool
+		minimal  bool
 		asJSON   bool
 	)
 
@@ -77,7 +85,13 @@ func New(forgeVersion string) *cobra.Command {
 		Use:   "init [path]",
 		Short: "Initialise a directory as a Forge project.",
 		Long: "forge init applies a scaffold template to a directory (default: current directory).\n\n" +
-			"Template auto-detection order:\n" +
+			"Quick start for an existing project (run from inside it):\n" +
+			"  forge init --minimal\n\n" +
+			"--minimal wires forge into an existing project with minimal footprint.\n" +
+			"The project name defaults to the current directory name — no --name flag needed.\n" +
+			"Writes only 7 files: forge.config.yml, .forge/hygiene.yml, .forge/conventions.json,\n" +
+			".forge/manifest, AGENTS.md, .forge/knowledge-index.json, .forge/instructions/global.instructions.md\n\n" +
+			"Template auto-detection order (without --minimal):\n" +
 			"  1. --template flag\n" +
 			"  2. package.json detected → ts-service\n" +
 			"  3. go.mod detected       → go-service\n" +
@@ -103,6 +117,11 @@ func New(forgeVersion string) *cobra.Command {
 			// Determine project name.
 			if name == "" {
 				name = filepath.Base(target)
+			}
+
+			// --minimal: wire forge into an existing project with minimal footprint.
+			if minimal {
+				return runMinimal(cmd, target, name, forgeVersion, asJSON)
 			}
 
 			// Auto-detect template if not explicitly provided.
@@ -159,10 +178,144 @@ func New(forgeVersion string) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&tmplFlag, "template", "", "template to apply (default: auto-detect)")
-	cmd.Flags().StringVar(&name, "name", "", "project name (default: current directory name)")
+	cmd.Flags().StringVar(&name, "name", "", "project name (default: current directory name — no flag needed when running from the project root)")
+	cmd.Flags().BoolVar(&minimal, "minimal", false, "inject only forge runtime files + knowledge index (safe for existing projects; name auto-detected from current directory)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite files that already exist")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	return cmd
+}
+
+// runMinimal runs `forge init --minimal`: renders the minimal template then
+// injects the knowledge index and global LLM instructions into the project.
+// --force is implied because the target directory is almost always non-empty.
+func runMinimal(cmd *cobra.Command, target, name, forgeVersion string, asJSON bool) error {
+	res, err := scaffold.Render(scaffold.Options{
+		Template: "minimal",
+		Target:   target,
+		Vars:     scaffold.Vars{Name: name, ForgeVer: forgeVersion},
+		Force:    true, // existing projects are always non-empty
+	})
+	if err != nil {
+		return err
+	}
+
+	// Inject knowledge index and LLM instructions.
+	extra, err := injectKnowledge(target)
+	if err != nil {
+		return err
+	}
+	res.Files = append(res.Files, extra...)
+	sort.Strings(res.Files)
+
+	if asJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetIndent("", "  ")
+		return enc.Encode(res)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"wired forge into %q (%d files)\n", res.Target, len(res.Files))
+	for _, f := range res.Files {
+		fmt.Fprintf(cmd.OutOrStdout(), "  + %s\n", f)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "\nNext steps:")
+	fmt.Fprintln(cmd.OutOrStdout(), "  forge doctor              # validate forge.config.yml")
+	fmt.Fprintln(cmd.OutOrStdout(), "  forge ship \"<feature>\"   # start the 6-checkpoint pipeline")
+	fmt.Fprintln(cmd.OutOrStdout(), "  forge lint                # check conventions")
+	return nil
+}
+
+// injectKnowledge writes .forge/knowledge-index.json (dumped from the embedded
+// knowledge index) and .forge/instructions/global.instructions.md into target.
+func injectKnowledge(target string) ([]string, error) {
+	forgeDir := filepath.Join(target, ".forge")
+	instrDir := filepath.Join(forgeDir, "instructions")
+	if err := os.MkdirAll(instrDir, 0o755); err != nil { //nolint:gosec
+		return nil, errcode.New(ErrKnowledgeWrite, "mkdir .forge/instructions", err)
+	}
+
+	// Load the embedded knowledge index (degrades to empty index in public builds).
+	idx, _ := knowledge.Load() //nolint:errcheck // empty index is valid
+	if idx == nil {
+		idx = &knowledge.Index{Version: "1"}
+	}
+
+	// 1. Write .forge/knowledge-index.json
+	idxData, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return nil, errcode.New(ErrKnowledgeWrite, "marshal knowledge index", err)
+	}
+	kPath := filepath.Join(forgeDir, "knowledge-index.json")
+	if err := os.WriteFile(kPath, idxData, 0o600); err != nil {
+		return nil, errcode.New(ErrKnowledgeWrite, "write knowledge-index.json", err)
+	}
+
+	// 2. Write .forge/instructions/global.instructions.md
+	instrPath := filepath.Join(instrDir, "global.instructions.md")
+	if err := os.WriteFile(instrPath, []byte(buildGlobalInstructions(idx)), 0o600); err != nil {
+		return nil, errcode.New(ErrKnowledgeWrite, "write global.instructions.md", err)
+	}
+
+	return []string{
+		".forge/knowledge-index.json",
+		".forge/instructions/global.instructions.md",
+	}, nil
+}
+
+// buildGlobalInstructions renders the global LLM instructions file content,
+// embedding a summary of knowledge categories from the index.
+func buildGlobalInstructions(idx *knowledge.Index) string {
+	var sb strings.Builder
+	sb.WriteString("# Global LLM Instructions\n")
+	sb.WriteString("# Wired by `forge init --minimal`. Consumed by GitHub Copilot, Cursor, Claude, Windsurf.\n")
+	sb.WriteString("# Run `forge context generate` to refresh the knowledge index.\n\n")
+
+	sb.WriteString("## Forge Ship Workflow\n\n")
+	sb.WriteString("`forge ship \"<feature>\"` runs 6 checkpoints: spec → arch → test → breakdown → code → ship.\n\n")
+	sb.WriteString("| Checkpoint | What happens |\n")
+	sb.WriteString("|---|---|\n")
+	sb.WriteString("| spec | Generate/validate feature spec in `.forge/specs/<slug>/spec.md` |\n")
+	sb.WriteString("| arch | Multi-role architecture debate → ADR |\n")
+	sb.WriteString("| test | Generate failing TDD test stubs (tests before code) |\n")
+	sb.WriteString("| breakdown | Decompose spec into atomic tasks |\n")
+	sb.WriteString("| code | Generate/iterate code until tests pass |\n")
+	sb.WriteString("| ship | Hygiene + scan + lint readiness check |\n\n")
+
+	sb.WriteString("## Mandatory Rules\n\n")
+	sb.WriteString("1. Write failing tests BEFORE production code (`forge ship` enforces this).\n")
+	sb.WriteString("2. Run `forge scan security` before every PR.\n")
+	sb.WriteString("3. Run `forge lint` before committing.\n")
+	sb.WriteString("4. Never hardcode secrets — use environment variables.\n")
+	sb.WriteString("5. SQL queries use parameterised placeholders only, never string concatenation.\n\n")
+
+	// Emit knowledge category summary when the index is non-empty.
+	if idx != nil && len(idx.Entries) > 0 {
+		sb.WriteString("## Injected Knowledge Categories\n\n")
+		sb.WriteString("Full index: `.forge/knowledge-index.json` — top-5 entries are auto-selected\n")
+		sb.WriteString("by `forge ship` for every LLM call based on checkpoint + domain tags.\n\n")
+
+		// Group entry IDs by category.
+		catMap := map[string][]string{}
+		for _, e := range idx.Entries {
+			catMap[e.Category] = append(catMap[e.Category], e.ID)
+		}
+		cats := make([]string, 0, len(catMap))
+		for c := range catMap {
+			cats = append(cats, c)
+		}
+		sort.Strings(cats)
+		for _, cat := range cats {
+			ids := catMap[cat]
+			sort.Strings(ids)
+			fmt.Fprintf(&sb, "- **%s**: %s\n", cat, strings.Join(ids, ", "))
+		}
+		sb.WriteByte('\n')
+	} else {
+		sb.WriteString("## Injected Knowledge\n\n")
+		sb.WriteString("Knowledge index is empty (public build). Run `forge context generate` to populate.\n\n")
+	}
+
+	return sb.String()
 }
 
 // detectTemplate infers the best-fit template from files already in dir.

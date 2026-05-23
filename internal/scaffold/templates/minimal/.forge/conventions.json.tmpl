@@ -1,0 +1,51 @@
+{
+  "version": "1",
+  "project": "{{.Name}}",
+  "forgeVersion": "{{.ForgeVer}}",
+  "description": "Machine-readable convention registry consumed by forge lint. Add, remove, or adjust entries to reflect your project's agreed conventions.",
+
+  "conventions": [
+    {
+      "id": "no-silent-errors",
+      "description": "Errors must never be silently discarded — justify every ignored error with a comment",
+      "severity": "error",
+      "tags": ["correctness", "reliability"]
+    },
+    {
+      "id": "sql-params-only",
+      "description": "SQL queries must use parameterised placeholders, never string concatenation",
+      "severity": "error",
+      "tags": ["security", "injection"]
+    },
+    {
+      "id": "workspace-id-filter",
+      "description": "Every DB query against a tenant-scoped table must filter by workspace_id",
+      "severity": "error",
+      "tags": ["security", "tenancy"]
+    },
+    {
+      "id": "no-secrets-in-code",
+      "description": "Secrets must never be hardcoded — use environment variables or a secrets manager",
+      "severity": "error",
+      "tags": ["security", "secrets"]
+    },
+    {
+      "id": "test-before-code",
+      "description": "Write failing tests before production code (TDD). forge ship enforces this with a git-timestamp guard.",
+      "severity": "warning",
+      "tags": ["testing", "dx"]
+    },
+    {
+      "id": "structured-logging",
+      "description": "Use structured logging (e.g. slog/zap/pino) — no ad-hoc print statements in non-test code",
+      "severity": "error",
+      "tags": ["observability", "dx"]
+    },
+    {
+      "id": "scan-before-pr",
+      "description": "Run `forge scan security` before every PR. forge ship checkpoint 5 (ship) enforces this automatically.",
+      "severity": "warning",
+      "tags": ["security", "process"]
+    }
+  ]
+}

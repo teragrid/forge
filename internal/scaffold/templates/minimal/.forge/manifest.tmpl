@@ -1,0 +1,29 @@
+# forge clean manifest (forge {{.ForgeVer}})
+# Wired by `forge init --minimal`.
+# `forge clean --check` proposes deletion candidates that match a [scratch]
+# pattern and do not match any [managed] pattern.
+
+[scratch]
+**/.forge/scratch/**
+**/.forge/cache/**
+**/*.tmp.*
+**/_scratch_*
+**/_llm_*
+**/*.llm.bak
+**/.aider*
+
+[managed]
+.gitignore
+.forge/manifest
+.forge/hygiene.yml
+.forge/conventions.json
+.forge/knowledge-index.json
+.forge/instructions/**
+.forge/specs/**
+AGENTS.md
+CLAUDE.md
+.cursorrules
+.windsurfrules
+README.md
+LICENSE
+forge.config.yml

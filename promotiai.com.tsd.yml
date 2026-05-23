@@ -1,0 +1,70 @@
+# PromotAI SaaS — Tech Stack Decision file (ready to use)
+# Generated from private/templates/promotiai.tsd.yml
+# Usage: forge new --tsd promotiai.com.tsd.yml "promotiai-clone"
+
+tsd_version: 1
+project:
+  name: "promotiai-clone"
+  domain: "promotiai.com"
+  type: saas
+
+stack:
+  frontend:
+    framework: nextjs-15
+    ui_library: shadcn
+    state_management: server-components-only
+    testing: jest-rtl
+
+  backend:
+    language: python
+    framework: fastapi
+    api_style: rest
+    auth: supabase-auth
+    testing: pytest
+
+  database:
+    primary: supabase-pg
+    cache: redis
+    search: pg-fts
+    migrations: supabase-migrations
+
+  ai:
+    orchestration: langgraph
+    llm_providers:
+      - openai        # gpt-4o (primary)
+      - anthropic     # claude-3-5-sonnet (fallback)
+      - google-gemini # gemini-1.5-pro (fallback)
+    embedding: openai-ada
+    vector_store: supabase-pgvector
+    observability: langsmith
+
+  payments:
+    providers:
+      - stripe    # subscriptions
+      - paypal    # one-time + payouts
+    model: subscription
+
+  messaging:
+    queue: celery-redis
+    realtime: supabase-realtime
+    email: resend
+    sms: none
+
+  infra:
+    cloud: digitalocean
+    container: docker-compose
+    cdn: cloudflare
+    secrets: doppler
+    ci_cd: github-actions
+
+  observability:
+    metrics: prometheus-grafana
+    tracing: opentelemetry
+    logging: structlog
+    alerting: slack-webhook
+
+  compliance:
+    standards:
+      - pci-dss-saq-a
+      - gdpr
+    secret_scanning: gitleaks

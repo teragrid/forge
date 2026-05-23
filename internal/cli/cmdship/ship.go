@@ -97,6 +97,7 @@ func emitEvent(w io.Writer, cp Checkpoint, overrideEvent string) {
 var (
 	ErrShipFailed      = errcode.Register(errcode.Code(3200), "ship checkpoint failed")
 	ErrSpecAuditFailed = errcode.Register(errcode.Code(3201), "spec audit: incomplete tasks or authz gaps detected")
+	ErrBranchFailed    = errcode.Register(errcode.Code(3203), "feature branch operation failed")
 )
 
 // Gate is called after each checkpoint runs (0-based idx, total count, completed cp).
@@ -124,6 +125,7 @@ type ShipResult struct {
 	Checkpoints   []Checkpoint `json:"checkpoints"`
 	Ready         bool         `json:"ready"`
 	Message       string       `json:"message"`
+	FeatureBranch string       `json:"feature_branch,omitempty"` // branch used for this ship run
 }
 
 func init() {
@@ -141,13 +143,15 @@ func init() {
 			"--description <msg> (what this change does; required for full pipeline in M1)",
 			"--yolo (skip all approval gates — activates 6-role self-debate for quality polishing)",
 			"--json (machine-readable output; also disables interactive prompts)",
+			"--no-branch (skip automatic feature-branch creation; work on the current branch)",
 		},
 		Outputs: []string{"stdout: checkpoint status (text or JSON)"},
 		SideEffects: []string{
 			"--dry-run has no side effects; full workflow (M1) will commit, tag, and deploy",
+			"creates and checks out feature/<slug> branch when running the full pipeline from a protected branch (main/master/develop/dev/trunk)",
 		},
 		GatesTouched: []string{"§16.5.2 ship workflow", "§4 6-checkpoint pipeline"},
-		ErrorCodes:   []errcode.Code{ErrShipFailed},
+		ErrorCodes:   []errcode.Code{ErrShipFailed, ErrBranchFailed},
 	})
 }
 
@@ -187,6 +191,7 @@ func New() *cobra.Command {
 		pr             bool   // --pr: create a draft GitHub PR after all checkpoints pass
 		resume         bool   // --resume: resume from first incomplete checkpoint (G-002)
 		rootDir        string // --root: project root (default: cwd); primarily for testing
+		noBranch       bool   // --no-branch: skip automatic feature-branch creation
 	)
 
 	// bindFlags attaches shared flags to a subcommand or the parent.
@@ -202,6 +207,7 @@ func New() *cobra.Command {
 		c.Flags().BoolVar(&pr, "pr", false, "create a draft GitHub PR after all checkpoints pass (requires gh CLI)")
 		c.Flags().StringVar(&rootDir, "root", "", "project root (default: cwd)")
 		c.Flags().BoolVar(&resume, "resume", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
+		c.Flags().BoolVar(&noBranch, "no-branch", false, "skip automatic feature-branch creation; work on the current branch")
 	}
 
 	// runCheckpoint is the shared body: run only the named checkpoint(s).
@@ -265,6 +271,21 @@ func New() *cobra.Command {
 			}
 		}
 
+		// Feature branch: auto-create feature/<slug> when on a protected branch.
+		// Only for full-pipeline runs (not single checkpoints) with a description.
+		var branchRes featureBranchResult
+		if !noBranch && len(names) == 0 && description != "" {
+			branchRes = ensureFeatureBranch(root, slugify(description))
+			if !asJSON {
+				// In JSON mode, branch info is in the result; don't pollute stdout.
+				if branchRes.Warning != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "△ branch: %s\n", branchRes.Warning)
+				} else if branchRes.Created {
+					fmt.Fprintf(cmd.OutOrStdout(), "✓ created branch %s — pipeline artefacts will land here\n", branchRes.Branch)
+				}
+			}
+		}
+
 		// Build approval gate: only for the full pipeline (nil names = all checkpoints).
 		// Single-checkpoint subcommands never need approval.
 		// --yolo and --json both disable interactive prompts.
@@ -296,6 +317,10 @@ func New() *cobra.Command {
 		res.Yolo = yolo
 		res.Interactive = gate != nil
 		res.DebateEnabled = runOpts.DebateOpts != nil
+		if branchRes.Branch != "" && branchRes.Warning == "" {
+			// Attach the feature branch to the result for JSON output and renderText MR hint.
+			res.FeatureBranch = branchRes.Branch
+		}
 		if asJSON && !yolo {
 			// Backward-compat: single JSON object when --json without --yes.
 			enc := json.NewEncoder(cmd.OutOrStdout())
@@ -1250,6 +1275,13 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	}
 	if r.Ready {
 		fmt.Fprintln(w, "\nship pipeline ready (all checkpoints validated).")
+		if r.FeatureBranch != "" {
+			fmt.Fprintf(w, "\nfeature branch: %s\n", r.FeatureBranch)
+			fmt.Fprintln(w, "next steps:")
+			fmt.Fprintf(w, "  git push origin %s\n", r.FeatureBranch)
+			fmt.Fprintf(w, "  gh pr create --base main --head %s --title %q\n",
+				r.FeatureBranch, r.Message)
+		}
 	} else {
 		fmt.Fprintln(w, "\nship blocked by checkpoint failure(s) or reviewer rejection.")
 	}

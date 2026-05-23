@@ -1,3 +1,30 @@
+# forge:gitleaks:start
+# Managed by forge — do not edit this block. Run "forge upgrade gitleaks" to refresh.
+title = "forge baseline"
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key"
+regex = '''(?i)(api[_-]?key|apikey)[\s:=]+["']?[A-Za-z0-9_\-]{20,}["']?'''
+
+[[rules]]
+id = "private-key-block"
+description = "PEM private key"
+regex = '''-----BEGIN [A-Z ]*PRIVATE KEY-----'''
+
+[[rules]]
+id = "openai-key"
+description = "OpenAI key"
+regex = '''sk-[A-Za-z0-9]{20,}'''
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS access key"
+regex = '''AKIA[0-9A-Z]{16}'''
+
+# forge:gitleaks:end
+
+# ── User-managed rules (add your project-specific rules below) ──────────────
 # .gitleaks.toml — Forge secret-scanning configuration (gitleaks v8+).
 # See: https://github.com/gitleaks/gitleaks#configuration
 

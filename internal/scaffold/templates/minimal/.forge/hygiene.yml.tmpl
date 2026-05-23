@@ -1,0 +1,46 @@
+# Forge Hygiene Manifest — {{.Name}}
+# Wired by `forge init --minimal` (forge {{.ForgeVer}}).
+#
+# Controls `forge clean --check` and `forge clean --apply`.
+# Add patterns for legitimate generated artefacts in [managed].
+# Scratch patterns in [scratch] trigger warnings from `forge clean --check`.
+#
+# Run `forge clean --check` before every commit.
+
+[scratch]
+# LLM scratch areas
+**/.forge/llm-scratch/**
+**/.forge/scratch/**
+**/.forge/cache/**
+# Temporary files from LLM-assisted workflows
+**/_*
+**/patch_*
+**/fix_*
+**/*_output.*
+**/*_SUMMARY*.md
+**/scratch/**
+# Common editor temporaries
+**/*.tmp
+**/*.tmp.*
+**/*.swp
+**/*.swo
+**/*~
+
+[managed]
+# Forge runtime files (do not delete)
+.gitignore
+.forge/manifest
+.forge/hygiene.yml
+.forge/conventions.json
+.forge/knowledge-index.json
+.forge/instructions/**
+.forge/specs/**
+# AI-tool instruction files
+AGENTS.md
+CLAUDE.md
+.cursorrules
+.windsurfrules
+# Project root
+forge.config.yml
+README.md
+LICENSE

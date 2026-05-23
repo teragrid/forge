@@ -1,0 +1,66 @@
+# AGENTS.md — {{.Name}}
+
+> Wired by `forge init --minimal` (forge {{.ForgeVer}}).
+> Universal AI-agent entry point for GitHub Copilot, Claude, Cursor, Windsurf,
+> and any tool that reads `AGENTS.md`.
+
+## Forge Ship Workflow
+
+Run `forge ship "<feature description>"` to start the AI-assisted 6-checkpoint pipeline:
+
+| Checkpoint | Purpose |
+|---|---|
+| **spec** | Generate/validate feature spec in `.forge/specs/<slug>/spec.md` |
+| **arch** | Multi-role architecture debate → ADR document |
+| **test** | Generate failing TDD test stubs (write tests first) |
+| **breakdown** | Decompose spec into atomic task list |
+| **code** | Generate/iterate code until tests pass |
+| **ship** | Hygiene + scan + lint readiness check |
+
+```bash
+forge ship "add user authentication"   # full pipeline
+forge ship --from test                 # resume from a checkpoint
+forge ship --quick                     # spec + code only (skip arch/breakdown)
+forge ship --dry-run                   # preview without executing
+```
+
+## Forge Commands
+
+| Command | Purpose |
+|---|---|
+| `forge lint` | Validate `.forge/conventions.json` — run before commit |
+| `forge scan security` | OWASP Top-10 scan — run before every PR |
+| `forge clean --check` | Hygiene check — must be green before commit |
+| `forge doctor` | Validate `forge.config.yml` and environment |
+| `forge context generate` | Refresh `.forge/knowledge-index.json` |
+| `forge explain <file>` | Ask the LLM to explain code |
+
+## Key Files
+
+| File | Purpose |
+|---|---|
+| `forge.config.yml` | Project configuration (ship checkpoints, LLM, security) |
+| `.forge/conventions.json` | Machine-readable convention registry (`forge lint`) |
+| `.forge/hygiene.yml` | Managed/scratch file policy (`forge clean`) |
+| `.forge/manifest` | Managed-file registry |
+| `.forge/knowledge-index.json` | **Forge knowledge base index** — patterns, principles, compliance rules injected into every LLM call by `forge ship` |
+| `.forge/instructions/global.instructions.md` | LLM instructions for Copilot/Cursor/Claude |
+| `.forge/specs/` | Ship-workflow artefacts (auto-generated) |
+
+## Injected Knowledge
+
+The file `.forge/knowledge-index.json` contains the forge knowledge base:
+patterns, principles, compliance frameworks, NFR models, and reference
+architectures. `forge ship` automatically selects relevant entries (top-5 by
+tag score) and injects them into every LLM call as a `<knowledge>` block.
+
+AI tools can read `.forge/knowledge-index.json` directly to surface these
+patterns without running forge.
+
+## AI Conventions
+
+1. **Run `forge lint`** before committing — validates `.forge/conventions.json`
+2. **Write failing tests first** — `forge ship` checkpoint 3 (test) enforces this
+3. **Run `forge scan security` before every PR** — fix all findings
+4. **Keep `forge clean --check` green** — no unmanifested scratch files
+5. **Never hardcode secrets** — environment variables only
