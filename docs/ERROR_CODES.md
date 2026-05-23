@@ -96,3 +96,6 @@ You can also look up any code with `forge ask error <code>`.
 | `FORGE-6202` | CI run concluded with failure | [forge.dev/errors/6202](https://forge.dev/errors/6202) |
 | `FORGE-6203` | no CI workflow run found for the given SHA | [forge.dev/errors/6203](https://forge.dev/errors/6203) |
 | `FORGE-6204` | failed to write CI gotcha to .forge/learned/gotchas.jsonl | [forge.dev/errors/6204](https://forge.dev/errors/6204) |
+| `FORGE-6550` | bugfix failed | [forge.dev/errors/6550](https://forge.dev/errors/6550) |
+| `FORGE-6551` | no bug source specified — provide --bug, --finding, or --test | [forge.dev/errors/6551](https://forge.dev/errors/6551) |
+| `FORGE-6552` | finding not found in review results | [forge.dev/errors/6552](https://forge.dev/errors/6552) |

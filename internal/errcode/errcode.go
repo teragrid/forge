@@ -102,6 +102,8 @@ var reservedRanges = []struct {
 	{6400, 6449, "internal/tsd"},
 	{6450, 6499, "internal/scaffold/compose"},
 	{6500, 6549, "internal/cli/cmdtsd"},
+	// DEV-M3-bugfix: post-delivery bug fix workflow.
+	{6550, 6599, "cli/bugfix"},
 	{9000, 9099, "internal/test"},
 }
 

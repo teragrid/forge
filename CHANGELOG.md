@@ -4,6 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.6] — 2026-05-24
+
+### Added
+
+- **`forge bugfix`** — new verb for the post-delivery bug fix workflow. Accepts bugs from three sources: `--bug "<description>"` (plain-language report), `--finding <id>` (review finding ID from `forge review`), or `--test "<pattern>"` (failing test name). With an LLM configured, diagnoses the root cause, writes a surgical patch, and generates a regression test to prevent recurrence. Dry-run by default; `--apply` writes the patch and test to disk and records in `.forge/audit.log`. Error range `FORGE-6550..6599`.
+- **Strengthened LLM prompt templates** — all seven verb prompts (`ask`, `review`, `fix`, `scan`, `ship`, `optimize`, `learn`) now use directive, imperative language ("hunt the bug to its root cause", "fix it once and for all", "leave nothing unchecked") for more thorough and direct LLM responses.
+
 ## [1.1.5] — 2026-05-23
 
 ### Changed

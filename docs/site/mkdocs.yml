@@ -61,6 +61,7 @@ nav:
       - forge new: verbs/new.md
       - forge scan: verbs/scan.md
       - forge fix: verbs/fix.md
+      - forge bugfix: verbs/bugfix.md
       - forge learn: verbs/learn.md
       - forge ship: verbs/ship.md
       - forge deploy: verbs/deploy.md

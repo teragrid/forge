@@ -30,6 +30,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdask"
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
 	"github.com/teragrid/forge/internal/cli/cmdbackup"
+	"github.com/teragrid/forge/internal/cli/cmdbugfix"
 	"github.com/teragrid/forge/internal/cli/cmdcheck"
 	"github.com/teragrid/forge/internal/cli/cmdci"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
@@ -186,6 +187,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		// spec §4 gap-fill: fixtures + backup
 		cmdfixtures.New(),
 		cmdbackup.New(),
+		// post-delivery bug fix workflow
+		cmdbugfix.New(),
 		// DEV-M3-31: post-push CI monitor
 		cmdci.New(),
 		// Template enhancement: TSD subcommand group

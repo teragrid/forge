@@ -77,7 +77,7 @@ In both cases, `forge init` **automatically injects forge-managed baseline files
 
 For larger or more complex projects, describe your full stack upfront in a **TSD file** (Tech Stack Decision). Forge reads it and composes the exact matching modules into a production-grade project — databases, auth, payments, AI layer, observability, infra — all wired together.
 
-```sh
+```shwhy 
 forge tsd init           # answer a few questions → .forge/tsd.yml is written
 forge new "billing dashboard"   # Forge reads .forge/tsd.yml automatically
 ```
@@ -355,6 +355,10 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 
 | Command | What it does |
 |---|---|
+| `forge bugfix --bug "<description>"` | Diagnose a bug from a plain-language report, generate a surgical patch and regression test (dry-run) |
+| `forge bugfix --finding <id>` | Fix a specific finding ID from `forge review` results |
+| `forge bugfix --test "<pattern>"` | Fix the root cause of a failing test; produces patch + regression test |
+| `forge bugfix ... --apply` | Write the patch and regression test to disk; appends a tamper-proof entry to `.forge/audit.log` |
 | `forge incident new` | Log a production incident with a structured record |
 | `forge incident triage <id>` | Forge suggests what the problem is and what to do |
 | `forge rollback --advise` | Get a recommendation on which version to roll back to |
@@ -458,6 +462,21 @@ forge spend status
 ```
 
 Forge hard-stops AI calls when you hit the limit. No $400 surprises.
+
+### "A bug slipped through to production — how do I fix it properly?"
+
+```sh
+# From a plain bug report
+forge bugfix --bug "Checkout total is wrong when a discount code is applied"
+
+# From a failing test you already have
+forge bugfix --test "TestCheckout_DiscountApplied"
+
+# From a review finding ID
+forge bugfix --finding FORGE-REV-003
+```
+
+Forge identifies the root cause, generates a surgical patch, and writes a regression test. Use `--apply` to write the changes to disk — they're also recorded in `.forge/audit.log` so you have a tamper-proof record of the fix.
 
 ### "My AI app is behaving differently after a model update"
 

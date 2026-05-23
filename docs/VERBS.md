@@ -54,6 +54,7 @@ If you're just getting started, read [GETTING_STARTED.md](../GETTING_STARTED.md)
 | `forge fixtures` | Generate JSON test fixture files | `FORGE-6000..6099` |
 | `forge backup` | Create a point-in-time backup snapshot before risky operations | `FORGE-6100..6199` |
 | `forge ci` | Post-push CI monitor: watch, fix, and record lessons from CI runs | `FORGE-6200..6299` |
+| `forge bugfix` | Diagnose and fix bugs found via reviews, manual tests, or plain bug reports; accepts `--bug`, `--finding`, `--test`; dry-run by default; `--apply` writes patch + regression test | `FORGE-6550..6599` |
 | `forge learn` | Manage the learning loop; sub-verbs: `teach` (renamed from `forge teach`), `session` (renamed from `forge session digest`), `instructions` (renamed from `forge instructions evolve`), `promote`, `antipatterns` | `FORGE-5200..5299` |
 | `forge context` | Manage project context bundles; `forge context generate` (renamed from `forge generate ai-context`) | — |
 | `forge agents` | Manage LLM agents; `forge agents stop` (replaces `forge agents stop --workspace`) | — |
