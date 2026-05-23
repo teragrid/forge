@@ -76,10 +76,10 @@ type TestPatch struct {
 // BugfixResult is the full output of one bugfix run.
 type BugfixResult struct {
 	Root           string     `json:"root"`
-	Mode           string     `json:"mode"`            // "dry-run" | "apply"
-	Source         string     `json:"source"`          // "bug" | "finding" | "test"
-	Input          string     `json:"input"`           // the raw input text
-	RootCause      string     `json:"root_cause"`      // one-sentence diagnosis
+	Mode           string     `json:"mode"`       // "dry-run" | "apply"
+	Source         string     `json:"source"`     // "bug" | "finding" | "test"
+	Input          string     `json:"input"`      // the raw input text
+	RootCause      string     `json:"root_cause"` // one-sentence diagnosis
 	Fix            *FixPatch  `json:"fix,omitempty"`
 	RegressionTest *TestPatch `json:"regression_test,omitempty"`
 	Applied        bool       `json:"applied"`
@@ -112,12 +112,12 @@ func init() {
 // New returns the cobra command for `forge bugfix`.
 func New() *cobra.Command {
 	var (
-		root      string
-		bug       string
-		finding   string
-		test      string
-		apply     bool
-		asJSON    bool
+		root    string
+		bug     string
+		finding string
+		test    string
+		apply   bool
+		asJSON  bool
 	)
 
 	cmd := &cobra.Command{
@@ -372,7 +372,7 @@ func writeRegressionTest(root string, tp *TestPatch) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return fmt.Errorf("create dir for regression test: %w", err)
 	}
-	return os.WriteFile(dest, []byte(tp.Code), 0o644)
+	return os.WriteFile(dest, []byte(tp.Code), 0o600)
 }
 
 // appendAuditLog records an applied bugfix in .forge/audit.log.
