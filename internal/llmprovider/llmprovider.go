@@ -95,6 +95,7 @@ type Provider interface {
 //  4. AZURE_OPENAI_API_KEY    → AzureOpenAIAdapter (requires AZURE_OPENAI_ENDPOINT)
 //  5. AWS_BEDROCK_REGION      → BedrockAdapter
 //  6. OLLAMA_HOST             → OllamaAdapter (air-gap / local)
+//  7. GH_TOKEN / GITHUB_TOKEN / gh config → CopilotProvider (GitHub Copilot plan)
 //
 // Returns ErrNoProvider (FORGE-4050) if no known credentials are present.
 func Detect() (Provider, error) {
@@ -116,8 +117,12 @@ func Detect() (Provider, error) {
 	if p := newOllamaProvider(); p != nil {
 		return p, nil
 	}
+	if p := newCopilotProvider(); p != nil {
+		return p, nil
+	}
 	return nil, errcode.New(ErrNoProvider,
-		"no ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, AZURE_OPENAI_API_KEY, AWS_BEDROCK_REGION, or OLLAMA_HOST found in environment", nil)
+		"no LLM provider detected: set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, "+
+			"AZURE_OPENAI_API_KEY, AWS_BEDROCK_REGION, OLLAMA_HOST, or GH_TOKEN (GitHub Copilot)", nil)
 }
 
 // ── Anthropic adapter ─────────────────────────────────────────────────────────

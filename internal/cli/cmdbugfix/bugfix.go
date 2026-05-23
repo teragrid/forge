@@ -202,7 +202,7 @@ func Run(root, mode, bug, finding, test string) (BugfixResult, error) {
 	provider, err := llmprovider.Detect()
 	if err != nil {
 		// No LLM — return a structured placeholder so callers get a valid result.
-		result.RootCause = "LLM provider not configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable AI-powered root-cause analysis."
+		result.RootCause = "LLM provider not configured. Options: set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or GH_TOKEN (GitHub Copilot — if you have a Copilot subscription, run: gh auth login)."
 		result.Summary = fmt.Sprintf("no LLM provider detected — cannot diagnose %s %q", result.Source, result.Input)
 		return result, nil
 	}
