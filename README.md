@@ -69,7 +69,7 @@ forge new next-app my-app       # Next.js + React + Tailwind
 forge new go-service my-app     # Go API
 ```
 
-Already started a project without Forge? `forge init` adds all of the above to an existing project without touching your code.
+Already started a project without Forge? `forge init` adds all of the above to an existing project without touching your code. For a lighter touch — just the Forge knowledge base and ship workflow, no CI rewrites — use `forge init --minimal` (project name auto-detected from the current directory).
 
 ### 2. Scaffolds enterprise-grade stacks from a tech-stack blueprint
 
@@ -97,6 +97,15 @@ forge new --tsd my-stack.tsd.yml "checkout service"
 ```sh
 forge ship --dry-run    # preview what would happen (nothing changes)
 forge ship              # do the real thing
+```
+
+**Feature-branch workflow built in:** when you run `forge ship <feature>` from `main` (or any protected branch), Forge automatically creates and checks out `feature/<slug>` before the pipeline starts — so your work is always isolated from main. After all six stages pass, Forge prints the exact commands to push the branch and open a merge request.
+
+```sh
+forge ship auth/email   # → creates feature/auth-email, runs pipeline, then:
+                        #   ✓ git push origin feature/auth-email
+                        #   ✓ gh pr create --base main --head feature/auth-email
+forge ship auth/email --no-branch   # skip branch creation; work on current branch
 ```
 
 The six stages, in plain English:
@@ -252,6 +261,13 @@ forge init
 
 Forge detects your project type and sets up accordingly. It doesn't touch your existing code.
 
+**Just want Forge's knowledge base and ship workflow — nothing else?** Use `--minimal`. It injects the forge context files into any existing project without touching your code structure, dependencies, or CI:
+
+```sh
+cd ai-marketing-platform   # project name auto-detected from the directory
+forge init --minimal
+```
+
 ### Run your first quality check
 
 ```sh
@@ -289,7 +305,8 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge new <template> <name>` | Create a production-grade project from a built-in template (`ts-service`, `next-app`, `go-service`) |
 | `forge new "<description>"` | TSD mode — scaffold from `.forge/tsd.yml` auto-detected in current directory |
 | `forge new --tsd <file> "<description>"` | TSD mode — scaffold from an explicit TSD file |
-| `forge init` | Add Forge to a project you already have |
+| `forge init` | Add Forge to a project you already have (detects project type, sets up CI and quality gates) |
+| `forge init --minimal` | Inject only forge knowledge/ship workflow into any existing project — auto-detects name from the current directory, no flags required |
 | `forge doctor` | Check your setup — tells you exactly what to fix if something is misconfigured |
 | `forge version` | Print the installed version |
 | `forge explain <command>` | Plain-English explanation of any command |
@@ -306,7 +323,7 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 
 | Command | What it does |
 |---|---|
-| `forge ship [--dry-run]` | Run the full 6-stage quality gate before pushing |
+| `forge ship [<feature>] [--dry-run]` | Run the full 6-stage quality gate; auto-creates `feature/<slug>` branch when on a protected branch |
 | `forge scan all` | Run every quality and security check at once |
 | `forge scan secrets` | Look for API keys hardcoded in files |
 | `forge scan prompt-injection` | Check if your AI app can be manipulated by users |

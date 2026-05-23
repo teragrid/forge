@@ -30,10 +30,34 @@ directory name (`auth-email`) and used as the spec/artifact root under
 > (PostgreSQL function creation, `GRANT EXECUTE`, RLS policies, `.rpc()` client calls).
 > Use standard REST paths (`/api/v1/…`) for non-Supabase projects — detection is automatic.
 
+## Feature-branch workflow
+
+When you run `forge ship <feature>` from a **protected branch** (`main`, `master`, `develop`, `dev`, `trunk`, `production`, `prod`), Forge automatically creates and checks out `feature/<slug>` before starting the pipeline. This keeps your work isolated from the main branch at all times.
+
+```bash
+# On main — Forge creates feature/auth-email, then runs the pipeline
+forge ship auth/email
+
+# On a feature branch already — Forge runs on the current branch (no new branch)
+git checkout -b feature/auth-email
+forge ship auth/email
+
+# Skip branch creation entirely — run on current branch regardless
+forge ship auth/email --no-branch
+```
+
+After all six checkpoints pass, Forge prints the next steps:
+
+```
+  Branch:   feature/auth-email
+  Push:     git push -u origin feature/auth-email
+  PR:       gh pr create --base main --head feature/auth-email --title "feat: auth/email"
+```
+
 ## Examples
 
 ```bash
-# Run the full 6-checkpoint pipeline for a feature
+# Run the full 6-checkpoint pipeline for a feature (auto-creates feature branch from main)
 forge ship auth/email
 
 # Dry-run to preview without side effects
@@ -51,9 +75,23 @@ forge ship auth/email --resume
 # NDJSON event stream (one line per checkpoint) for agent orchestration
 forge ship auth/email --yes --json
 
+# Skip auto-branch creation (stay on current branch)
+forge ship auth/email --no-branch
+
 # Tag and push a release
 forge ship --tag v1.2.3
 ```
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | false | Preview what would happen without making any changes |
+| `--json` | false | Emit NDJSON event stream (one line per checkpoint) |
+| `--yes` | false | Non-interactive mode; auto-accept prompts |
+| `--resume` | false | Skip checkpoints that already have passing artifacts |
+| `--no-branch` | false | Do not create or switch to a feature branch; run on current branch |
+| `--tag <version>` | — | After a clean pipeline, tag and push a release |
 
 ## Deprecated aliases
 

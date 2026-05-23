@@ -212,6 +212,15 @@ forge init
 ```
 
 Forge detects what kind of project it is and sets up accordingly. It doesn't change your existing code.
+
+**Prefer a lighter touch?** `--minimal` injects only the forge knowledge base and ship workflow — no CI rewrites, no changes to your package manager or language setup. The project name is auto-detected from the current directory name, so no flags needed:
+
+```bash
+cd ai-marketing-platform       # name is detected automatically
+forge init --minimal           # writes forge.config.yml, .forge/ context files, AGENTS.md
+```
+
+This is the recommended way to adopt Forge on an existing project that already has its own CI.
 ---
 
 ## Step 5 — Ship your first change safely
@@ -233,6 +242,15 @@ What happens under the hood (you don't need to do any of this manually):
 | **4. Breakdown** | Scans for obvious logic problems or missing error handling | Catches edge cases the AI glossed over |
 | **5. Code** | Checks code quality and security patterns | Catches vulnerabilities |
 | **6. Ship** | Runs all scanners, confirms everything is clean | Final safety check |
+
+**Feature-branch workflow:** when you run `forge ship <feature>` from `main` or any protected branch, Forge automatically creates and checks out `feature/<slug>` first, so your work is always isolated. After all stages pass, it prints the exact commands to push and open a pull request:
+
+```bash
+forge ship auth/email
+# → creates feature/auth-email
+# → runs 6 stages
+# → prints: git push origin feature/auth-email && gh pr create ...
+```
 
 If any stage fails, the whole pipeline stops and Forge tells you exactly what failed and why. Fix it, run `forge ship` again.
 

@@ -2,6 +2,23 @@
 
 All notable changes to forge will be documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.1.4] — 2026-05-23
+
+### Added
+
+- **`forge init --minimal`** — lightweight init for existing projects. Injects forge knowledge (`.forge/` config files, `AGENTS.md`, hygiene rules, conventions) without touching `go.mod`, `package.json`, CI files, or any other project structure. Project name is auto-detected from the current directory — no `--name` flag required. `cd ai-marketing-platform && forge init --minimal` just works.
+- **`forge ship` feature-branch workflow** — when `forge ship <feature>` is run from a protected branch (`main`, `master`, `develop`, `dev`, `trunk`, `production`, `prod`), Forge automatically creates and checks out `feature/<slug>` before the pipeline starts. After all six checkpoints pass, Forge prints the exact commands to push the branch and open a pull request. Use `--no-branch` to skip this behaviour and stay on the current branch.
+
+### Removed
+
+- **VS Code extension** (`packages/vscode-forge/`) — extracted to its own repository. The `.github/workflows/vscode-publish.yml` workflow and `.forge/specs/vscode-forge-extension/` spec directory have been removed from this repo.
+
+### Fixed
+
+- **Dependabot PR sprawl** — grouped all GitHub Actions updates into one PR and all Go module updates into one PR, replacing the prior per-dependency PR behaviour that flooded the Actions queue.
+
 ## [1.1.3] \u2014 2026-05-22
 
 ### Added
@@ -18,8 +35,6 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 - README: "5-stage quality gate" \u2192 "6-stage quality gate"; Arch stage added to the pipeline table; KB description updated to mention ship-checkpoint injection.
 - `GETTING_STARTED.md`: Step 5 updated to 6-stage table with Arch as stage 2.
-
-## [Unreleased]
 
 ## [1.0.0] — 2026-05-16 — All 82 gap tasks complete
 
