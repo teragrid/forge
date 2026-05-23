@@ -186,7 +186,7 @@ func TestCopilotProvider_Capabilities_CachedAfterFirstCall(t *testing.T) {
 }
 
 func TestCopilotProvider_Capabilities_FallbackOnNonOK(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	t.Cleanup(srv.Close)
