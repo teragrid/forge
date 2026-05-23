@@ -23,6 +23,10 @@
 // which exposes an OpenAI-compatible interface. This lets VS Code / GitHub Copilot
 // subscribers use their existing Copilot plan — no extra API key required.
 //
+// The list of available models is fetched dynamically from GET /models on the
+// first call to Capabilities(), so new Copilot models appear automatically.
+// If the endpoint is unreachable the known-good fallback list is used instead.
+//
 // Default model: claude-sonnet-4-5 (override via FORGE_COPILOT_MODEL).
 package llmprovider
 
@@ -38,22 +42,37 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/teragrid/forge/internal/errcode"
 )
 
 const (
 	copilotAPIBase      = "https://api.githubcopilot.com"
-	copilotChatURL      = copilotAPIBase + "/chat/completions"
 	copilotDefaultModel = "claude-sonnet-4-5"
 )
+
+// copilotKnownModels is the static fallback used when the /models endpoint is
+// unreachable (air-gap, token not yet valid, etc.).
+var copilotKnownModels = []string{
+	"claude-sonnet-4-5",
+	"claude-3-7-sonnet",
+	"claude-3-5-sonnet",
+	"gpt-4o",
+	"gpt-4o-mini",
+	"o3-mini",
+}
 
 // CopilotProvider implements Provider using the GitHub Copilot Chat API.
 // Any GitHub account with an active Copilot subscription can use this provider.
 type CopilotProvider struct {
-	token  string
-	model  string
-	client *http.Client
+	token        string
+	model        string
+	baseURL      string // overridable in tests
+	client       *http.Client
+	cachedModels []string
+	modelsOnce   sync.Once
 }
 
 // newCopilotProvider returns a CopilotProvider when a GitHub token is available,
@@ -68,9 +87,60 @@ func newCopilotProvider() *CopilotProvider {
 		model = copilotDefaultModel
 	}
 	return &CopilotProvider{
-		token:  token,
-		model:  model,
-		client: &http.Client{},
+		token:   token,
+		model:   model,
+		baseURL: copilotAPIBase,
+		client:  &http.Client{},
+	}
+}
+
+// loadModels fetches the list of models from GET {baseURL}/models and caches
+// the result. Called lazily (once) from Capabilities(). Falls back silently.
+func (c *CopilotProvider) loadModels() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models", nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Copilot-Integration-Id", "forge-cli")
+	req.Header.Set("Editor-Version", "forge/1.1.6")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16)) // 64 KB max
+	if err != nil {
+		return
+	}
+
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &body); err != nil {
+		return
+	}
+
+	models := make([]string, 0, len(body.Data))
+	for _, m := range body.Data {
+		if m.ID != "" {
+			models = append(models, m.ID)
+		}
+	}
+	if len(models) > 0 {
+		c.cachedModels = models
 	}
 }
 
@@ -141,17 +211,19 @@ func ghConfigPath() string {
 
 func (c *CopilotProvider) Name() string { return "github-copilot" }
 
+// Capabilities fetches the live model list from the Copilot API on first call
+// (cached via sync.Once) and returns it. Falls back to copilotKnownModels if
+// the endpoint is unreachable.
 func (c *CopilotProvider) Capabilities() Capabilities {
+	c.modelsOnce.Do(c.loadModels)
+	models := c.cachedModels
+	if len(models) == 0 {
+		models = copilotKnownModels
+	}
 	return Capabilities{
 		Streaming: false,
 		MaxTokens: 200000,
-		Models: []string{
-			"claude-sonnet-4-5",
-			"claude-3-7-sonnet",
-			"claude-3-5-sonnet",
-			"gpt-4o",
-			"gpt-4o-mini",
-		},
+		Models:    models,
 	}
 }
 
@@ -195,7 +267,7 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 		return nil, fmt.Errorf("copilot: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, copilotChatURL, bytes.NewReader(raw))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(raw))
 	if err != nil {
 		return nil, fmt.Errorf("copilot: create request: %w", err)
 	}
