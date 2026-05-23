@@ -213,11 +213,14 @@ forge init
 
 Forge detects what kind of project it is and sets up accordingly. It doesn't change your existing code.
 
-**Prefer a lighter touch?** `--minimal` injects only the forge knowledge base and ship workflow — no CI rewrites, no changes to your package manager or language setup. The project name is auto-detected from the current directory name, so no flags needed:
+**Prefer a lighter touch?** `--minimal` injects only the forge knowledge base and ship workflow — no CI rewrites, no changes to your package manager or language setup. The project name is auto-detected from the current directory name, so no flags needed. Forge also automatically adds baseline security files — skipping any that already exist:
 
 ```bash
 cd ai-marketing-platform       # name is detected automatically
-forge init --minimal           # writes forge.config.yml, .forge/ context files, AGENTS.md
+forge init --minimal
+# ✓ forge.config.yml, .forge/ context files, AGENTS.md
+# ✓ .gitignore  — forge block injected (your existing entries preserved)
+# ✓ .gitleaks.toml, .pre-commit-config.yaml, .github/dependabot.yml  — created if absent
 ```
 
 This is the recommended way to adopt Forge on an existing project that already has its own CI.

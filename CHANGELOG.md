@@ -4,6 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.5] — 2026-05-23
+
+### Changed
+
+- **`forge init` always injects baseline files** — every `forge init` invocation (with any template or `--minimal`) now automatically runs four codemods after scaffolding: injects a `# forge:gitignore:start … # forge:gitignore:end` marker block into `.gitignore` (user content outside the block is preserved), and creates `.gitleaks.toml`, `.pre-commit-config.yaml`, and `.github/dependabot.yml` if they are absent. No new flag required — this is the safe default. Re-running `forge init` is idempotent; the `.gitignore` block is never duplicated.
+- **`--force` now covers managed-block drift** — `--force` additionally overwrites any forge-managed blocks in `.gitignore` that have drifted from the canonical forge template. The removed `--merge` flag is superseded by this default behaviour.
+
 ## [1.1.4] — 2026-05-23
 
 ### Added

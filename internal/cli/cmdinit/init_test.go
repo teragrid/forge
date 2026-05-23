@@ -434,6 +434,173 @@ func TestInit_Minimal_Idempotent(t *testing.T) {
 	}
 }
 
+// ─── --merge is now default behaviour ───────────────────────────────────────
+//
+// Test design (always-write-tests.md):
+//
+// Happy (minimal):   forge init --minimal creates .gitignore block, .gitleaks.toml,
+//                    .pre-commit-config.yaml, .github/dependabot.yml automatically.
+// Happy (template):  same baseline files injected after full scaffold.
+// Boundary – no .gitignore: forge block is written as a new file.
+// Boundary – existing .gitignore without block: block appended, user content kept.
+// Data-accuracy – .gitignore block contains canonical forge patterns.
+// Idempotency: running forge init twice produces the same .gitignore (no duplicate block).
+// Existing .gitleaks.toml: file is untouched (gitleaks-baseline is create-only).
+// Existing .pre-commit-config.yaml: file is untouched.
+
+func TestInit_Merge_Minimal_CreatesBaselineFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out, err := runInit(t, dir, "--minimal")
+	if err != nil {
+		t.Fatalf("run: %v\nout: %s", err, out)
+	}
+	for _, rel := range []string{
+		".gitignore",
+		".gitleaks.toml",
+		".pre-commit-config.yaml",
+		".github/dependabot.yml",
+	} {
+		if _, statErr := os.Stat(filepath.Join(dir, rel)); statErr != nil {
+			t.Errorf("forge init --minimal must create %s: %v", rel, statErr)
+		}
+	}
+}
+
+func TestInit_Merge_Template_CreatesBaselineFiles(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out, err := runInit(t, dir, "--template", "go-service")
+	if err != nil {
+		t.Fatalf("run: %v\nout: %s", err, out)
+	}
+	for _, rel := range []string{
+		".gitignore",
+		".gitleaks.toml",
+		".pre-commit-config.yaml",
+		".github/dependabot.yml",
+	} {
+		if _, statErr := os.Stat(filepath.Join(dir, rel)); statErr != nil {
+			t.Errorf("go-service init must create %s: %v", rel, statErr)
+		}
+	}
+}
+
+func TestInit_Merge_GitignoreBlock_InjectsForgePatterns(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runInit(t, dir, "--minimal"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	content := string(body)
+	if !strings.Contains(content, "# forge:gitignore:start") {
+		t.Error(".gitignore missing forge:gitignore:start marker")
+	}
+	if !strings.Contains(content, "# forge:gitignore:end") {
+		t.Error(".gitignore missing forge:gitignore:end marker")
+	}
+	if !strings.Contains(content, ".forge/scratch/") {
+		t.Error(".gitignore forge block missing .forge/scratch/ pattern")
+	}
+	if !strings.Contains(content, ".forge/cache/") {
+		t.Error(".gitignore forge block missing .forge/cache/ pattern")
+	}
+}
+
+func TestInit_Merge_ExistingGitignore_UserContentPreserved(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	userContent := "# my project\nnode_modules/\ndist/\n.env\n"
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(userContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInit(t, dir, "--minimal"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	content := string(body)
+	// User content must be preserved.
+	for _, line := range []string{"node_modules/", "dist/", ".env"} {
+		if !strings.Contains(content, line) {
+			t.Errorf(".gitignore: user line %q was removed by --merge", line)
+		}
+	}
+	// Forge block must be appended.
+	if !strings.Contains(content, "# forge:gitignore:start") {
+		t.Error(".gitignore missing forge block after --merge")
+	}
+}
+
+func TestInit_Merge_Idempotent_GitignoreNoDuplicate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runInit(t, dir, "--minimal"); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if _, err := runInit(t, dir, "--minimal"); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	content := string(body)
+	// Marker must appear exactly once (not duplicated).
+	count := strings.Count(content, "# forge:gitignore:start")
+	if count != 1 {
+		t.Errorf(".gitignore: forge:gitignore:start appears %d times (want 1) after two --merge runs", count)
+	}
+}
+
+func TestInit_Merge_ExistingGitleaks_NotOverwritten(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	existing := "# my custom gitleaks config\ntitle = \"custom\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".gitleaks.toml"), []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInit(t, dir, "--minimal"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, ".gitleaks.toml"))
+	if err != nil {
+		t.Fatalf("read .gitleaks.toml: %v", err)
+	}
+	// gitleaks-baseline is create-only: existing file must be untouched.
+	if string(body) != existing {
+		t.Errorf(".gitleaks.toml was modified; want original content preserved\ngot: %s", body)
+	}
+}
+
+func TestInit_Merge_ExistingPreCommit_NotOverwritten(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	existing := "# my pre-commit config\nrepos: []\n"
+	if err := os.WriteFile(filepath.Join(dir, ".pre-commit-config.yaml"), []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runInit(t, dir, "--minimal"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, ".pre-commit-config.yaml"))
+	if err != nil {
+		t.Fatalf("read .pre-commit-config.yaml: %v", err)
+	}
+	if string(body) != existing {
+		t.Errorf(".pre-commit-config.yaml was modified; want original content preserved\ngot: %s", body)
+	}
+}
+
+// TestInit_Merge_FalsePositive_WithoutMergeFlagNoExtraFiles is removed:
+// merge is now the default — all init paths inject baseline files.
+
 func TestInit_Minimal_OutputMentionsForgeShip(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -464,7 +631,9 @@ func TestInit_Minimal_JSONOutput(t *testing.T) {
 	if res.Template != "minimal" {
 		t.Errorf("Template field: want %q, got %q", "minimal", res.Template)
 	}
-	if len(res.Files) != len(minimalFiles) {
-		t.Errorf("Files count: want %d, got %d; files: %v", len(minimalFiles), len(res.Files), res.Files)
+	// --minimal now writes 7 core files + 4 baseline files injected by default merge codemods.
+	const wantFiles = 11
+	if len(res.Files) != wantFiles {
+		t.Errorf("Files count: want %d, got %d; files: %v", wantFiles, len(res.Files), res.Files)
 	}
 }

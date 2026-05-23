@@ -71,6 +71,8 @@ forge new go-service my-app     # Go API
 
 Already started a project without Forge? `forge init` adds all of the above to an existing project without touching your code. For a lighter touch — just the Forge knowledge base and ship workflow, no CI rewrites — use `forge init --minimal` (project name auto-detected from the current directory).
 
+In both cases, `forge init` **automatically injects forge-managed baseline files** — a `.gitignore` forge block, `.gitleaks.toml`, `.pre-commit-config.yaml`, and `.github/dependabot.yml` — into the project. Your existing content is preserved; Forge only adds what's missing.
+
 ### 2. Scaffolds enterprise-grade stacks from a tech-stack blueprint
 
 For larger or more complex projects, describe your full stack upfront in a **TSD file** (Tech Stack Decision). Forge reads it and composes the exact matching modules into a production-grade project — databases, auth, payments, AI layer, observability, infra — all wired together.
@@ -261,11 +263,14 @@ forge init
 
 Forge detects your project type and sets up accordingly. It doesn't touch your existing code.
 
-**Just want Forge's knowledge base and ship workflow — nothing else?** Use `--minimal`. It injects the forge context files into any existing project without touching your code structure, dependencies, or CI:
+**Just want Forge's knowledge base and ship workflow — nothing else?** Use `--minimal`. It injects the forge context files into any existing project without touching your code structure, dependencies, or CI. It also automatically adds forge-managed baseline files (`.gitignore` block, `.gitleaks.toml`, `.pre-commit-config.yaml`, `.github/dependabot.yml`) — skipping any that already exist so your existing config is never overwritten:
 
 ```sh
 cd ai-marketing-platform   # project name auto-detected from the directory
 forge init --minimal
+# ✓ .forge/ context files + AGENTS.md + knowledge-index.json
+# ✓ .gitignore  — forge block injected (user content preserved)
+# ✓ .gitleaks.toml, .pre-commit-config.yaml, .github/dependabot.yml  — created if absent
 ```
 
 ### Run your first quality check
@@ -306,7 +311,7 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge new "<description>"` | TSD mode — scaffold from `.forge/tsd.yml` auto-detected in current directory |
 | `forge new --tsd <file> "<description>"` | TSD mode — scaffold from an explicit TSD file |
 | `forge init` | Add Forge to a project you already have (detects project type, sets up CI and quality gates) |
-| `forge init --minimal` | Inject only forge knowledge/ship workflow into any existing project — auto-detects name from the current directory, no flags required |
+| `forge init --minimal` | Inject forge knowledge/ship workflow + baseline security files into any existing project — auto-detects name from the current directory, no flags required |
 | `forge doctor` | Check your setup — tells you exactly what to fix if something is misconfigured |
 | `forge version` | Print the installed version |
 | `forge explain <command>` | Plain-English explanation of any command |

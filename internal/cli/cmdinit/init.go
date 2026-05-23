@@ -25,6 +25,7 @@ package cmdinit
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/codemod"
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/scaffold"
@@ -55,7 +57,7 @@ func init() {
 			"--template <name>  (override auto-detection; default: auto)",
 			"--name <name>      (project name; default: current directory name)",
 			"--minimal          (inject only forge runtime files + knowledge index into an existing project)",
-			"--force            (overwrite files that already exist)",
+			"--force            (overwrite files that already exist; also overwrites drifted forge-managed blocks)",
 			"--json             (machine-readable output)",
 		},
 		Outputs: []string{
@@ -64,6 +66,7 @@ func init() {
 		},
 		SideEffects: []string{
 			"writes Forge scaffolding into the current directory",
+			"always injects forge blocks into .gitignore, .gitleaks.toml, .pre-commit-config.yaml, .github/dependabot.yml (safe: user content preserved)",
 			"--minimal: writes .forge/ config + AGENTS.md + knowledge-index.json + global.instructions.md",
 		},
 		GatesTouched: []string{"§4 scaffold"},
@@ -91,6 +94,12 @@ func New(forgeVersion string) *cobra.Command {
 			"The project name defaults to the current directory name — no --name flag needed.\n" +
 			"Writes only 7 files: forge.config.yml, .forge/hygiene.yml, .forge/conventions.json,\n" +
 			".forge/manifest, AGENTS.md, .forge/knowledge-index.json, .forge/instructions/global.instructions.md\n\n" +
+			"forge init always injects forge-managed baseline files (safe — user content is never overwritten):\n" +
+			"  .gitignore              — inserts/refreshes # forge:gitignore:start … # forge:gitignore:end\n" +
+			"  .gitleaks.toml          — creates with forge baseline rules (if absent)\n" +
+			"  .pre-commit-config.yaml — creates with baseline hygiene hooks (if absent)\n" +
+			"  .github/dependabot.yml  — creates with auto-detected ecosystems (if absent)\n" +
+			"Use --force to also overwrite managed blocks that have drifted.\n\n" +
 			"Template auto-detection order (without --minimal):\n" +
 			"  1. --template flag\n" +
 			"  2. package.json detected → ts-service\n" +
@@ -121,7 +130,7 @@ func New(forgeVersion string) *cobra.Command {
 
 			// --minimal: wire forge into an existing project with minimal footprint.
 			if minimal {
-				return runMinimal(cmd, target, name, forgeVersion, asJSON)
+				return runMinimal(cmd, target, name, forgeVersion, asJSON, force)
 			}
 
 			// Auto-detect template if not explicitly provided.
@@ -151,6 +160,18 @@ func New(forgeVersion string) *cobra.Command {
 				return err
 			}
 
+			// Always inject forge marker blocks and baseline files (safe: user content preserved).
+			var mergeWarnings []string
+			{
+				merged, warnings, mergeErr := runMergeCodemods(target, force)
+				if mergeErr != nil {
+					return mergeErr
+				}
+				res.Files = append(res.Files, merged...)
+				sort.Strings(res.Files)
+				mergeWarnings = warnings
+			}
+
 			if asJSON {
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
@@ -161,6 +182,9 @@ func New(forgeVersion string) *cobra.Command {
 				"initialised %q with template %q (%d files)\n", res.Target, res.Template, len(res.Files))
 			for _, f := range res.Files {
 				fmt.Fprintf(cmd.OutOrStdout(), "  + %s\n", f)
+			}
+			for _, w := range mergeWarnings {
+				fmt.Fprintln(cmd.OutOrStdout(), w)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "\nNext steps:")
 			switch tmpl {
@@ -180,15 +204,18 @@ func New(forgeVersion string) *cobra.Command {
 	cmd.Flags().StringVar(&tmplFlag, "template", "", "template to apply (default: auto-detect)")
 	cmd.Flags().StringVar(&name, "name", "", "project name (default: current directory name — no flag needed when running from the project root)")
 	cmd.Flags().BoolVar(&minimal, "minimal", false, "inject only forge runtime files + knowledge index (safe for existing projects; name auto-detected from current directory)")
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite files that already exist")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite files that already exist; also overwrites drifted forge-managed blocks (.gitignore, .gitleaks.toml)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	return cmd
 }
 
 // runMinimal runs `forge init --minimal`: renders the minimal template then
-// injects the knowledge index and global LLM instructions into the project.
-// --force is implied because the target directory is almost always non-empty.
-func runMinimal(cmd *cobra.Command, target, name, forgeVersion string, asJSON bool) error {
+// injects the knowledge index, global LLM instructions, and forge baseline
+// files (.gitignore block, .gitleaks.toml, .pre-commit-config.yaml,
+// .github/dependabot.yml) into the project.
+// --force is implied for the scaffold (existing projects are always non-empty)
+// and is forwarded to codemods for overwriting drifted managed blocks.
+func runMinimal(cmd *cobra.Command, target, name, forgeVersion string, asJSON, force bool) error {
 	res, err := scaffold.Render(scaffold.Options{
 		Template: "minimal",
 		Target:   target,
@@ -205,6 +232,18 @@ func runMinimal(cmd *cobra.Command, target, name, forgeVersion string, asJSON bo
 		return err
 	}
 	res.Files = append(res.Files, extra...)
+
+	// Always inject forge marker blocks and baseline files (safe: user content preserved).
+	var mergeWarnings []string
+	{
+		merged, warnings, mergeErr := runMergeCodemods(target, force)
+		if mergeErr != nil {
+			return mergeErr
+		}
+		res.Files = append(res.Files, merged...)
+		mergeWarnings = warnings
+	}
+
 	sort.Strings(res.Files)
 
 	if asJSON {
@@ -218,11 +257,69 @@ func runMinimal(cmd *cobra.Command, target, name, forgeVersion string, asJSON bo
 	for _, f := range res.Files {
 		fmt.Fprintf(cmd.OutOrStdout(), "  + %s\n", f)
 	}
+	for _, w := range mergeWarnings {
+		fmt.Fprintln(cmd.OutOrStdout(), w)
+	}
 	fmt.Fprintln(cmd.OutOrStdout(), "\nNext steps:")
 	fmt.Fprintln(cmd.OutOrStdout(), "  forge doctor              # validate forge.config.yml")
 	fmt.Fprintln(cmd.OutOrStdout(), "  forge ship \"<feature>\"   # start the 6-checkpoint pipeline")
 	fmt.Fprintln(cmd.OutOrStdout(), "  forge lint                # check conventions")
 	return nil
+}
+
+// runMergeCodemods applies codemods to inject forge marker blocks and baseline
+// files into an existing project. Codemods are applied in a fixed order.
+// Files already containing correct forge blocks are unchanged (idempotent).
+// Returns the list of touched files and any non-fatal drift warnings.
+func runMergeCodemods(target string, force bool) ([]string, []string, error) {
+	// Codemods applied in merge mode, in declaration order:
+	//   gitignore-marker  — appends/refreshes forge block in .gitignore (always safe)
+	//   gitleaks-baseline — creates .gitleaks.toml if absent
+	//   dependabot-baseline — creates .github/dependabot.yml if absent
+	//   pre-commit-baseline — creates .pre-commit-config.yaml if absent
+	codemodNames := []string{
+		"gitignore-marker",
+		"gitleaks-baseline",
+		"dependabot-baseline",
+		"pre-commit-baseline",
+	}
+
+	reg := codemod.Default()
+	var mergedFiles, warnings []string
+
+	for _, cmName := range codemodNames {
+		cm, ok := reg.Lookup(cmName)
+		if !ok {
+			continue
+		}
+
+		var rep codemod.Report
+		var err error
+
+		if force {
+			if fc, ok := cm.(codemod.ForcedCodemod); ok {
+				rep, err = fc.ApplyForce(target, false)
+			} else {
+				rep, err = cm.Apply(target, false)
+			}
+		} else {
+			rep, err = cm.Apply(target, false)
+		}
+
+		if errors.Is(err, codemod.ErrManagedBlockDrift) {
+			warnings = append(warnings,
+				fmt.Sprintf("  ~ %s: managed block has drifted — rerun with --force to overwrite", cmName))
+			continue
+		}
+		if err != nil {
+			return mergedFiles, warnings, fmt.Errorf("codemod %s: %w", cmName, err)
+		}
+		if rep.Changed > 0 {
+			mergedFiles = append(mergedFiles, rep.Files...)
+		}
+	}
+
+	return mergedFiles, warnings, nil
 }
 
 // injectKnowledge writes .forge/knowledge-index.json (dumped from the embedded
