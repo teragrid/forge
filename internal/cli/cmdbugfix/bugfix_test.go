@@ -257,3 +257,190 @@ func TestRun_Bug_NoBugTextNoInput(t *testing.T) {
 		t.Fatal("expected error when --bug is empty string")
 	}
 }
+
+// ── RunContext / new real-world flags ─────────────────────────────────────────
+
+// TestRun_BackwardCompat verifies the 5-arg Run signature still compiles and
+// works (no RunContext supplied). This is the regression guard for the variadic
+// change.
+func TestRun_BackwardCompat(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Must compile and not panic; no LLM → placeholder result.
+	result, err := Run(root, "dry-run", "crash on startup", "", "")
+	if err != nil {
+		t.Fatalf("5-arg Run: %v", err)
+	}
+	if result.Source != SourceBug {
+		t.Errorf("Source: got %q want %q", result.Source, SourceBug)
+	}
+}
+
+// TestRun_RunContext_Stack passes a RunContext with a stack trace and verifies
+// the call does not error out (no LLM in test env).
+func TestRun_RunContext_Stack(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	rc := RunContext{
+		Stack: "goroutine 1 [running]:\nmain.main()\n\t/main.go:42 +0x80",
+	}
+	result, err := Run(root, "dry-run", "nil pointer dereference", "", "", rc)
+	if err != nil {
+		t.Fatalf("Run with stack: %v", err)
+	}
+	if result.Input != "nil pointer dereference" {
+		t.Errorf("Input: got %q", result.Input)
+	}
+}
+
+// TestRun_RunContext_Files includes a source file that doesn't exist — Run must
+// not return an error; the missing file is surfaced gracefully in the LLM prompt.
+func TestRun_RunContext_Files(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	rc := RunContext{
+		Files: []string{filepath.Join(root, "nonexistent.go")},
+	}
+	result, err := Run(root, "dry-run", "timeout on checkout", "", "", rc)
+	if err != nil {
+		t.Fatalf("Run with missing file: %v", err)
+	}
+	if result.Source != SourceBug {
+		t.Errorf("Source: got %q want %q", result.Source, SourceBug)
+	}
+}
+
+// TestRun_RunContext_ExtraCtx passes free-form context; verifies no error.
+func TestRun_RunContext_ExtraCtx(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	rc := RunContext{ExtraCtx: "This only happens on the EU cluster, not US."}
+	result, err := Run(root, "dry-run", "payment gateway timeout", "", "", rc)
+	if err != nil {
+		t.Fatalf("Run with extra context: %v", err)
+	}
+	if result.Mode != "dry-run" {
+		t.Errorf("Mode: got %q want dry-run", result.Mode)
+	}
+}
+
+// TestNew_StackFlag verifies the --stack CLI flag is accepted.
+func TestNew_StackFlag(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"--root", root,
+		"--bug", "nil pointer in auth",
+		"--stack", "goroutine 1 [running]:\nmain()",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute with --stack: %v", err)
+	}
+	var result BugfixResult
+	if err := json.NewDecoder(&out).Decode(&result); err != nil {
+		t.Fatalf("JSON parse: %v\n%s", err, out.String())
+	}
+	if result.Source != SourceBug {
+		t.Errorf("Source: got %q", result.Source)
+	}
+}
+
+// TestNew_FileFlag verifies the --file CLI flag is accepted (repeatable).
+func TestNew_FileFlag(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Write a real file to include.
+	srcFile := filepath.Join(root, "auth.go")
+	if err := os.WriteFile(srcFile, []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"--root", root,
+		"--bug", "wrong auth redirect",
+		"--file", srcFile,
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute with --file: %v", err)
+	}
+}
+
+// TestNew_ModelFlag verifies the --model CLI flag is accepted.
+func TestNew_ModelFlag(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{
+		"--root", root,
+		"--bug", "crash on logout",
+		"--model", "gpt-4o",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute with --model: %v", err)
+	}
+}
+
+// ── applyPatch ────────────────────────────────────────────────────────────────
+
+// TestApplyPatch_SavesPatchFile verifies that applyPatch saves the patch
+// to .forge/patches/ even when git apply is unavailable.
+func TestApplyPatch_SavesPatchFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fp := &FixPatch{
+		File:       "cmd/server.go",
+		Patch:      "func fixMe() {}",
+		Confidence: "high",
+	}
+	patchFile, _ := applyPatch(root, fp)
+	if patchFile == "" {
+		t.Fatal("applyPatch must return a patch file path")
+	}
+	if _, err := os.Stat(patchFile); err != nil {
+		t.Errorf("patch file not created on disk: %v", err)
+	}
+}
+
+// TestApplyPatch_Nil verifies applyPatch handles nil gracefully.
+func TestApplyPatch_Nil(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	patchFile, err := applyPatch(root, nil)
+	if err != nil {
+		t.Errorf("applyPatch(nil): unexpected error: %v", err)
+	}
+	if patchFile != "" {
+		t.Errorf("applyPatch(nil): expected empty patchFile, got %q", patchFile)
+	}
+}
+
+// TestBugfixResult_PatchFileField verifies that BugfixResult has the PatchFile
+// field and it round-trips through JSON correctly.
+func TestBugfixResult_PatchFileField(t *testing.T) {
+	t.Parallel()
+	r := BugfixResult{PatchFile: "/tmp/x.patch", Applied: true}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var r2 BugfixResult
+	if err := json.Unmarshal(b, &r2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if r2.PatchFile != "/tmp/x.patch" {
+		t.Errorf("PatchFile: got %q want %q", r2.PatchFile, "/tmp/x.patch")
+	}
+}

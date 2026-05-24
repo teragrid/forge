@@ -280,3 +280,64 @@ func (c *Config) Get(key string) (Value, error) {
 	}
 	return Value{}, errcode.Newf(ErrConfigBadKey, nil, "unknown config key %q", key)
 }
+
+// WriteKey persists a single configuration key-value pair to the project's
+// forge.yml, creating the file if absent. key uses dotted notation matching
+// AllFields (e.g. "llm.model", "log.level"). Existing file content is
+// preserved; only the targeted leaf value is updated.
+func WriteKey(root, key, value string) error {
+	if root == "" {
+		var err error
+		root, err = os.Getwd()
+		if err != nil {
+			root = "."
+		}
+	}
+	// Validate via AllFields to stay in sync with the schema.
+	known := map[string]bool{}
+	dummy := defaults()
+	for _, f := range dummy.AllFields() {
+		known[f.Key] = true
+	}
+	if !known[strings.ToLower(key)] {
+		return errcode.Newf(ErrConfigBadKey, nil, "unknown key %q; valid: %v", key, validKeyList(dummy))
+	}
+
+	filePath := DefaultFilePath(root)
+
+	// Read existing YAML into a generic map so unknown/future fields survive.
+	var doc map[string]interface{}
+	if b, err := os.ReadFile(filePath); err == nil { //nolint:gosec
+		_ = yaml.Unmarshal(b, &doc)
+	}
+	if doc == nil {
+		doc = make(map[string]interface{})
+	}
+
+	// Navigate to the nested section and set the leaf.
+	parts := strings.SplitN(strings.ToLower(key), ".", 2)
+	section, field := parts[0], parts[1]
+	sectionMap, _ := doc[section].(map[string]interface{})
+	if sectionMap == nil {
+		sectionMap = make(map[string]interface{})
+	}
+	sectionMap[field] = value
+	doc[section] = sectionMap
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return errcode.New(ErrConfigParse, "marshal forge.yml", err)
+	}
+	if err := os.WriteFile(filePath, out, 0o644); err != nil { //nolint:gosec
+		return fmt.Errorf("write %s: %w", filePath, err)
+	}
+	return nil
+}
+
+func validKeyList(c *Config) []string {
+	keys := make([]string, 0, 8)
+	for _, f := range c.AllFields() {
+		keys = append(keys, f.Key)
+	}
+	return keys
+}

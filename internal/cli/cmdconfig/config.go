@@ -131,7 +131,29 @@ func New() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(showCmd, getCmd, explainCmd)
+	// forge config set <key> <value>
+	setCmd := &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Persist a configuration value to forge.yml.",
+		Long: "Write a key-value pair to forge.yml in the project root.\n\n" +
+			"Examples:\n" +
+			"  forge config set llm.model claude-sonnet-4-5\n" +
+			"  forge config set llm.model gpt-4o\n" +
+			"  forge config set log.level debug\n\n" +
+			"Valid keys: llm.provider, llm.model, llm.daily_budget_usd,\n" +
+			"            llm.monthly_budget_usd, telemetry.enabled,\n" +
+			"            telemetry.install_id, log.format, log.level",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := config.WriteKey(root, args[0], args[1]); err != nil {
+				return errcode.Newf(ErrConfigLoad, err, "config set %s", args[0])
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "set %s = %s\n", args[0], args[1])
+			return nil
+		},
+	}
+
+	cmd.AddCommand(showCmd, getCmd, explainCmd, setCmd)
 	return cmd
 }
 

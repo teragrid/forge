@@ -139,6 +139,16 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 			}
 			config.SetActiveProfile(p)
 		}
+		// Bridge forge.yml llm.model → FORGE_COPILOT_MODEL when the env var is
+		// not already set. This lets `forge config set llm.model <model>` persist
+		// the default Copilot model without requiring a shell profile change.
+		if os.Getenv("FORGE_COPILOT_MODEL") == "" {
+			if wd, err := os.Getwd(); err == nil {
+				if cfg, err := config.Load(wd, nil); err == nil && cfg.LLMModel.Raw != "" {
+					_ = os.Setenv("FORGE_COPILOT_MODEL", cfg.LLMModel.Raw)
+				}
+			}
+		}
 		wd, err := os.Getwd()
 		if err != nil {
 			return nil // can't determine root; skip discovery

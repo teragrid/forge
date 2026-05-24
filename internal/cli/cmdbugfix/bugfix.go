@@ -43,6 +43,7 @@ import (
 
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/llmprovider"
+	"github.com/teragrid/forge/internal/procspawn"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -73,6 +74,16 @@ type TestPatch struct {
 	Code string `json:"code"`
 }
 
+// RunContext carries optional real-world context for a bugfix run. Callers that
+// don't need the extra fields can omit it; the variadic signature in Run keeps
+// backward compatibility.
+type RunContext struct {
+	Stack    string   // stack trace from production error or panic
+	Files    []string // source file paths to include in the LLM context
+	ExtraCtx string   // free-form additional context supplied by the caller
+	Model    string   // LLM model override (e.g. "gpt-4o", "claude-sonnet-4-5")
+}
+
 // BugfixResult is the full output of one bugfix run.
 type BugfixResult struct {
 	Root           string     `json:"root"`
@@ -83,6 +94,7 @@ type BugfixResult struct {
 	Fix            *FixPatch  `json:"fix,omitempty"`
 	RegressionTest *TestPatch `json:"regression_test,omitempty"`
 	Applied        bool       `json:"applied"`
+	PatchFile      string     `json:"patch_file,omitempty"` // path to saved .patch file
 	Summary        string     `json:"summary"`
 }
 
@@ -94,6 +106,10 @@ func init() {
 			"--bug  \"<description>\"  — plain-language bug report (required if no --finding/--test)",
 			"--finding <id>          — review finding ID from `forge review` output",
 			"--test  \"<pattern>\"    — failing test name / go test -run pattern",
+			"--stack \"<trace>\"      — stack trace or panic output to include as context",
+			"--file  <path>          — source file to include (repeatable)",
+			"--context \"<text>\"     — additional free-form context",
+			"--model <name>          — LLM model override for this run",
 			"--root <path>",
 			"--apply                 — write fix and regression test to disk",
 			"--json                  — emit machine-readable JSON",
@@ -112,12 +128,16 @@ func init() {
 // New returns the cobra command for `forge bugfix`.
 func New() *cobra.Command {
 	var (
-		root    string
-		bug     string
-		finding string
-		test    string
-		apply   bool
-		asJSON  bool
+		root     string
+		bug      string
+		finding  string
+		test     string
+		stack    string
+		files    []string
+		extraCtx string
+		model    string
+		apply    bool
+		asJSON   bool
 	)
 
 	cmd := &cobra.Command{
@@ -129,6 +149,9 @@ func New() *cobra.Command {
 			"  forge bugfix --bug \"login fails when email contains a +\"\n" +
 			"  forge bugfix --finding SEC-042\n" +
 			"  forge bugfix --test TestLogin_PlusSign\n\n" +
+			"Real-world examples:\n\n" +
+			"  forge bugfix --bug \"payment fails\" --stack \"$(cat crash.log)\" --file payment.go\n" +
+			"  forge bugfix --bug \"nil panic\" --file handler.go --model gpt-4o --apply\n\n" +
 			"The LLM diagnoses the root cause, writes a surgical patch, and generates a\n" +
 			"regression test. Dry-run by default — use --apply to write to disk.\n" +
 			"All applied fixes are recorded in .forge/audit.log.",
@@ -150,7 +173,13 @@ func New() *cobra.Command {
 				mode = "apply"
 			}
 
-			result, err := Run(root, mode, bug, finding, test)
+			rc := RunContext{
+				Stack:    stack,
+				Files:    files,
+				ExtraCtx: extraCtx,
+				Model:    model,
+			}
+			result, err := Run(root, mode, bug, finding, test, rc)
 			if err != nil {
 				return errcode.New(ErrBugfixFailed, "run", err)
 			}
@@ -169,13 +198,24 @@ func New() *cobra.Command {
 	cmd.Flags().StringVar(&bug, "bug", "", "plain-language bug description")
 	cmd.Flags().StringVar(&finding, "finding", "", "review finding ID (from forge review output)")
 	cmd.Flags().StringVar(&test, "test", "", "failing test name or go test -run pattern")
+	cmd.Flags().StringVar(&stack, "stack", "", "stack trace or panic output to attach as context")
+	cmd.Flags().StringArrayVar(&files, "file", nil, "source file to include as context (repeatable)")
+	cmd.Flags().StringVar(&extraCtx, "context", "", "additional free-form context for the LLM")
+	cmd.Flags().StringVar(&model, "model", "", "LLM model override for this run (e.g. gpt-4o)")
 	cmd.Flags().BoolVar(&apply, "apply", false, "write fix and regression test to disk")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	return cmd
 }
 
-// Run is the entry point for tests and programmatic callers.
-func Run(root, mode, bug, finding, test string) (BugfixResult, error) {
+// Run is the entry point for tests and programmatic callers. The optional
+// RunContext carries real-world extra inputs (stack trace, source files, etc.).
+// Existing callers that pass only the five positional args continue to compile.
+func Run(root, mode, bug, finding, test string, rcs ...RunContext) (BugfixResult, error) {
+	var rc RunContext
+	if len(rcs) > 0 {
+		rc = rcs[0]
+	}
+
 	result := BugfixResult{Root: root, Mode: mode}
 
 	// Resolve source and input.
@@ -207,12 +247,12 @@ func Run(root, mode, bug, finding, test string) (BugfixResult, error) {
 		return result, nil
 	}
 
-	return llmBugfix(result, provider, ctx)
+	return llmBugfix(result, provider, ctx, rc)
 }
 
 // llmBugfix calls the LLM to diagnose root cause, produce a patch, and write
 // a regression test.
-func llmBugfix(result BugfixResult, provider llmprovider.Provider, projectCtx string) (BugfixResult, error) {
+func llmBugfix(result BugfixResult, provider llmprovider.Provider, projectCtx string, rc RunContext) (BugfixResult, error) {
 	systemPrompt := `You are an expert software engineer. Your one mission: hunt the bug down to its root cause and fix it once and for all.
 
 Do NOT patch symptoms. Do NOT apply workarounds. Find the underlying cause, eliminate it completely, and ensure it cannot recur.
@@ -239,16 +279,53 @@ Respond with a JSON object:
 		SourceTest:    "Failing test",
 	}[result.Source]
 
-	userPrompt := fmt.Sprintf("%s: %s", sourceLabel, result.Input)
+	var sb strings.Builder
+
+	// Project context snapshot.
 	if projectCtx != "" {
-		userPrompt = fmt.Sprintf("Project context:\n%s\n\n%s", projectCtx, userPrompt)
+		sb.WriteString("## Project context\n")
+		sb.WriteString(projectCtx)
+		sb.WriteString("\n\n")
 	}
 
-	resp, err := provider.Complete(context.Background(), &llmprovider.Request{
+	// Explicitly requested source files.
+	for _, f := range rc.Files {
+		data, err := os.ReadFile(f) //nolint:gosec
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("## File: %s\n(could not read: %v)\n\n", f, err))
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("## File: %s\n```\n%s\n```\n\n", f, string(data)))
+	}
+
+	// Stack trace / panic log.
+	if rc.Stack != "" {
+		sb.WriteString("## Stack trace\n```\n")
+		sb.WriteString(rc.Stack)
+		sb.WriteString("\n```\n\n")
+	}
+
+	// Free-form extra context.
+	if rc.ExtraCtx != "" {
+		sb.WriteString("## Additional context\n")
+		sb.WriteString(rc.ExtraCtx)
+		sb.WriteString("\n\n")
+	}
+
+	// The primary bug input.
+	sb.WriteString(fmt.Sprintf("%s: %s\n", sourceLabel, result.Input))
+	userPrompt := sb.String()
+
+	req := &llmprovider.Request{
 		SystemPrompt: systemPrompt,
 		UserPrompt:   userPrompt,
-		MaxTokens:    4096,
-	})
+		MaxTokens:    0, // 0 = let the active profile govern the budget
+	}
+	if rc.Model != "" {
+		req.Model = rc.Model
+	}
+
+	resp, err := provider.Complete(context.Background(), req)
 	if err != nil {
 		result.RootCause = fmt.Sprintf("LLM call failed: %v", err)
 		result.Summary = "LLM call failed — cannot produce fix"
@@ -301,7 +378,9 @@ Respond with a JSON object:
 
 	// Apply patch if mode == "apply" and confidence is not low.
 	if result.Mode == "apply" && result.Fix != nil && result.Fix.Confidence != "low" {
-		if err := applyPatch(result.Root, result.Fix); err != nil {
+		patchFile, err := applyPatch(result.Root, result.Fix)
+		result.PatchFile = patchFile
+		if err != nil {
 			result.Summary += fmt.Sprintf(" [PATCH APPLY FAILED: %v]", err)
 		} else {
 			result.Applied = true
@@ -356,11 +435,56 @@ func loadContext(root string) string {
 	return string(data)
 }
 
-// applyPatch writes the fix patch to the specified file in the project root.
-// Currently records intent; full patch-apply engine is planned for M2.
-func applyPatch(_ string, _ *FixPatch) error {
-	// Full unified-diff apply planned for M2; placeholder records intent cleanly.
-	return nil
+// applyPatch saves the patch to .forge/patches/ and attempts to apply it via
+// `git apply`. Returns the path to the saved patch file even if git apply fails
+// (so the user can apply it manually).
+//
+// Strategy:
+//  1. Always save the raw patch content to .forge/patches/<timestamp>-<file>.patch
+//  2. If the patch looks like a unified diff (starts with "---"), try `git apply`
+//  3. If git apply succeeds → Applied=true
+//  4. On any failure, return both the patch path and the error so the caller
+//     can surface "patch saved to X — apply manually" in the output
+func applyPatch(root string, fp *FixPatch) (patchFile string, _ error) {
+	if fp == nil || fp.Patch == "" {
+		return "", nil
+	}
+
+	// Always save the patch regardless of whether we can apply it.
+	patchDir := filepath.Join(root, ".forge", "patches")
+	if err := os.MkdirAll(patchDir, 0o750); err != nil {
+		return "", fmt.Errorf("create patch dir: %w", err)
+	}
+	stamp := time.Now().UTC().Format("20060102T150405Z")
+	safeName := strings.NewReplacer("/", "_", "\\", "_", " ", "_").Replace(fp.File)
+	if safeName == "" {
+		safeName = "patch"
+	}
+	patchFile = filepath.Join(patchDir, fmt.Sprintf("%s-%s.patch", stamp, safeName))
+	if err := os.WriteFile(patchFile, []byte(fp.Patch), 0o600); err != nil { //nolint:gosec
+		return "", fmt.Errorf("write patch file: %w", err)
+	}
+
+	// Try `git apply` only for unified diffs.
+	patchContent := strings.TrimSpace(fp.Patch)
+	if !strings.HasPrefix(patchContent, "---") {
+		// Full function/file replacement — not a unified diff.
+		// The caller can inspect PatchFile; skip git apply.
+		return patchFile, nil
+	}
+
+	spawner := procspawn.New("git")
+	res, gitErr := spawner.Run("git", []string{"apply", "--whitespace=fix", patchFile}, procspawn.Options{
+		Dir: root,
+	})
+	if gitErr != nil {
+		var stderr string
+		if res != nil {
+			stderr = res.Stderr
+		}
+		return patchFile, fmt.Errorf("git apply failed (patch saved to %s): %w\n%s", patchFile, gitErr, stderr)
+	}
+	return patchFile, nil
 }
 
 // writeRegressionTest writes the generated regression test file to disk.
@@ -421,6 +545,15 @@ func renderText(cmd *cobra.Command, r BugfixResult) {
 				fmt.Fprintf(w, "    %s\n", line)
 			}
 		}
+		fmt.Fprintln(w)
+	}
+
+	if r.PatchFile != "" {
+		icon := "○"
+		if r.Applied {
+			icon = "✓"
+		}
+		fmt.Fprintf(w, "  %s patch saved: %s\n", icon, r.PatchFile)
 		fmt.Fprintln(w)
 	}
 
