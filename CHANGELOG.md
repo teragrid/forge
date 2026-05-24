@@ -4,6 +4,23 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-24
+
+### Added
+
+- **`forge mcp serve`** — JSON-RPC 2.0 stdio server that exposes Forge to any MCP-compatible AI chat tool (VS Code Copilot, Claude Desktop, Cursor, Windsurf). Four tools: `forge_kb_search`, `forge_get_workflow`, `forge_get_standards`, `forge_run`. The `forge_run` deny-list prevents unsafe verbs (`mcp`, `serve`, `remove`, `eject`, `clean`) from being invoked remotely.
+- **`forge mcp info`** — prints ready-to-paste config snippets for VS Code (`settings.json`), Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`), and Windsurf (`windsurf_mcp.json`).
+- **`forge skill install --for <platform>`** — installs the Forge expert role into a project and wires it to the target AI tool. Platforms: `copilot`, `claude`, `cursor`, `windsurf`, `all`. Respects `--dry-run` to preview without writing files.
+- **`forge skill list`** — lists all Forge-managed skill files in the current project.
+- **`forge skill remove`** — removes all Forge-managed skill files. Accepts `--force` / `-f` (alias for `--yes`) to skip the confirmation prompt.
+- **`forge explain mcp`** — plain-English description of the MCP server tools and usage.
+- **`forge explain skill`** — plain-English description of the skill install command and `--for` platforms.
+- **`.vscode/settings.json` MCP entry** — the repo now ships a `.vscode/settings.json` that wires `forge mcp serve` as the `forge` MCP server so any developer who opens the repo in VS Code gets Forge tools in Copilot Chat automatically.
+
+### Fixed
+
+- **`forge skill remove --force` flag missing** — `--force` / `-f` was accepted by `install` but silently rejected by `remove` with "unknown flag". Added as an alias for `--yes` on the remove sub-command.
+
 ## [1.1.11] — 2026-05-24
 
 ### Added

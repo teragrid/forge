@@ -52,6 +52,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdinsights"
 	"github.com/teragrid/forge/internal/cli/cmdlearn"
 	"github.com/teragrid/forge/internal/cli/cmdlint"
+	"github.com/teragrid/forge/internal/cli/cmdmcp"
 	"github.com/teragrid/forge/internal/cli/cmdmigrate"
 	"github.com/teragrid/forge/internal/cli/cmdnew"
 	"github.com/teragrid/forge/internal/cli/cmdoptimize"
@@ -231,8 +232,10 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		cmdtsd.New(),
 		// Template enhancement: community template browser
 		cmdtemplates.New(),
-		// Forge expert skill installer for VS Code Copilot
+		// Forge expert skill installer for VS Code Copilot, Claude, Cursor, Windsurf
 		cmdskill.New(),
+		// Forge MCP server — expose forge capabilities to AI chat tools
+		cmdmcp.New(),
 	)
 
 	// Universal flags (G-080): every verb inherits these via PersistentFlags.

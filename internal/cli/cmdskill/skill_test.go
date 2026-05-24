@@ -289,7 +289,8 @@ func TestNew_HasRequiredSubcommands(t *testing.T) {
 
 func TestInstall_DoesNotCreateFilesOutsideRoot(t *testing.T) {
 	dir := t.TempDir()
-	_, err := runCmd(t, "install", "--root", dir, "--name", "forge-expert")
+	// Use --for copilot so only .github/ is created inside root.
+	_, err := runCmd(t, "install", "--root", dir, "--name", "forge-expert", "--for", "copilot")
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
@@ -319,5 +320,233 @@ func TestSkillCommand_RegisteredWithParent(t *testing.T) {
 	}
 	if !found {
 		t.Error("skill command not found in parent")
+	}
+}
+
+// ── multi-platform: --for flag ─────────────────────────────────────────────────
+
+func TestInstall_ForClaude_CreatesClaudeFiles(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--for", "claude")
+	if err != nil {
+		t.Fatalf("install --for claude: %v", err)
+	}
+	want := []string{
+		filepath.Join(dir, "CLAUDE.md"),
+		filepath.Join(dir, ".claude", "commands", "forge-ship.md"),
+		filepath.Join(dir, ".claude", "commands", "forge-scan.md"),
+		filepath.Join(dir, ".claude", "commands", "forge-bugfix.md"),
+	}
+	for _, p := range want {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected file %s to exist: %v", p, err)
+		}
+	}
+}
+
+func TestInstall_ForClaude_ClaudeMdContainsWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--for", "claude")
+	if err != nil {
+		t.Fatalf("install --for claude: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	for _, want := range []string{
+		"Forge Ship Workflow",
+		"Stage 1",
+		"Stage 4 — Test Design",
+		"Stage 5 — Security Check",
+		"Stage 6 — Commit",
+		"Never push directly to",
+		"/project:forge-ship",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("CLAUDE.md missing %q", want)
+		}
+	}
+}
+
+func TestInstall_ForCursor_CreatesCursorRule(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--name", "forge-expert", "--for", "cursor")
+	if err != nil {
+		t.Fatalf("install --for cursor: %v", err)
+	}
+	p := filepath.Join(dir, ".cursor", "rules", "forge-expert.mdc")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read cursor rule: %v", err)
+	}
+	if !strings.Contains(string(data), "alwaysApply: true") {
+		t.Error("cursor rule missing alwaysApply frontmatter")
+	}
+	if !strings.Contains(string(data), "Forge Ship Workflow") {
+		t.Error("cursor rule missing workflow content")
+	}
+}
+
+func TestInstall_ForWindsurf_CreatesWindsurfRules(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--for", "windsurf")
+	if err != nil {
+		t.Fatalf("install --for windsurf: %v", err)
+	}
+	p := filepath.Join(dir, ".windsurfrules")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("read .windsurfrules: %v", err)
+	}
+	if !strings.Contains(string(data), "Forge Ship Workflow") {
+		t.Error(".windsurfrules missing workflow content")
+	}
+}
+
+func TestInstall_ForAll_CreatesAllPlatformFiles(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--name", "forge-expert", "--for", "all")
+	if err != nil {
+		t.Fatalf("install --for all: %v", err)
+	}
+	want := []string{
+		// Copilot
+		filepath.Join(dir, ".github", "chatmodes", "forge-expert.chatmode.md"),
+		filepath.Join(dir, ".github", "instructions", "forge-expert.instructions.md"),
+		filepath.Join(dir, ".github", "prompts", "forge-ship.prompt.md"),
+		// Claude
+		filepath.Join(dir, "CLAUDE.md"),
+		filepath.Join(dir, ".claude", "commands", "forge-ship.md"),
+		// Cursor
+		filepath.Join(dir, ".cursor", "rules", "forge-expert.mdc"),
+		// Windsurf
+		filepath.Join(dir, ".windsurfrules"),
+	}
+	for _, p := range want {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("expected file to exist: %s", p)
+		}
+	}
+}
+
+func TestInstall_ForAll_IsDefaultBehaviour(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	// No --for flag → should behave identically to --for all.
+	_, err := runCmd(t, "install", "--root", dir1, "--name", "forge-expert")
+	if err != nil {
+		t.Fatalf("default install: %v", err)
+	}
+	_, err = runCmd(t, "install", "--root", dir2, "--name", "forge-expert", "--for", "all")
+	if err != nil {
+		t.Fatalf("--for all install: %v", err)
+	}
+	// Both dirs should have CLAUDE.md.
+	for _, dir := range []string{dir1, dir2} {
+		if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err != nil {
+			t.Errorf("CLAUDE.md missing in %s: %v", dir, err)
+		}
+	}
+}
+
+func TestInstall_InvalidPlatform_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--for", "unknown-ai-tool")
+	if err == nil {
+		t.Fatal("expected error for unknown platform, got nil")
+	}
+}
+
+func TestInstall_ForCopilot_BackwardCompatible(t *testing.T) {
+	// --for copilot should only create .github/ files (no CLAUDE.md etc.)
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--for", "copilot", "--name", "forge-expert")
+	if err != nil {
+		t.Fatalf("install --for copilot: %v", err)
+	}
+	// Copilot files present.
+	for _, p := range expectedPaths(dir, "forge-expert") {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("copilot file missing: %s", err)
+		}
+	}
+	// Non-copilot files absent.
+	for _, p := range []string{
+		filepath.Join(dir, "CLAUDE.md"),
+		filepath.Join(dir, ".windsurfrules"),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("--for copilot should not create %s", p)
+		}
+	}
+}
+
+func TestInstall_ForClaude_DryRunWritesNoFiles(t *testing.T) {
+	dir := t.TempDir()
+	out, err := runCmd(t, "install", "--root", dir, "--for", "claude", "--dry-run")
+	if err != nil {
+		t.Fatalf("dry-run claude: %v", err)
+	}
+	if !strings.Contains(out, "would write") {
+		t.Errorf("expected 'would write' in dry-run output; got: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+		t.Error("dry-run must not create CLAUDE.md")
+	}
+}
+
+// ── shipCommandContent / scanCommandContent / bugfixCommandContent ─────────────
+
+func TestClaudeCommandFiles_ContainRequiredSections(t *testing.T) {
+	dir := t.TempDir()
+	_, err := runCmd(t, "install", "--root", dir, "--for", "claude")
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	cases := []struct {
+		file string
+		want []string
+	}{
+		{
+			filepath.Join(dir, ".claude", "commands", "forge-ship.md"),
+			[]string{"Stage 1", "Stage 4", "Stage 5", "Stage 6", "conventional commit"},
+		},
+		{
+			filepath.Join(dir, ".claude", "commands", "forge-scan.md"),
+			[]string{"Secrets scan", "Injection", "Severity", "Critical"},
+		},
+		{
+			filepath.Join(dir, ".claude", "commands", "forge-bugfix.md"),
+			[]string{"Reproduce", "Root Cause", "regression"},
+		},
+	}
+	for _, tc := range cases {
+		data, err := os.ReadFile(tc.file)
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.file, err)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(string(data), w) {
+				t.Errorf("%s missing %q", tc.file, w)
+			}
+		}
+	}
+}
+
+// ── ValidPlatforms covers all known values ────────────────────────────────────
+
+func TestValidPlatforms_ContainsExpected(t *testing.T) {
+	t.Parallel()
+	expected := []string{"copilot", "claude", "cursor", "windsurf", "all"}
+	vp := cmdskill.ValidPlatforms
+	set := make(map[string]bool, len(vp))
+	for _, p := range vp {
+		set[p] = true
+	}
+	for _, want := range expected {
+		if !set[want] {
+			t.Errorf("ValidPlatforms missing %q", want)
+		}
 	}
 }

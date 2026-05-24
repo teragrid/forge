@@ -128,17 +128,19 @@ The following files are created under .github/:
 
 func newInstallCmd() *cobra.Command {
 	var (
-		root    string
-		name    string
-		force   bool
-		dryRun  bool
-		jsonOut bool
+		root     string
+		name     string
+		platform string
+		force    bool
+		dryRun   bool
+		jsonOut  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Write Forge expert chatmode, instructions, and prompt files.",
+		Short: "Install Forge expert persona, workflow, and KB into your AI chat tools.",
 		Example: `  forge skill install
-  forge skill install --name forge-pro --force
+  forge skill install --for claude
+  forge skill install --for all --force
   forge skill install --dry-run`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if root == "" {
@@ -148,7 +150,11 @@ func newInstallCmd() *cobra.Command {
 					return errcode.New(ErrSkillFailed, "cannot determine working directory", err)
 				}
 			}
-			res, err := runInstall(root, name, force, dryRun)
+			if !isValidPlatform(platform) {
+				return errcode.New(ErrSkillFailed,
+					fmt.Sprintf("unknown platform %q — valid values: copilot, claude, cursor, windsurf, all", platform), nil)
+			}
+			res, err := runInstall(root, name, platform, force, dryRun)
 			if err != nil {
 				return err
 			}
@@ -157,16 +163,26 @@ func newInstallCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(res)
 			}
-			printInstallResult(cmd, res, dryRun)
+			printInstallResult(cmd, res, platform, dryRun)
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: current directory)")
 	cmd.Flags().StringVarP(&name, "name", "n", "forge-expert", "skill name slug")
+	cmd.Flags().StringVar(&platform, "for", PlatformAll, "target platform: copilot, claude, cursor, windsurf, all")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite existing files")
 	cmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "preview changes without writing")
 	cmd.Flags().BoolVarP(&jsonOut, "json", "j", false, "machine-readable JSON output")
 	return cmd
+}
+
+func isValidPlatform(p string) bool {
+	for _, v := range ValidPlatforms {
+		if p == v {
+			return true
+		}
+	}
+	return false
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────
@@ -274,15 +290,16 @@ func newRemoveCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: current directory)")
 	cmd.Flags().StringVarP(&name, "name", "n", "forge-expert", "skill name slug")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip confirmation prompt")
+	cmd.Flags().BoolVarP(&yes, "force", "f", false, "skip confirmation prompt (alias for --yes)")
 	cmd.Flags().BoolVarP(&jsonOut, "json", "j", false, "machine-readable JSON output")
 	return cmd
 }
 
 // ── core logic ────────────────────────────────────────────────────────────────
 
-func runInstall(root, name string, force, dryRun bool) (*InstallResult, error) {
+func runInstall(root, name, platform string, force, dryRun bool) (*InstallResult, error) {
 	res := &InstallResult{Root: root}
-	for _, sf := range buildSkillFiles(root, name) {
+	for _, sf := range buildFilesForPlatform(root, name, platform) {
 		full := filepath.Join(root, sf.RelPath)
 		if _, err := os.Stat(full); err == nil && !force {
 			sf.SkillFile.Installed = false
@@ -306,7 +323,7 @@ func runInstall(root, name string, force, dryRun bool) (*InstallResult, error) {
 
 func skillFiles(root, name string) []SkillFile {
 	out := make([]SkillFile, 0, 5)
-	for _, sf := range buildSkillFiles(root, name) {
+	for _, sf := range buildFilesForPlatform(root, name, PlatformAll) {
 		full := filepath.Join(root, sf.RelPath)
 		_, err := os.Stat(full)
 		sf.Installed = err == nil
@@ -315,7 +332,7 @@ func skillFiles(root, name string) []SkillFile {
 	return out
 }
 
-func printInstallResult(cmd *cobra.Command, res *InstallResult, dryRun bool) {
+func printInstallResult(cmd *cobra.Command, res *InstallResult, platform string, dryRun bool) {
 	verb := "wrote"
 	if dryRun {
 		verb = "would write"
@@ -329,10 +346,9 @@ func printInstallResult(cmd *cobra.Command, res *InstallResult, dryRun bool) {
 	if len(res.Written) > 0 && !dryRun {
 		fmt.Fprintln(cmd.OutOrStdout())
 		fmt.Fprintln(cmd.OutOrStdout(), "Done! Next steps:")
-		fmt.Fprintln(cmd.OutOrStdout(), "  1. Open VS Code Chat (Ctrl+Shift+I / Cmd+Shift+I)")
-		fmt.Fprintln(cmd.OutOrStdout(), "  2. Click the chat mode picker and select \"forge-expert\"")
-		fmt.Fprintln(cmd.OutOrStdout(), "  3. Type a description, e.g. \"add rate limiting to the API\"")
-		fmt.Fprintln(cmd.OutOrStdout(), "     The assistant will run the full Forge ship workflow.")
+		for i, step := range platformNextSteps(platform) {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %d. %s\n", i+1, step)
+		}
 	}
 }
 

@@ -395,7 +395,69 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge plugin add <name>` | Add a third-party scanner or tool |
 | `forge bundle create` | Package Forge for air-gapped or offline environments |
 
-> **Tip:** `forge <command> --help` shows all flags for any command.
+### Use Forge in your AI chat (MCP)
+
+Forge ships a built-in [Model Context Protocol](https://modelcontextprotocol.io) server so every AI chat tool (VS Code Copilot, Claude Desktop, Cursor, Windsurf) can call Forge directly — no copy-pasting commands.
+
+**Quick setup (VS Code Copilot)**
+
+The repo already ships `.vscode/settings.json` with the entry. Open the repo in VS Code and Forge tools appear in Copilot Chat automatically.
+
+For other tools, run `forge mcp info` to get ready-to-paste config for each platform:
+
+```sh
+forge mcp info
+```
+
+```
+## VS Code (.vscode/settings.json)
+{
+  "mcp": {
+    "servers": {
+      "forge": {
+        "type": "stdio",
+        "command": "forge",
+        "args": ["mcp", "serve"]
+      }
+    }
+  }
+}
+
+## Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json)
+{
+  "mcpServers": {
+    "forge": { "command": "forge", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+**MCP tools available to your AI**
+
+| Tool | What it does |
+|---|---|
+| `forge_kb_search` | Search the 172-entry Forge knowledge base for patterns and best practices |
+| `forge_get_workflow` | Get the step-by-step workflow for any Forge verb |
+| `forge_get_standards` | Read project coding standards from `.forge/instructions/` and `AGENTS.md` |
+| `forge_run` | Execute any Forge verb (scan, ship, bugfix, etc.) and return its output |
+
+Once configured, you can ask your AI: *"Run forge scan all"* or *"What does forge ship do?"* and it calls Forge directly.
+
+### Install Forge skills into your AI tool
+
+`forge skill install` injects the Forge expert role into a project and wires it to your target AI tool so it understands Forge conventions out of the box.
+
+```sh
+forge skill install --for copilot    # VS Code Copilot (writes .github/copilot-instructions.md)
+forge skill install --for claude     # Claude (writes CLAUDE.md + .claude/commands/)
+forge skill install --for cursor     # Cursor (writes .cursor/rules/*.mdc)
+forge skill install --for windsurf   # Windsurf (writes .windsurfrules)
+forge skill install --for all        # all four at once
+forge skill install --dry-run        # preview without writing files
+forge skill list                     # show installed skill files
+forge skill remove --force           # remove all skill files without prompting
+```
+
+
 
 ### A few terms in plain English
 

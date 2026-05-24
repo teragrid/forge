@@ -106,6 +106,8 @@ var reservedRanges = []struct {
 	{6550, 6599, "cli/bugfix"},
 	// forge skill: VS Code Copilot expert role installer.
 	{6700, 6799, "cli/skill"},
+	// forge mcp: Model Context Protocol server for AI chat integrations.
+	{6800, 6899, "cli/mcp"},
 	{9000, 9099, "internal/test"},
 }
 

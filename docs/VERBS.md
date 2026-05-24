@@ -72,6 +72,8 @@ The following flags are available on every verb:
 | `forge context` | Manage project context bundles; `forge context generate` (renamed from `forge generate ai-context`) | — |
 | `forge agents` | Manage LLM agents; `forge agents stop` (replaces `forge agents stop --workspace`) | — |
 | `forge ask` | Ask questions about the project via LLM; `forge ask error <code>` looks up error docs | `FORGE-4900..4999` |
+| `forge mcp` | Model Context Protocol server; `forge mcp serve` starts a JSON-RPC 2.0 stdio server exposing 4 tools (`forge_kb_search`, `forge_get_workflow`, `forge_get_standards`, `forge_run`); `forge mcp info` prints config snippets for VS Code, Claude Desktop, Cursor, Windsurf | — |
+| `forge skill` | Install the Forge expert role into a project; `forge skill install --for <platform>` (copilot\|claude\|cursor\|windsurf\|all); `forge skill list`; `forge skill remove [--force]` | — |
 
 > **Deprecation notice (G-090):** The following old verbs print a deprecation hint and delegate to the new name:
 > `forge migrate-code` → `forge upgrade`,
