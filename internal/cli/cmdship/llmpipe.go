@@ -145,9 +145,9 @@ func (p *LLMPipe) ProviderName() string {
 // shipMessage returns the top-level status message for a ship run.
 func shipMessage(pipe *LLMPipe) string {
 	if pipe == nil {
-		return "no LLM provider detected; set ANTHROPIC_API_KEY or OPENAI_API_KEY for AI-driven checkpoints"
+		return "tip: set ANTHROPIC_API_KEY or OPENAI_API_KEY to unlock AI-driven spec generation, arch docs, and code plans"
 	}
-	return "LLM provider: " + pipe.ProviderName() + " (M1 HTTP transport pending; structural checkpoints active)"
+	return "LLM provider: " + pipe.ProviderName()
 }
 
 // llmErrNote converts an LLM error into a concise user-facing note.

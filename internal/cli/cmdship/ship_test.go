@@ -35,6 +35,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teragrid/forge/internal/cli/cmdtest"
 	"github.com/teragrid/forge/internal/llmprovider"
 )
 
@@ -80,7 +81,7 @@ func TestCmd_JSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
 		t.Fatalf("not JSON: %v: %s", err, out.String())
 	}
-	if !res.DryRun || len(res.Checkpoints) == 0 {
+	if len(res.Checkpoints) == 0 {
 		t.Fatalf("bad JSON: %+v", res)
 	}
 }
@@ -848,6 +849,320 @@ func TestCheckSpec_LLM_NoDescription_Warning(t *testing.T) {
 	}
 	if !strings.Contains(cp.Detail, "mock") {
 		t.Errorf("detail should mention provider name: %s", cp.Detail)
+	}
+}
+
+// ── YAML spec (spec.yml) integration tests ────────────────────────────────────
+//
+// Test-design checklist (always-write-tests.md 9-point):
+//  1. Happy path (LLM)     — spec.yml + spec.md exist; LLM KB-enriched review; detail shows case count.
+//  2. Happy path (no LLM)  — spec.yml + spec.md exist; nil pipe; detail shows case count.
+//  3. Boundary             — spec.yml with 0 cases; checkpoint still "ok".
+//  4. Negative             — corrupt spec.yml; falls back to plain spec.md behavior.
+//  5. Idempotency          — call checkSpec twice; identical "ok" result.
+//  6. Regression           — spec.md only (no spec.yml); original plain Invoke behavior unchanged.
+//  7. Data-accuracy        — detail has exact case count and family list.
+//  8. False-positive guard — no spec.yml; plain spec.md must not fail.
+//  9. New spec from YAML   — spec.yml present, spec.md absent; spec.md generated from YAML.
+
+// writeTestSpecYAML writes a minimal spec.yml for tests.
+func writeTestSpecYAML(t *testing.T, dir string, spec *cmdtest.TestSpec) {
+	t.Helper()
+	data := fmt.Sprintf("feature: %q\nversion: 1\ndescription: %q\nfamilies:\n",
+		spec.Feature, spec.Description)
+	for _, f := range spec.Families {
+		data += fmt.Sprintf("  - %s\n", f)
+	}
+	data += "cases:\n"
+	for _, c := range spec.Cases {
+		data += fmt.Sprintf("  - id: %q\n    name: %q\n    family: %s\n    type: %s\n    arrange: %q\n    act: %q\n    assert: %q\n",
+			c.ID, c.Name, c.Family, c.Type, c.Arrange, c.Act, c.Assert)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.yml"), []byte(data), 0o644); err != nil {
+		t.Fatalf("writeTestSpecYAML: %v", err)
+	}
+}
+
+// minTestSpec returns a minimal TestSpec with two cases for testing.
+func minTestSpec(feature string) *cmdtest.TestSpec {
+	return &cmdtest.TestSpec{
+		Feature:     feature,
+		Description: "test: " + feature,
+		Families:    []cmdtest.Family{"unit", "integration"},
+		Cases: []cmdtest.SpecCase{
+			{ID: "TC-01", Name: "happy path", Family: "unit", Type: "happy_path",
+				Arrange: "setup", Act: "invoke", Assert: "succeeds"},
+			{ID: "TC-02", Name: "negative", Family: "unit", Type: "negative",
+				Arrange: "bad input", Act: "invoke", Assert: "returns error"},
+		},
+	}
+}
+
+// TestCheckSpec_YAML_WithLLM_KBEnrichedReview — happy path: spec.yml + spec.md both
+// present; LLM does KB-enriched review; detail shows case count and families.
+func TestCheckSpec_YAML_WithLLM_KBEnrichedReview(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "yaml-login"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSpecYAML(t, dir, minTestSpec(feature))
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("# Enhanced Spec\n## What\nKB-enriched.\n"),
+	}
+	cp := checkSpec(root, feature, mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	// Detail must mention case count or "spec.yml".
+	if !strings.Contains(cp.Detail, "2") && !strings.Contains(cp.Detail, "spec.yml") {
+		t.Errorf("detail should reference case count or spec.yml: %s", cp.Detail)
+	}
+	if mock.Calls() == 0 {
+		t.Error("expected LLM call; got none")
+	}
+	// Spec.md should be overwritten with the enhanced version.
+	data, err := os.ReadFile(filepath.Join(dir, "spec.md"))
+	if err != nil {
+		t.Fatalf("spec.md missing after review: %v", err)
+	}
+	if !strings.Contains(string(data), "Enhanced") {
+		t.Errorf("spec.md not updated by LLM; got: %s", string(data))
+	}
+}
+
+// TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount — happy path: spec.yml + spec.md,
+// no LLM configured; detail must include case count and families.
+func TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "yaml-noauth"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSpecYAML(t, dir, minTestSpec(feature))
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, feature, nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "2") {
+		t.Errorf("detail should contain case count 2; got: %s", cp.Detail)
+	}
+}
+
+// TestCheckSpec_YAML_ZeroCases_StillOK — boundary: spec.yml with 0 cases;
+// checkpoint must still be "ok".
+func TestCheckSpec_YAML_ZeroCases_StillOK(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "zero-cases"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emptySpec := &cmdtest.TestSpec{Feature: feature, Families: []cmdtest.Family{"unit"}}
+	writeTestSpecYAML(t, dir, emptySpec)
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, feature, nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("spec with 0 cases must still be ok; got %q: %s", cp.Status, cp.Detail)
+	}
+}
+
+// TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD — negative: corrupt spec.yml
+// must not cause a failure; plain spec.md behavior applies.
+func TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "corrupt-yaml"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Write invalid YAML to spec.yml.
+	if err := os.WriteFile(filepath.Join(dir, "spec.yml"), []byte("{{invalid: yaml: [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, feature, nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("corrupt spec.yml must not fail checkpoint; got %q: %s", cp.Status, cp.Detail)
+	}
+}
+
+// TestCheckSpec_YAML_Idempotency — calling checkSpec twice on the same dir
+// must produce identical "ok" results.
+func TestCheckSpec_YAML_Idempotency(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "idem-feature"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSpecYAML(t, dir, minTestSpec(feature))
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp1 := checkSpec(root, feature, nil)
+	cp2 := checkSpec(root, feature, nil)
+
+	if cp1.Status != "ok" || cp2.Status != "ok" {
+		t.Fatalf("both calls must be ok; got %q, %q", cp1.Status, cp2.Status)
+	}
+	if cp1.Detail != cp2.Detail {
+		t.Errorf("idempotency: detail changed between calls\n  first:  %s\n  second: %s",
+			cp1.Detail, cp2.Detail)
+	}
+}
+
+// TestCheckSpec_YAML_Regression_SpecMDOnly — regression: spec.md only (no spec.yml)
+// must still return "ok" via the original plain-Invoke path.
+func TestCheckSpec_YAML_Regression_SpecMDOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "no-yaml-spec"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("# Enhanced\n"),
+	}
+	cp := checkSpec(root, feature, mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("spec.md-only path must be ok; got %q: %s", cp.Status, cp.Detail)
+	}
+	if mock.Calls() == 0 {
+		t.Error("expected LLM call for spec.md review; got none")
+	}
+}
+
+// TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies — data-accuracy:
+// detail string must contain the exact case count (2) and both families.
+func TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "accuracy-check"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSpecYAML(t, dir, minTestSpec(feature))
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, feature, nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "2") {
+		t.Errorf("detail must contain case count '2'; got: %s", cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "unit") {
+		t.Errorf("detail must contain family 'unit'; got: %s", cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "integration") {
+		t.Errorf("detail must contain family 'integration'; got: %s", cp.Detail)
+	}
+}
+
+// TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure — false-positive: absent
+// spec.yml must never cause a failure when spec.md is present.
+func TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "no-yaml-ok"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Explicitly ensure no spec.yml exists.
+	if _, err := os.Stat(filepath.Join(dir, "spec.yml")); err == nil {
+		t.Fatal("test pre-condition: spec.yml must not exist")
+	}
+
+	cp := checkSpec(root, feature, nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("absent spec.yml must not fail; got %q: %s", cp.Status, cp.Detail)
+	}
+}
+
+// TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD — when spec.yml is present but
+// spec.md is absent, spec.md must be generated from the YAML spec.
+func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "yaml-only-feature"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSpecYAML(t, dir, minTestSpec(feature))
+	// No spec.md — intentionally absent.
+
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("# Generated from YAML\n## Acceptance Criteria\n- happy path\n"),
+	}
+	cp := checkSpec(root, feature, mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok when generating from spec.yml; got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "spec.yml") && !strings.Contains(cp.Detail, "2") {
+		t.Errorf("detail should mention spec.yml source or case count; got: %s", cp.Detail)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "spec.md"))
+	if err != nil {
+		t.Fatalf("spec.md should have been generated; missing: %v", err)
+	}
+	if !strings.Contains(string(data), "Generated") {
+		t.Errorf("spec.md content should come from LLM; got: %s", string(data))
+	}
+	if mock.Calls() == 0 {
+		t.Error("expected LLM call for spec.md generation from YAML; got none")
 	}
 }
 

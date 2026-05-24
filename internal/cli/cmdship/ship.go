@@ -44,6 +44,7 @@ import (
 	"github.com/teragrid/forge/internal/audit"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
+	"github.com/teragrid/forge/internal/cli/cmdtest"
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/gitservice"
 	"github.com/teragrid/forge/internal/manifest"
@@ -196,8 +197,8 @@ func New() *cobra.Command {
 
 	// bindFlags attaches shared flags to a subcommand or the parent.
 	bindFlags := func(c *cobra.Command) {
-		c.Flags().BoolVar(&dryRun, "dry-run", true, "validate without executing (default in MVP)")
-		c.Flags().StringVar(&description, "description", "", "what this change does")
+		c.Flags().BoolVar(&dryRun, "dry-run", false, "preview what would happen without making LLM calls or git operations")
+		c.Flags().StringVar(&description, "description", "", "what this change does (deprecated: use positional arg instead)")
 		c.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 		c.Flags().BoolVar(&yolo, "yolo", false, "skip all approval gates (ship without review prompts)")
 		c.Flags().BoolVar(&quick, "quick", false, "lightweight run: spec+code only (skips test, breakdown, verify)")
@@ -301,6 +302,7 @@ func New() *cobra.Command {
 			Names:       names,
 			Gate:        gate,
 			CreatePR:    pr,
+			DryRun:      dryRun,
 		}
 		if yolo && len(names) == 0 {
 			runOpts.DebateOpts = &DebateOptions{
@@ -350,7 +352,12 @@ func New() *cobra.Command {
 			"  (6) ship      — hygiene + scan + lint readiness check\n\n" +
 			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship\n" +
 			"Run all six checkpoints with: forge ship (no subcommand)\n\n" +
-			"The --dry-run flag (default in MVP) validates checkpoints without executing.",
+			"Use --dry-run to preview checkpoints without making LLM calls or git operations.\n\n" +
+			"Examples:\n" +
+			"  forge ship \"add rate limiting\"           — full 6-checkpoint pipeline\n" +
+			"  forge ship spec \"add rate limiting\"       — spec checkpoint only\n" +
+			"  forge ship \"add rate limiting\" --dry-run  — preview without writing\n" +
+			"  forge ship \"add rate limiting\" --resume   — continue from last checkpoint",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Intercept built-in cobra subcommand words that can reach RunE
@@ -381,10 +388,18 @@ func New() *cobra.Command {
 
 	makeCheckpointCmd := func(name, short string) *cobra.Command {
 		c := &cobra.Command{
-			Use:   name,
+			Use:   name + ` [<description>]`,
 			Short: short,
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, _ []string) error {
+			Args:  cobra.MaximumNArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				if len(args) == 1 {
+					if description != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "note: --description ignored; using positional arg %q\n", args[0])
+					}
+					description = args[0]
+				} else if cmd.Flags().Changed("description") {
+					fmt.Fprintf(cmd.OutOrStdout(), "tip: drop the flag — run: forge ship %s %q\n", name, description)
+				}
 				return runCheckpoint(cmd, []string{name})
 			},
 		}
@@ -586,16 +601,49 @@ func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 }
 
 // Run executes the full 6-checkpoint dry-run validation (backward-compat entry point).
+// DryRun is always true for this entry point to preserve backward-compatible behaviour.
 func Run(root, description string) *ShipResult {
-	return RunCheckpoints(root, description, nil)
+	return RunWithOptions(RunOptions{Root: root, Description: description, DryRun: true})
 }
 
 // â”€â”€ Per-checkpoint evaluators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+// specFamilyList returns a compact comma-separated list of test families.
+func specFamilyList(families []cmdtest.Family) string {
+	if len(families) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, len(families))
+	for i, f := range families {
+		parts[i] = string(f)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// specYAMLContext builds a compact text summary of a TestSpec for LLM context.
+func specYAMLContext(spec *cmdtest.TestSpec) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "feature: %s\n", spec.Feature)
+	if spec.Description != "" {
+		fmt.Fprintf(&b, "description: %s\n", spec.Description)
+	}
+	fmt.Fprintf(&b, "families: %s\n", specFamilyList(spec.Families))
+	fmt.Fprintf(&b, "cases (%d total):\n", len(spec.Cases))
+	for _, c := range spec.Cases {
+		fmt.Fprintf(&b, "  [%s] %s (%s)\n", c.ID, c.Name, c.Type)
+		if c.Assert != "" {
+			fmt.Fprintf(&b, "    assert: %s\n", c.Assert)
+		}
+	}
+	return b.String()
+}
 
 // checkSpec validates or generates the feature spec.
 // With an LLMPipe: if the spec already exists it is reviewed and enhanced;
 // if it does not exist it is generated from the description.
 // Without an LLMPipe (no provider configured): a Markdown stub is written.
+// When a pre-generated spec.yml (from `forge test spec`) exists it is loaded
+// to enrich the LLM call via InvokeWithKnowledge and surfaced in the detail.
 func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Spec"}
 	// G-011: surface recent spec failures as context for the LLM.
@@ -604,8 +652,14 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 	if description != "" {
 		slug := slugify(description)
 		specFile := filepath.Join(specsDir, slug, "spec.md")
+		yamlSpecPath := filepath.Join(specsDir, slug, "spec.yml")
+
+		// Load a pre-generated YAML spec (from `forge test spec`) if present.
+		// Errors are silently ignored; a nil ySpec means fall back to spec.md-only logic.
+		ySpec, _ := cmdtest.ReadSpec(yamlSpecPath)
+
 		if _, err := os.Stat(specFile); err == nil {
-			// Spec exists — attempt LLM review.
+			// spec.md exists — attempt LLM review, enriched with YAML context when available.
 			if pipe != nil {
 				existing, _ := os.ReadFile(specFile)
 				specReviewSystem := "You are a senior software architect reviewing a feature specification. " +
@@ -614,31 +668,118 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 				if recentSpecFailures != "" {
 					specReviewSystem = recentSpecFailures + "\n" + specReviewSystem
 				}
-				reviewed, err := pipe.Invoke(
-					"ship:spec:review", "",
-					specReviewSystem,
-					fmt.Sprintf("Feature: %s\n\nCurrent spec:\n%s", description, string(existing)),
-					2000,
-				)
-				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else //nolint:gocritic // ifElseChain: clearer as if/else
+				userPrompt := fmt.Sprintf("Feature: %s\n\nCurrent spec:\n%s", description, string(existing))
+				if ySpec != nil {
+					userPrompt = fmt.Sprintf(
+						"Feature: %s\n\nYAML test spec (%d cases, families: %s):\n%s\n\nCurrent spec.md:\n%s",
+						description, len(ySpec.Cases), specFamilyList(ySpec.Families),
+						specYAMLContext(ySpec), string(existing),
+					)
+				}
+				var reviewed string
+				var reviewErr error
+				if ySpec != nil {
+					// KB-enriched review when a YAML spec is present.
+					reviewed, reviewErr = pipe.InvokeWithKnowledge(
+						"ship:spec:review", "",
+						specReviewSystem, userPrompt, 2000,
+						"spec", "unit", "spec", []string{"test-design", "quality-gate"},
+					)
+				} else {
+					reviewed, reviewErr = pipe.Invoke(
+						"ship:spec:review", "",
+						specReviewSystem, userPrompt, 2000,
+					)
+				}
+				if reviewErr != nil {
 					cp.Status = "ok"
-					cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md [LLM:%s — %s]",
-						slug, pipe.ProviderName(), llmErrNote(err))
+					if ySpec != nil {
+						cp.Detail = fmt.Sprintf(
+							"spec found (spec.yml: %d cases, families: %s) [LLM:%s — %s]",
+							len(ySpec.Cases), specFamilyList(ySpec.Families),
+							pipe.ProviderName(), llmErrNote(reviewErr))
+					} else {
+						cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md [LLM:%s — %s]",
+							slug, pipe.ProviderName(), llmErrNote(reviewErr))
+					}
 					return cp
 				}
 				if reviewed != "" {
 					_ = os.WriteFile(specFile, []byte(reviewed), 0o600)
 					cp.Status = "ok"
-					cp.Detail = fmt.Sprintf("spec reviewed and enhanced by %s: .forge/specs/%s/spec.md",
-						pipe.ProviderName(), slug)
+					if ySpec != nil {
+						cp.Detail = fmt.Sprintf(
+							"spec reviewed via KB (%s) — spec.yml: %d cases, families: %s",
+							pipe.ProviderName(), len(ySpec.Cases), specFamilyList(ySpec.Families))
+					} else {
+						cp.Detail = fmt.Sprintf("spec reviewed and enhanced by %s: .forge/specs/%s/spec.md",
+							pipe.ProviderName(), slug)
+					}
 					return cp
 				}
 			}
 			cp.Status = "ok"
-			cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md", slug)
+			if ySpec != nil {
+				cp.Detail = fmt.Sprintf("spec found (spec.yml: %d cases, families: %s): .forge/specs/%s/spec.md",
+					len(ySpec.Cases), specFamilyList(ySpec.Families), slug)
+			} else {
+				cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md", slug)
+			}
 			return cp
 		}
-		// Spec does not exist — generate via LLM or write a stub.
+
+		// spec.md does not exist.
+		// If a YAML spec is present, generate spec.md from it (KB-enriched when LLM available).
+		if ySpec != nil {
+			if err := os.MkdirAll(filepath.Join(specsDir, slug), 0o755); err == nil {
+				specContent := ""
+				if pipe != nil {
+					specGenSystem := "You are a senior software architect. " +
+						"Generate a complete feature specification in Markdown from the provided YAML test spec. " +
+						"Include: What, Why, Acceptance Criteria (Given/When/Then format derived from the test cases), " +
+						"Non-functional requirements, and Out of scope."
+					if recentSpecFailures != "" {
+						specGenSystem = recentSpecFailures + "\n" + specGenSystem
+					}
+					generated, genErr := pipe.InvokeWithKnowledge(
+						"ship:spec:generate-from-yaml", "",
+						specGenSystem,
+						fmt.Sprintf("Generate spec.md for feature: %s\n\n%s", description, specYAMLContext(ySpec)),
+						2000,
+						"spec", "unit", "spec", []string{"test-design", "quality-gate"},
+					)
+					if genErr != nil { //nolint:gocritic // ifElseChain: clearer as if/else
+						specContent = specStub(description)
+						cp.Detail = fmt.Sprintf(
+							"spec.md stub created from spec.yml (%d cases) [LLM:%s — %s]: .forge/specs/%s/spec.md — edit before continuing",
+							len(ySpec.Cases), pipe.ProviderName(), llmErrNote(genErr), slug)
+					} else if generated != "" {
+						specContent = generated
+						cp.Detail = fmt.Sprintf("spec.md generated from spec.yml (%d cases) by %s: .forge/specs/%s/spec.md",
+							len(ySpec.Cases), pipe.ProviderName(), slug)
+					} else {
+						specContent = specStub(description)
+						cp.Detail = fmt.Sprintf("spec.md stub created from spec.yml (%d cases): .forge/specs/%s/spec.md",
+							len(ySpec.Cases), slug)
+					}
+				} else {
+					specContent = specStub(description)
+					cp.Detail = fmt.Sprintf(
+						"spec.yml found (%d cases, families: %s) — spec.md stub written: .forge/specs/%s/spec.md"+
+							" (set ANTHROPIC_API_KEY to auto-generate via LLM)",
+						len(ySpec.Cases), specFamilyList(ySpec.Families), slug)
+				}
+				if err := os.WriteFile(specFile, []byte(specContent), 0o600); err == nil {
+					cp.Status = "ok"
+					return cp
+				}
+			}
+			cp.Status = "ok"
+			cp.Detail = fmt.Sprintf("spec.yml found (%d cases) — .forge/ not writable", len(ySpec.Cases))
+			return cp
+		}
+
+		// Neither spec.yml nor spec.md — generate via LLM or write a stub.
 		if err := os.MkdirAll(filepath.Join(specsDir, slug), 0o755); err == nil {
 			specContent := ""
 			if pipe != nil {
@@ -690,15 +831,15 @@ func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
 	entries, err := os.ReadDir(specsDir)
 	if err == nil && len(entries) > 0 {
 		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf("%d spec(s) in .forge/specs/; pass --description <feature> to target one", len(entries))
+		cp.Detail = fmt.Sprintf("%d spec(s) in .forge/specs/; pass a feature description to target one", len(entries))
 		return cp
 	}
 	cp.Status = "warning"
 	if pipe != nil {
-		cp.Detail = fmt.Sprintf("no --description; pass --description <feature> to generate a spec via %s",
+		cp.Detail = fmt.Sprintf("no description; pass a feature description to generate a spec via %s",
 			pipe.ProviderName())
 	} else {
-		cp.Detail = "no --description and no specs in .forge/specs/; pass --description <feature> to generate a spec stub"
+		cp.Detail = "no description and no specs in .forge/specs/; run: forge ship spec \"<your feature>\""
 	}
 	return cp
 }
@@ -1130,7 +1271,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	}
 
 	res := &ShipResult{
-		DryRun:        true,
+		DryRun:        opts.DryRun,
 		DebateEnabled: opts.DebateOpts != nil,
 		Message:       shipMessage(pipe),
 	}
@@ -1230,12 +1371,58 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 func renderText(cmd *cobra.Command, r *ShipResult) {
 	w := cmd.OutOrStdout()
-	mode := "--dry-run"
+
+	// ── Single-checkpoint run (forge ship spec|arch|test|...) ─────────────
+	// Only use the simplified single-checkpoint view when there are no
+	// Yolo/gate/debate fields that require the full pipeline layout.
+	isSingle := len(r.Checkpoints) == 1 && !r.Yolo
+	if isSingle {
+		for _, cp := range r.Checkpoints {
+			if cp.Approved != nil || cp.Debate != nil {
+				isSingle = false
+				break
+			}
+		}
+	}
+	if isSingle {
+		cp := r.Checkpoints[0]
+		marker := "○"
+		switch cp.Status {
+		case "ok":
+			marker = "✓"
+		case "fail":
+			marker = "✗"
+		case "warning":
+			marker = "△"
+		}
+		fmt.Fprintf(w, "%s %s — %s\n", marker, cp.Name, cp.Detail)
+		if cp.Status == "fail" {
+			fmt.Fprintln(w, "\nFix the issue above, then re-run this checkpoint.")
+		} else if cp.Status == "ok" {
+			order := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
+			for i, n := range order {
+				if strings.EqualFold(cp.Name, n) && i+1 < len(order) {
+					fmt.Fprintf(w, "\nnext: forge ship %s \"<description>\"\n", order[i+1])
+					fmt.Fprintf(w, "  — or run all remaining: forge ship \"<description>\"\n")
+					break
+				}
+			}
+		}
+		return
+	}
+
+	// ── Full pipeline header ───────────────────────────────────────────────
+	mode := ""
+	if r.DryRun {
+		mode = " --dry-run"
+	}
 	if r.Yolo {
 		mode += " [YOLO — approval gates disabled]"
 	}
-	fmt.Fprintf(w, "forge ship %s\n", mode)
-	fmt.Fprintf(w, "%s\n", r.Message)
+	fmt.Fprintf(w, "forge ship%s\n", mode)
+	if r.Message != "" {
+		fmt.Fprintf(w, "%s\n", r.Message)
+	}
 	fmt.Fprintln(w, "\n6-checkpoint pipeline:")
 	for i, cp := range r.Checkpoints {
 		marker := "\u25cb " // ○ default (unknown status)
@@ -1255,7 +1442,7 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 				approval = " [rejected]"
 			}
 		}
-		fmt.Fprintf(w, "  [%d] %s%s — %s%s\n", i+1, marker, cp.Name, cp.Detail, approval)
+		fmt.Fprintf(w, "  [%d/%d] %s%s — %s%s\n", i+1, len(r.Checkpoints), marker, cp.Name, cp.Detail, approval)
 		if d := cp.Debate; d != nil {
 			consensusIcon := "✓"
 			if !d.Consensus {

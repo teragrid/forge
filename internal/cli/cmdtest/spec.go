@@ -342,6 +342,13 @@ func RunFromSpec(opts SpecRunOptions) *SpecRunResult {
 	return res
 }
 
+// ReadSpec reads and parses a spec.yml file at path.
+// It is the exported counterpart to loadSpec, intended for use by other
+// packages (e.g. cmdship) that need to consume a pre-generated spec.
+func ReadSpec(path string) (*TestSpec, error) {
+	return loadSpec(path)
+}
+
 // loadSpec reads and unmarshals a spec.yml or spec.md (YAML front-matter).
 func loadSpec(path string) (*TestSpec, error) {
 	data, err := os.ReadFile(path) //nolint:gosec

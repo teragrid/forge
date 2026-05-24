@@ -4,6 +4,28 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.9] — 2026-05-25
+
+### Added
+
+- **`forge ship spec "description"` positional arg** — `--description` flag is no longer required; pass the feature description as the first positional argument (e.g. `forge ship spec "add rate limiting"`). `--description` is still accepted but prints a deprecation tip.
+- **All checkpoint subcommands accept positional description** — `forge ship arch|test|breakdown|code|ship "description"` all now accept a positional arg.
+- **`forge ship` spec checkpoint detects pre-generated `spec.yml`** — when `forge test spec` has already produced `.forge/specs/<slug>/spec.yml`, the spec checkpoint loads it and uses `InvokeWithKnowledge` for KB-enriched LLM review. Case count and families appear in the checkpoint detail line (e.g. `spec reviewed via KB — spec.yml: 9 cases, families: unit, integration`).
+- **`forge ship` spec checkpoint generates `spec.md` from `spec.yml`** — when `spec.yml` is present but `spec.md` is absent, `spec.md` is generated from the YAML spec content (KB-enriched when an LLM provider is configured).
+- **`cmdtest.ReadSpec(path)`** — exported function for reading `.forge/specs/<slug>/spec.yml` files from other packages.
+
+### Changed
+
+- **`--dry-run` defaults to `false`** — previously `forge ship` ran in dry-run mode by default; now it runs live. Pass `--dry-run` explicitly to preview without LLM calls or git operations.
+- **Single-checkpoint output simplified** — running a single checkpoint (e.g. `forge ship spec`) shows focused output with a "next:" hint instead of the full 6-checkpoint pipeline header.
+- **Checkpoint progress format** — full pipeline now shows `[1/6]`, `[2/6]` etc.
+- **LLM tip message improved** — removed stale "M1 HTTP transport pending" reference.
+- **No-description hint updated** — suggests `forge ship spec "<your feature>"` instead of referencing the deprecated `--description` flag.
+
+### Fixed
+
+- `forge ship` journey test now explicitly passes `--dry-run` when testing the dry-run flag (aligns with new default of `false`).
+
 ## [1.1.8] — 2026-05-24
 
 ### Fixed

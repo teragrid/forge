@@ -716,7 +716,7 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	dir := t.TempDir()
 
 	// Step 1: full pipeline.
-	s1 := jStep(t, "ship --json", cmdship.New(), "--json", "--root", dir)
+	s1 := jStep(t, "ship --json", cmdship.New(), "--json", "--dry-run", "--root", dir)
 	r1 := parseShipJSON(t, "ship-full", s1)
 	if !r1.DryRun {
 		t.Fatal("step 1 (ship full): expected dry_run=true")

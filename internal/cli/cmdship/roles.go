@@ -320,6 +320,10 @@ type RunOptions struct {
 	// CreatePR, when true, appends a PR-creation checkpoint after verify.
 	// Only effective for full-pipeline runs (Names == nil). Triggered by --pr.
 	CreatePR bool
+	// DryRun, when true, marks the result as a preview run. The flag is
+	// cosmetic in the current implementation (all structural checkpoints still
+	// run) but prevents LLM calls and git operations in future M1 gating.
+	DryRun bool
 	// EventWriter, when non-nil, receives one NDJSON ShipEvent line per
 	// checkpoint as each completes. Set by runCheckpoint when --yes && --json (G-004).
 	EventWriter interface{ Write([]byte) (int, error) }
