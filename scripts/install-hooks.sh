@@ -57,7 +57,7 @@ case "$ACTION" in
     echo ""
     echo "All Forge git hooks installed."
     echo "  pre-commit  — secret scan + convention lint (blocks commit)"
-    echo "  pre-push    — fmt + vet + lint + build + test + vuln + forge gates (blocks push)"
+    echo "  pre-push    — fmt + vet + lint + build + test + vuln + forge gates + qa suite (blocks push)"
     echo "  post-push   — CI monitor; records gotchas to .forge/learned/ (non-blocking)"
     echo ""
     echo "  Recommended alternative: make hooks  (uses .githooks/ directly, no copy)"

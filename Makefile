@@ -119,7 +119,12 @@ tag:
 .PHONY: hooks
 hooks:
 	git config core.hooksPath .githooks
-	@echo "pre-push hook active — checks: fmt, vet, lint, build, test, vuln, mod verify"
+	@echo "pre-push hook active — checks: fmt, vet, lint, build, test, vuln, mod verify, forge qa"
+
+# Run the real-command QA integration suite against a throwaway project.
+.PHONY: qa
+qa: build
+	bash scripts/forge-qa-real.sh
 
 # Run every quality gate locally in the same order as the pre-push hook.
 .PHONY: check
