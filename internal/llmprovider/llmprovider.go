@@ -198,15 +198,25 @@ func detectByName(name string) Provider {
 			return &OpenAIAdapter{apiKey: k}
 		}
 	case "gemini":
-		return newGeminiProvider()
+		if p := newGeminiProvider(); p != nil {
+			return p
+		}
 	case "azure", "azure_openai", "azure-openai":
-		return newAzureOpenAIProvider()
+		if p := newAzureOpenAIProvider(); p != nil {
+			return p
+		}
 	case "bedrock", "aws_bedrock", "aws-bedrock":
-		return newBedrockProvider()
+		if p := newBedrockProvider(); p != nil {
+			return p
+		}
 	case "ollama":
-		return newOllamaProvider()
+		if p := newOllamaProvider(); p != nil {
+			return p
+		}
 	case "copilot", "github_copilot", "github-copilot":
-		return newCopilotProvider()
+		if p := newCopilotProvider(); p != nil {
+			return p
+		}
 	}
 	return nil
 }
