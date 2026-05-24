@@ -149,6 +149,16 @@ func TestDetect_NoEnvVars(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("AZURE_OPENAI_API_KEY", "")
+	t.Setenv("AWS_BEDROCK_REGION", "")
+	t.Setenv("OLLAMA_HOST", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	tmp := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", filepath.Join(tmp, "none"))
+	// Block `gh auth token` subprocess so the test is hermetic.
+	t.Setenv("PATH", tmp)
 
 	_, err := llmprovider.Detect()
 	if err == nil {
@@ -371,6 +381,12 @@ func TestDetect_NoEnvVars_ErrorMentionsForgeConfig(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_API_KEY", "")
 	t.Setenv("AWS_BEDROCK_REGION", "")
 	t.Setenv("OLLAMA_HOST", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	tmp := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", filepath.Join(tmp, "none"))
+	// Block `gh auth token` subprocess so the test is hermetic.
+	t.Setenv("PATH", tmp)
 
 	_, err := llmprovider.Detect()
 	if err == nil {

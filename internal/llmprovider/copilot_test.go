@@ -78,6 +78,8 @@ func TestCopilotProvider_NoToken_ReturnsNil(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 	tmp := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", filepath.Join(tmp, "does_not_exist"))
+	// Block `gh auth token` subprocess so the test is hermetic.
+	t.Setenv("PATH", tmp)
 
 	p := newCopilotProvider()
 	if p != nil {

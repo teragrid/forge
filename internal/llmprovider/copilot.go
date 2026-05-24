@@ -18,6 +18,7 @@
 //  1. GH_TOKEN environment variable
 //  2. GITHUB_TOKEN environment variable
 //  3. gh CLI config file (~/.config/gh/hosts.yml or %APPDATA%\GitHub CLI\hosts.yml)
+//  4. `gh auth token` subprocess (covers OS-keychain / credential-helper storage)
 //
 // Uses the GitHub Copilot chat completions API at https://api.githubcopilot.com,
 // which exposes an OpenAI-compatible interface. This lets VS Code / GitHub Copilot
@@ -39,6 +40,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -153,7 +155,31 @@ func detectGitHubToken() string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
 		return t
 	}
-	return readGHConfigToken()
+	// Try the config file first (plain-text storage).
+	if t := readGHConfigToken(); t != "" {
+		return t
+	}
+	// Modern gh CLI may store the token in the OS keychain instead of the
+	// config file. Run `gh auth token` as a last resort; it works regardless
+	// of the storage backend (plaintext, keychain, credential helper).
+	return runGHAuthToken()
+}
+
+// runGHAuthToken spawns `gh auth token --hostname github.com` with a short
+// timeout. Returns the trimmed token string, or "" when gh is not installed
+// or the user is not authenticated.
+func runGHAuthToken() string {
+	ghPath, err := exec.LookPath("gh")
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, ghPath, "auth", "token", "--hostname", "github.com").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // readGHConfigToken reads the oauth_token from the gh CLI hosts config file.
