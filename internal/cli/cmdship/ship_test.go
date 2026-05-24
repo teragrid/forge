@@ -49,8 +49,8 @@ func TestRun_DryRun(t *testing.T) {
 	if !res.DryRun {
 		t.Fatal("expected dry_run=true")
 	}
-	if len(res.Checkpoints) != 6 {
-		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
 }
 
@@ -64,7 +64,7 @@ func TestCmd_Text(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "6-checkpoint") {
+	if !strings.Contains(out.String(), "7-checkpoint") {
 		t.Fatalf("missing pipeline output: %s", out.String())
 	}
 }
@@ -235,8 +235,8 @@ func TestRunCheckpoints_Verify_FreshDir_OK(t *testing.T) {
 func TestRunCheckpointsGated_NilGate_YOLO(t *testing.T) {
 	t.Parallel()
 	res := RunCheckpointsGated(t.TempDir(), "", nil, nil)
-	if len(res.Checkpoints) != 6 {
-		t.Fatalf("yolo: expected 6 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("yolo: expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatal("yolo: expected Ready=true")
@@ -258,22 +258,22 @@ func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 		return true
 	})
 	res := RunCheckpointsGated(t.TempDir(), "", nil, gate)
-	if len(res.Checkpoints) != 6 {
-		t.Fatalf("all-approved: expected 6 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("all-approved: expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatal("all-approved: expected Ready=true")
 	}
-	if gateCalls != 5 {
-		t.Fatalf("all-approved: gate must be called 5 times (not for last), got %d", gateCalls)
+	if gateCalls != 6 {
+		t.Fatalf("all-approved: gate must be called 6 times (not for last), got %d", gateCalls)
 	}
-	for i, cp := range res.Checkpoints[:5] {
+	for i, cp := range res.Checkpoints[:6] {
 		if cp.Approved == nil || !*cp.Approved {
 			t.Fatalf("all-approved: checkpoint %d (%s) Approved must be true", i+1, cp.Name)
 		}
 	}
 	// Last checkpoint has no Approved field.
-	if res.Checkpoints[5].Approved != nil {
+	if res.Checkpoints[6].Approved != nil {
 		t.Fatal("all-approved: last checkpoint must not have Approved set")
 	}
 }
@@ -370,10 +370,10 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	}
 	// G-004: --yolo + --json now emits NDJSON event stream (one line per checkpoint).
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 6 {
-		t.Fatalf("--yolo --json: expected 6 NDJSON lines, got %d\n%s", len(lines), out.String())
+	if len(lines) != 7 {
+		t.Fatalf("--yolo --json: expected 7 NDJSON lines, got %d\n%s", len(lines), out.String())
 	}
-	// Decode all 6 events.
+	// Decode all 7 events.
 	for i, line := range lines {
 		var ev ShipEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
@@ -383,11 +383,16 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 			t.Errorf("--yolo --json: line %d: schema_version must be \"1\", got %q", i+1, ev.SchemaVersion)
 		}
 	}
-	// Last event must be ship.passed or ship.failed.
+	// Second-to-last event must be ship.passed or ship.failed; last is qa.passed or qa.failed.
+	var shipEv ShipEvent
+	_ = json.Unmarshal([]byte(lines[5]), &shipEv)
+	if shipEv.Event != "ship.passed" && shipEv.Event != "ship.failed" {
+		t.Errorf("--yolo --json: checkpoint 6 event must be ship.passed|ship.failed, got %q", shipEv.Event)
+	}
 	var lastEv ShipEvent
-	_ = json.Unmarshal([]byte(lines[5]), &lastEv)
-	if lastEv.Event != "ship.passed" && lastEv.Event != "ship.failed" {
-		t.Errorf("--yolo --json: last event must be ship.passed|ship.failed, got %q", lastEv.Event)
+	_ = json.Unmarshal([]byte(lines[6]), &lastEv)
+	if lastEv.Event != "qa.passed" && lastEv.Event != "qa.failed" {
+		t.Errorf("--yolo --json: last event must be qa.passed|qa.failed, got %q", lastEv.Event)
 	}
 }
 
@@ -426,8 +431,8 @@ func TestCmd_JSON_DisablesGate(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
 		t.Fatalf("--json gate-disabled: not JSON: %v\n%s", err, out.String())
 	}
-	if len(res.Checkpoints) != 6 {
-		t.Fatalf("--json gate-disabled: expected 6 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("--json gate-disabled: expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatal("--json gate-disabled: expected Ready=true")
@@ -685,8 +690,8 @@ func TestRunWithOptions_DebateEnabled(t *testing.T) {
 	if !res.Ready {
 		t.Fatalf("expected Ready=true, got message: %s", res.Message)
 	}
-	if len(res.Checkpoints) != 6 {
-		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
 	totalImprovements := 0
 	for _, cp := range res.Checkpoints {
@@ -1709,8 +1714,8 @@ func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
 		LLMPipe:     mockPipe(root, mock),
 	})
 
-	if len(res.Checkpoints) != 6 {
-		t.Fatalf("expected 6 checkpoints, got %d", len(res.Checkpoints))
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
 	if !res.Ready {
 		t.Fatalf("expected Ready=true; message: %s", res.Message)
@@ -1954,4 +1959,15 @@ func TestInteractiveGate_WarningMarker_IsTriangle(t *testing.T) {
 	if !strings.Contains(got, "\u25b3") {
 		t.Fatalf("interactive gate warning marker must be â–³ (U+25B3); got output:\n%s", got)
 	}
+}
+
+
+// -- checkQAVerify tests
+func TestCheckQAVerify_NoRunner(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cp := checkQAVerify(root, "test feature")
+	if cp.Name != "QA-Verify" { t.Errorf("Name: want QA-Verify, got %q", cp.Name) }
+	if cp.Status != "warning" { t.Errorf("Status: want warning, got %q detail: %s", cp.Status, cp.Detail) }
+	if cp.Status == "fail" { t.Error("False-positive guard: must not be fail") }
 }

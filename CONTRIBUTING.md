@@ -49,6 +49,34 @@ make build     # produces ./bin/forge
 make all       # lint + test + build
 ```
 
+---
+
+## 3.5. Branch Naming Convention
+
+All feature work **must** live on a dedicated branch with the format:
+
+```
+feature/<kebab-case-feature-name>
+```
+
+Examples: `feature/add-rate-limiting`, `feature/mcp-server-scaffold`, `feature/qa-verify-checkpoint`.
+
+`forge ship` creates this branch automatically when you run from `main` / `master` / `develop` / `dev` / `trunk` / `production` / `prod`:
+
+```bash
+git checkout main
+forge ship "add rate limiting"   # auto-creates and checks out feature/add-rate-limiting
+```
+
+You may also create the branch manually before running `forge ship`:
+
+```bash
+git checkout -b feature/my-feature
+forge ship "my feature" --no-branch  # skip auto-creation since you're already on a feature branch
+```
+
+**Never commit feature work directly to a protected branch.**
+
 The **pre-push hook** (`make hooks`) runs the same 7 checks as `make check`
 automatically before every push.  A failing push prints which check failed and
 how to fix it.  Emergency bypass (avoid this):

@@ -37,6 +37,18 @@ tests/fixtures/     — test fixture data
 5. Add `cmd<verb>.New()` to the `root.AddCommand(...)` list in `internal/cli/root.go`.
 6. Add an import for the new package in `root.go`.
 
+### Branch naming convention
+
+All feature work must use the format:
+
+```
+feature/<kebab-case-feature-name>
+```
+
+Examples: `feature/add-rate-limiting`, `feature/mcp-server-scaffold`.
+
+`forge ship` auto-creates `feature/<slug>` when running from a protected branch (`main`, `master`, `develop`, `dev`, `trunk`, `production`, `prod`). You can also create it manually before running `forge ship`.
+
 ### Error codes
 
 All errors use `errcode.Register(errcode.Code(NNNN), "message")`. Ranges are

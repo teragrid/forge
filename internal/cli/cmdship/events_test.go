@@ -43,8 +43,8 @@ func TestCmd_NDJSONEvents_FullPipeline(t *testing.T) {
 	}
 
 	lines := ndjsonLines(out.String())
-	if len(lines) != 6 {
-		t.Fatalf("expected 6 NDJSON event lines, got %d\noutput: %s", len(lines), out.String())
+	if len(lines) != 7 {
+		t.Fatalf("expected 7 NDJSON event lines, got %d\noutput: %s", len(lines), out.String())
 	}
 
 	wantEvents := []string{
@@ -54,6 +54,7 @@ func TestCmd_NDJSONEvents_FullPipeline(t *testing.T) {
 		"tasks.broken-down",
 		"task.completed",
 		"ship.passed",
+		"qa.passed",
 	}
 	for i, line := range lines {
 		var ev ShipEvent

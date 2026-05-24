@@ -182,8 +182,8 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 	if !shipRes.DryRun {
 		t.Fatal("step 4 (ship): expected dry_run=true")
 	}
-	if len(shipRes.Checkpoints) != 6 {
-		t.Fatalf("step 4 (ship): expected 6 checkpoints, got %d", len(shipRes.Checkpoints))
+	if len(shipRes.Checkpoints) != 7 {
+		t.Fatalf("step 4 (ship): expected 7 checkpoints, got %d", len(shipRes.Checkpoints))
 	}
 
 	// Idempotency guard (§4 in 9-point checklist): running ship again yields
@@ -681,7 +681,7 @@ func TestJourney_ForgeTest(t *testing.T) {
 	_ = r8
 }
 
-// TestJourney_ShipCheckpoints — user runs the forge ship 6-checkpoint pipeline
+// TestJourney_ShipCheckpoints — user runs the forge ship 7-checkpoint pipeline
 // both as a whole and one checkpoint at a time, verifying checkpoint isolation
 // and the ship → test integration.
 //
@@ -721,8 +721,8 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	if !r1.DryRun {
 		t.Fatal("step 1 (ship full): expected dry_run=true")
 	}
-	if len(r1.Checkpoints) != 6 {
-		t.Fatalf("step 1 (ship full): expected 6 checkpoints, got %d", len(r1.Checkpoints))
+	if len(r1.Checkpoints) != 7 {
+		t.Fatalf("step 1 (ship full): expected 7 checkpoints, got %d", len(r1.Checkpoints))
 	}
 
 	// Step 2: spec subcommand → 1 checkpoint.
@@ -758,8 +758,8 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 
 	// Step 6: text output (no --json) must mention pipeline.
 	s6 := jStep(t, "ship (text)", cmdship.New(), "--root", dir)
-	if !strings.Contains(s6, "6-checkpoint") {
-		t.Fatalf("step 6 (text): missing 6-checkpoint in output\n%s", s6)
+	if !strings.Contains(s6, "7-checkpoint") {
+		t.Fatalf("step 6 (text): missing 7-checkpoint in output\n%s", s6)
 	}
 
 	_ = r1

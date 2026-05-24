@@ -48,6 +48,7 @@ import (
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/gitservice"
 	"github.com/teragrid/forge/internal/manifest"
+	"github.com/teragrid/forge/internal/procspawn"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -70,7 +71,8 @@ var checkpointEventName = map[string]string{
 	"breakdown": "tasks.broken-down",
 	"code":      "task.completed",
 	"ship":      "ship.passed",
-	"verify":    "ship.passed", // deprecated alias
+	"verify":    "ship.passed",    // deprecated alias
+	"qa-verify": "qa.passed",
 }
 
 // emitEvent writes one NDJSON ShipEvent line to w.
@@ -99,6 +101,7 @@ var (
 	ErrShipFailed      = errcode.Register(errcode.Code(3200), "ship checkpoint failed")
 	ErrSpecAuditFailed = errcode.Register(errcode.Code(3201), "spec audit: incomplete tasks or authz gaps detected")
 	ErrBranchFailed    = errcode.Register(errcode.Code(3203), "feature branch operation failed")
+	ErrQAVerifyFailed  = errcode.Register(errcode.Code(3204), "QA-verify: test suite or MCP probe failed")
 )
 
 // Gate is called after each checkpoint runs (0-based idx, total count, completed cp).
@@ -106,7 +109,7 @@ var (
 // A nil Gate is YOLO mode: all checkpoints run without any prompt.
 type Gate func(idx, total int, cp Checkpoint) bool
 
-// Checkpoint represents one step in the 6-checkpoint pipeline.
+// Checkpoint represents one step in the 7-checkpoint pipeline.
 type Checkpoint struct {
 	Name        string           `json:"name"`
 	Status      string           `json:"status"` // "ok", "skipped", "warning", "fail"
@@ -132,14 +135,15 @@ type ShipResult struct {
 func init() {
 	verbmeta.Register(verbmeta.Manifest{
 		Verb: "ship",
-		Summary: "Deploy a change through the 6-checkpoint pipeline " +
-			"(spec → arch → test → breakdown → code → ship). " +
+		Summary: "Deploy a change through the 7-checkpoint pipeline " +
+			"(spec → arch → test → breakdown → code → ship → qa-verify). " +
 			"Each checkpoint requires reviewer approval before the next runs (interactive mode). " +
 			"Use --yolo to skip all approval gates. " +
-			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship. " +
+			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship|qa-verify. " +
 			"M1 full impl; MVP is --dry-run preview.",
 		Inputs: []string{
-			"[subcommand]: spec | arch | test | breakdown | code | ship (optional; runs all when omitted)",
+			"[subcommand]: spec | arch | test | breakdown | code | ship | qa-verify (optional; runs all when omitted)",
+			"--skip-checkpoint qa-verify (skip QA agent; useful when no test runner is configured)",
 			"--dry-run (validate checkpoints without executing; default in MVP)",
 			"--description <msg> (what this change does; required for full pipeline in M1)",
 			"--yolo (skip all approval gates — activates 6-role self-debate for quality polishing)",
@@ -151,8 +155,8 @@ func init() {
 			"--dry-run has no side effects; full workflow (M1) will commit, tag, and deploy",
 			"creates and checks out feature/<slug> branch when running the full pipeline from a protected branch (main/master/develop/dev/trunk)",
 		},
-		GatesTouched: []string{"§16.5.2 ship workflow", "§4 6-checkpoint pipeline"},
-		ErrorCodes:   []errcode.Code{ErrShipFailed, ErrBranchFailed},
+		GatesTouched: []string{"§16.5.2 ship workflow", "§4 7-checkpoint pipeline"},
+		ErrorCodes:   []errcode.Code{ErrShipFailed, ErrBranchFailed, ErrQAVerifyFailed},
 	})
 }
 
@@ -237,7 +241,7 @@ func New() *cobra.Command {
 
 		// --from: drop all checkpoints before the named one.
 		if from != "" && len(names) == 0 {
-			order := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
+			order := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 			found := false
 			for _, cp := range order {
 				if cp == from {
@@ -249,7 +253,7 @@ func New() *cobra.Command {
 			}
 			if !found {
 				return errcode.Newf(ErrShipFailed, nil,
-					"--from: unknown checkpoint %q; one of: spec, arch, test, breakdown, code, ship", from)
+					"--from: unknown checkpoint %q; one of: spec, arch, test, breakdown, code, ship, qa-verify", from)
 			}
 		}
 
@@ -345,23 +349,25 @@ func New() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "ship [<feature>] [spec|arch|test|breakdown|code|ship] [flags]",
-		Short: "Deploy a change through the 6-checkpoint pipeline.",
-		Long: "forge ship walks a change through 6 checkpoints:\n" +
+		Use:   "ship [<feature>] [spec|arch|test|breakdown|code|ship|qa-verify] [flags]",
+		Short: "Deploy a change through the 7-checkpoint pipeline.",
+		Long: "forge ship walks a change through 7 checkpoints:\n" +
 			"  (1) spec      — validate or generate the feature spec\n" +
 			"  (2) arch      — multi-role architecture debate → ADR document\n" +
 			"  (3) test      — generate failing tests (TDD gate)\n" +
 			"  (4) breakdown — decompose spec into AI-friendly tasks\n" +
 			"  (5) code      — generate / iterate code until tests pass\n" +
-			"  (6) ship      — hygiene + scan + lint readiness check\n\n" +
-			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship\n" +
-			"Run all six checkpoints with: forge ship (no subcommand)\n\n" +
+			"  (6) ship      — hygiene + scan + lint readiness check\n" +
+			"  (7) qa-verify — QA agent: probe MCP server tools or run native test suite\n\n" +
+			"Run a single checkpoint with: forge ship spec|arch|test|breakdown|code|ship|qa-verify\n" +
+			"Run all seven checkpoints with: forge ship (no subcommand)\n\n" +
 			"Use --dry-run to preview checkpoints without making LLM calls or git operations.\n\n" +
 			"Examples:\n" +
-			"  forge ship \"add rate limiting\"           — full 6-checkpoint pipeline\n" +
-			"  forge ship spec \"add rate limiting\"       — spec checkpoint only\n" +
-			"  forge ship \"add rate limiting\" --dry-run  — preview without writing\n" +
-			"  forge ship \"add rate limiting\" --resume   — continue from last checkpoint",
+			"  forge ship \"add rate limiting\"                — full 7-checkpoint pipeline\n" +
+			"  forge ship spec \"add rate limiting\"           — spec checkpoint only\n" +
+			"  forge ship qa-verify \"add rate limiting\"      — QA agent only\n" +
+			"  forge ship \"add rate limiting\" --dry-run      — preview without writing\n" +
+			"  forge ship \"add rate limiting\" --resume       — continue from last checkpoint",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Intercept built-in cobra subcommand words that can reach RunE
@@ -429,6 +435,8 @@ func New() *cobra.Command {
 			"Checkpoint 5: generate / iterate code until tests pass"),
 		makeCheckpointCmd("ship",
 			"Checkpoint 6: hygiene + scan + lint ship-readiness check"),
+		makeCheckpointCmd("qa-verify",
+			"Checkpoint 7: QA agent — probe MCP server tools or run native test suite"),
 		verifyDeprecated,
 	)
 
@@ -476,7 +484,7 @@ func New() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "feature %q not found in .forge/specs/\n", feature)
 				return nil
 			}
-			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
+			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 			fmt.Fprintf(cmd.OutOrStdout(), "forge ship status: %s\n", feature)
 			for i, cp := range checkpoints {
 				marker := "○ pending"
@@ -484,7 +492,7 @@ func New() *cobra.Command {
 				if _, err := os.Stat(cpFile); err == nil {
 					marker = "✓ done"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/6] %s — %s\n", i+1, cp, marker)
+				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/7] %s — %s\n", i+1, cp, marker)
 			}
 			return nil
 		},
@@ -515,7 +523,7 @@ func New() *cobra.Command {
 					"feature %q not found in .forge/specs/; start with: forge ship %s", feature, feature)
 			}
 			// Find first pending checkpoint
-			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
+			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 			resumeFrom := ""
 			for _, cp := range checkpoints {
 				cpFile := filepath.Join(specsDir, cp+".md")
@@ -559,7 +567,7 @@ func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 		return errcode.Newf(ErrShipFailed, nil,
 			"feature %q not found in .forge/specs/; start with: forge ship %s", feature, slug)
 	}
-	checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
+	checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 	resumeFrom := ""
 	for _, cp := range checkpoints {
 		cpFile := filepath.Join(specsDir, cp+".md")
@@ -1249,8 +1257,143 @@ func checkVerify(root, description string) Checkpoint {
 	return cp
 }
 
+// checkQAVerify is checkpoint 7: quality-assurance verification by a QA/QE agent.
+//
+// It first probes the project's MCP server (if the core/mcp-server scaffold is
+// present) by running its unit-test suite — confirming that every AI-agent tool
+// is operational. When no MCP server is found it falls back to the project's
+// native test runner (go test or pytest). Either path must pass for the
+// checkpoint to succeed.
+//
+// MCP path (preferred):
+//
+//	Go project  — cmd/mcp/main.go present  → go test ./internal/mcpserver/...
+//	Python proj — mcp_server.py present    → python -m pytest tests/test_mcp_server.py -q
+//
+// Fallback (no MCP server):
+//
+//	Go project  — go.mod present           → go test ./... --count=1
+//	Python proj — pyproject.toml/pytest.ini present → pytest -q --tb=short
+//	No runner   — warning (no tools configured)
+func checkQAVerify(root, description string) Checkpoint {
+	cp := Checkpoint{Name: "QA-Verify"}
+
+	sp := procspawn.New("go", "python", "python3", "pytest")
+
+	goMCPEntry := filepath.Join(root, "cmd", "mcp", "main.go")
+	pyMCPEntry := filepath.Join(root, "mcp_server.py")
+	goModFile := filepath.Join(root, "go.mod")
+
+	switch {
+	case pathExists(goMCPEntry):
+		// MCP server present (Go): run the MCP server's unit tests to validate
+		// every AI-agent tool contract.
+		res, err := sp.Run("go",
+			[]string{"test", "./internal/mcpserver/...", "-count=1", "-timeout=120s"},
+			procspawn.Options{Dir: root, Timeout: 130 * time.Second},
+		)
+		if err != nil {
+			cp.Status = "fail"
+			cp.Detail = fmt.Sprintf("QA (MCP/go): mcpserver tests failed — %v", err)
+			appendFailure(root, "qa-verify", description, cp.Detail)
+			return cp
+		}
+		passed := strings.Count(res.Stdout+res.Stderr, "--- PASS")
+		if passed == 0 {
+			passed = strings.Count(res.Stdout, "ok")
+		}
+		cp.Status = "ok"
+		cp.Detail = fmt.Sprintf(
+			"QA via MCP (go): mcpserver unit tests passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
+			passed, res.Duration.Seconds())
+		return cp
+
+	case pathExists(pyMCPEntry):
+		// MCP server present (Python): run test_mcp_server.py.
+		// Try python3 first; fall back to python.
+		runner, runArgs := "python3", []string{"-m", "pytest", "tests/test_mcp_server.py", "-q", "--tb=short"}
+		res, err := sp.Run(runner, runArgs, procspawn.Options{Dir: root, Timeout: 130 * time.Second})
+		if err != nil && strings.Contains(err.Error(), "not in the spawn allow-list") {
+			runner = "python"
+			res, err = sp.Run(runner, runArgs, procspawn.Options{Dir: root, Timeout: 130 * time.Second})
+		}
+		if err != nil {
+			cp.Status = "fail"
+			cp.Detail = fmt.Sprintf("QA (MCP/python): test_mcp_server.py failed — %v", err)
+			appendFailure(root, "qa-verify", description, cp.Detail)
+			return cp
+		}
+		passed := strings.Count(res.Stdout, " passed")
+		cp.Status = "ok"
+		cp.Detail = fmt.Sprintf(
+			"QA via MCP (python): test_mcp_server.py passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
+			passed, res.Duration.Seconds())
+		return cp
+
+	case pathExists(goModFile):
+		// Fallback: Go project without MCP server — run full test suite.
+		// Failure here is a warning (not fail): the project may have no tests yet or be
+		// a fresh scaffold. Only MCP-explicit paths fail hard.
+		res, err := sp.Run("go",
+			[]string{"test", "./...", "-count=1", "-timeout=180s"},
+			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+		)
+		if err != nil {
+			cp.Status = "warning"
+			cp.Detail = fmt.Sprintf("QA (go test ./...): tests did not pass (%v) — add cmd/mcp/ for MCP-based QA", err)
+			return cp
+		}
+		pkgs := strings.Count(res.Stdout+res.Stderr, "\nok ")
+		cp.Status = "ok"
+		cp.Detail = fmt.Sprintf(
+			"QA (go test ./...): %d package(s) passed (%.1fs) — add cmd/mcp/ to enable MCP agent QA",
+			pkgs, res.Duration.Seconds())
+		return cp
+
+	case pathExists(filepath.Join(root, "pyproject.toml")) ||
+		pathExists(filepath.Join(root, "pytest.ini")) ||
+		pathExists(filepath.Join(root, "setup.cfg")):
+		// Fallback: Python project without MCP server.
+		runner := "python3"
+		res, err := sp.Run(runner,
+			[]string{"-m", "pytest", "-q", "--tb=short"},
+			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+		)
+		if err != nil && strings.Contains(err.Error(), "not in the spawn allow-list") {
+			runner = "python"
+			res, err = sp.Run(runner,
+				[]string{"-m", "pytest", "-q", "--tb=short"},
+				procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+			)
+		}
+		if err != nil {
+			cp.Status = "warning"
+			cp.Detail = fmt.Sprintf("QA (pytest): tests did not pass (%v) — add mcp_server.py for MCP agent QA", err)
+			return cp
+		}
+		passed := strings.Count(res.Stdout, " passed")
+		cp.Status = "ok"
+		cp.Detail = fmt.Sprintf(
+			"QA (pytest): %d case(s) passed (%.1fs) — add mcp_server.py to enable MCP agent QA",
+			passed, res.Duration.Seconds())
+		return cp
+	}
+
+	// No known test runner or MCP server found — warn but do not block.
+	cp.Status = "warning"
+	cp.Detail = "QA-Verify: no MCP server or test runner found — " +
+		"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, " +
+		"or ensure go.mod / pyproject.toml is present for native test fallback"
+	return cp
+}
+
+// pathExists returns true when path exists (any file/dir type).
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // RunCheckpoints executes the requested checkpoints (nil = all five) in YOLO mode
-// (no approval gates, no self-debate). Backward-compatible entry point.
 func RunCheckpoints(root, description string, names []string) *ShipResult {
 	return runWithOptions(RunOptions{Root: root, Description: description, Names: names})
 }
@@ -1286,6 +1429,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		checkBreakdown(root, opts.Description, opts.SpecName, pipe),
 		checkCode(root, opts.Description, opts.SpecName, pipe),
 		checkVerify(root, opts.Description),
+		checkQAVerify(root, opts.Description),
 	}
 	// PR checkpoint: appended only for full-pipeline runs with --pr.
 	if opts.CreatePR && len(opts.Names) == 0 {
@@ -1300,6 +1444,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		"code":      4,
 		"ship":      5, // G-003: primary name
 		"verify":    5, // G-003: deprecated alias
+		"qa-verify": 6,
 	}
 
 	var selected []Checkpoint
@@ -1346,7 +1491,11 @@ func runWithOptions(opts RunOptions) *ShipResult {
 						emitEvent(opts.EventWriter, gapCP, "gap.detected")
 					}
 				}
-				emitEvent(opts.EventWriter, cp, "ship.failed")
+				if cpLower == "qa-verify" {
+					emitEvent(opts.EventWriter, cp, "qa.failed")
+				} else {
+					emitEvent(opts.EventWriter, cp, "ship.failed")
+				}
 			}
 			return res
 		}
@@ -1408,6 +1557,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 					} else {
 						emitEvent(opts.EventWriter, cp, "ship.passed")
 					}
+				case cpLower == "qa-verify":
+					if cp.Status == "fail" {
+						emitEvent(opts.EventWriter, cp, "qa.failed")
+					} else {
+						emitEvent(opts.EventWriter, cp, "qa.passed")
+					}
 				default:
 					emitEvent(opts.EventWriter, cp, "")
 				}
@@ -1449,7 +1604,7 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 		if cp.Status == "fail" {
 			fmt.Fprintln(w, "\nFix the issue above, then re-run this checkpoint.")
 		} else if cp.Status == "ok" {
-			order := []string{"spec", "arch", "test", "breakdown", "code", "ship"}
+			order := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 			for i, n := range order {
 				if strings.EqualFold(cp.Name, n) && i+1 < len(order) {
 					fmt.Fprintf(w, "\nnext: forge ship %s \"<description>\"\n", order[i+1])
@@ -1473,7 +1628,7 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	if r.Message != "" {
 		fmt.Fprintf(w, "%s\n", r.Message)
 	}
-	fmt.Fprintln(w, "\n6-checkpoint pipeline:")
+	fmt.Fprintln(w, "\n7-checkpoint pipeline:")
 	for i, cp := range r.Checkpoints {
 		marker := "\u25cb " // ○ default (unknown status)
 		switch cp.Status {

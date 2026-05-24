@@ -1,11 +1,23 @@
-﻿# forge ship
+﻿> **Pipeline status** — 7 checkpoints: `spec` → `arch` → `test` → `breakdown` → `code` → `ship` → `qa-verify`
+>
+> | # | Checkpoint | Gate | Agent | Primary output |
+> |---|-----------|------|-------|---------------|
+> | 1 | `spec` | LLM / stub | — | `.forge/specs/<feature>/spec.md` |
+> | 2 | `arch` | LLM + KB | — | `arch.md`, `openapi.yaml` |
+> | 3 | `test` | LLM + KB | — | test files (TDD gate) |
+> | 4 | `breakdown` | LLM + KB | — | task list |
+> | 5 | `code` | LLM + KB | — | implementation |
+> | 6 | `ship` | scan + hygiene | — | secrets clean, manifest OK |
+> | 7 | `qa-verify` | **QA / QE agent** | MCP probe or native tests | test suite pass + AI-agent tools confirmed operational |
 
-Run the 6-checkpoint pre-ship pipeline for a feature or release.
+# forge ship
+
+Run the 7-checkpoint pre-ship pipeline for a feature or release.
 
 ## Synopsis
 
 ```
-forge ship [<feature>] [spec|arch|test|breakdown|code|ship] [flags]
+forge ship [<feature>] [spec|arch|test|breakdown|code|ship|qa-verify] [flags]
 ```
 
 The positional `<feature>` argument (e.g. `auth/email`) is slugified to a
@@ -20,6 +32,7 @@ directory name (`auth-email`) and used as the spec/artifact root under
 4. **Breakdown** — task breakdown present (Supabase RPC tasks — PostgreSQL function, `GRANT EXECUTE`, RLS policy — auto-included for RPC features)
 5. **Code** — code changes detected (SQL function + TypeScript `.rpc()` client auto-generated for RPC features)
 6. **Ship** — security scan clean; hygiene OK; manifest OK
+7. **QA-Verify** — QA/QE agent: probes the project's MCP server unit tests (Go: `go test ./internal/mcpserver/...`; Python: `pytest tests/test_mcp_server.py`) to confirm every AI-agent tool is operational. Falls back to the native test suite (`go test ./...` / `pytest`) when no MCP server is configured. Passes with a warning if no test runner is found — override with `--skip-checkpoint qa-verify`.
 
 > **KB injection**: checkpoints 2–5 (`arch`, `test`, `breakdown`, `code`) all use `InvokeWithKnowledge`
 > — the top-5 relevant knowledge-base entries are prepended to the LLM system prompt automatically.
@@ -46,7 +59,7 @@ forge ship auth/email
 forge ship auth/email --no-branch
 ```
 
-After all six checkpoints pass, Forge prints the next steps:
+After all seven checkpoints pass, Forge prints the next steps:
 
 ```
   Branch:   feature/auth-email
@@ -57,7 +70,7 @@ After all six checkpoints pass, Forge prints the next steps:
 ## Examples
 
 ```bash
-# Run the full 6-checkpoint pipeline for a feature (auto-creates feature branch from main)
+# Run the full 7-checkpoint pipeline for a feature (auto-creates feature branch from main)
 forge ship auth/email
 
 # Dry-run to preview without side effects
@@ -68,6 +81,12 @@ forge ship auth/email spec
 
 # Run only the Arch checkpoint (generates arch.md + openapi.yaml)
 forge ship auth/email arch
+
+# Run only the QA agent checkpoint
+forge ship auth/email qa-verify
+
+# Skip the QA agent (no test runner configured)
+forge ship auth/email --skip-checkpoint qa-verify
 
 # Resume from the first missing checkpoint
 forge ship auth/email --resume
@@ -92,6 +111,7 @@ forge ship --tag v1.2.3
 | `--resume` | false | Skip checkpoints that already have passing artifacts |
 | `--no-branch` | false | Do not create or switch to a feature branch; run on current branch |
 | `--tag <version>` | — | After a clean pipeline, tag and push a release |
+| `--skip-checkpoint <name>` | — | Skip a named checkpoint (e.g. `qa-verify` when no test runner is configured) |
 
 ## Deprecated aliases
 
