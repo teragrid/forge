@@ -27,6 +27,18 @@ If you're just getting started, read [GETTING_STARTED.md](../GETTING_STARTED.md)
 
 ---
 
+## Global flags
+
+The following flags are available on every verb:
+
+| Flag | Description |
+|------|-------------|
+| `--model <model>` | Override the LLM model for this invocation (e.g. `gpt-4o`, `claude-sonnet-4-5`); takes precedence over `forge.yml llm.model` |
+| `--budget-usd <n>` | Hard per-invocation LLM spend cap in USD (`0` = unlimited); sets `FORGE_BUDGET_USD` |
+| `--profile <name>` | Load a named config profile from `forge.yml` |
+
+---
+
 ## Quick Reference
 
 | Verb | Synopsis | Error range |
@@ -37,11 +49,11 @@ If you're just getting started, read [GETTING_STARTED.md](../GETTING_STARTED.md)
 | `forge tsd` | Tech Stack Decision wizard: `init` writes `.forge/tsd.yml`; `validate` lints it | `FORGE-6500..6599` |
 | `forge templates` | Browse community templates and the enterprise module catalogue | — |
 | `forge clean` | Apply manifest-driven repo hygiene | `FORGE-1200..1299` |
-| `forge explain` | Introspect any verb or plugin manifest | `FORGE-1300..1399` |
+| `forge explain` | Introspect any verb or plugin manifest; no arg lists all verbs grouped by category; single-verb output includes next-steps hints; `--json` for machine-readable output | `FORGE-1300..1399` |
 | `forge scan` | Run security / quality scanners | `FORGE-1400..1499` |
 | `forge lint` | Check conventions and hygiene markers | `FORGE-1500..1599` |
 | `forge ship` | Full five-checkpoint delivery pipeline: `forge ship auth/email` (positional arg); `--resume` to continue; checkpoint 5 renamed from `verify` → `ship` (G-003) | `FORGE-1600..1699` |
-| `forge test` | Run any of 13 test families (unit/integration/e2e/journey/perf/load/soak/…) | `FORGE-4300..4399` |
+| `forge test` | Run any of 13 test families (unit/integration/e2e/journey/perf/load/soak/…); `forge test spec generate <feature>` scaffolds a 9-case YAML test spec; `forge test run --spec <path>` (or `--feature <name>`) executes the declared families | `FORGE-4300..4399` |
 | `forge upgrade` | Apply built-in or plugin codemods (renamed from `forge migrate-code`) | `FORGE-2000..2099` |
 | `forge audit` | Query / verify the audit ledger; `forge audit erase` (renamed from `forge gdpr erase`); `forge audit export` (renamed from `forge compliance export`) | `FORGE-3400..3499` |
 | `forge eval` | Run deterministic evaluation scenarios | `FORGE-3600..3699` |
@@ -54,7 +66,8 @@ If you're just getting started, read [GETTING_STARTED.md](../GETTING_STARTED.md)
 | `forge fixtures` | Generate JSON test fixture files | `FORGE-6000..6099` |
 | `forge backup` | Create a point-in-time backup snapshot before risky operations | `FORGE-6100..6199` |
 | `forge ci` | Post-push CI monitor: watch, fix, and record lessons from CI runs | `FORGE-6200..6299` |
-| `forge bugfix` | Diagnose and fix bugs found via reviews, manual tests, or plain bug reports; accepts `--bug`, `--finding`, `--test`; dry-run by default; `--apply` writes patch + regression test | `FORGE-6550..6599` |
+| `forge bugfix` | Diagnose and fix bugs; `--bug "desc"` (or pipe via stdin / `--bug -`), `--finding <id>`, `--test "pattern"`; `--stack`, `--file` (repeatable), `--context`, `--model` for richer LLM context; dry-run by default; `--apply` writes patch + regression test | `FORGE-6550..6599` |
+| `forge config` | Persist project configuration to `forge.yml`; `forge config set <key> <value>` (e.g. `forge config set llm.model gpt-4o`); bridges `llm.model` → `FORGE_COPILOT_MODEL` at startup | `FORGE-2000..2099` |
 | `forge learn` | Manage the learning loop; sub-verbs: `teach` (renamed from `forge teach`), `session` (renamed from `forge session digest`), `instructions` (renamed from `forge instructions evolve`), `promote`, `antipatterns` | `FORGE-5200..5299` |
 | `forge context` | Manage project context bundles; `forge context generate` (renamed from `forge generate ai-context`) | — |
 | `forge agents` | Manage LLM agents; `forge agents stop` (replaces `forge agents stop --workspace`) | — |

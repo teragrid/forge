@@ -19,6 +19,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -82,6 +83,14 @@ func NewRootCommand(version string) *cobra.Command {
 		Long: `forge is a single-binary CLI that bundles the scan-fix-learn loop, ` +
 			`LLM gateway, plugin runtime, and ship workflow described in ` +
 			`docs/FORGE_FRAMEWORK_SPEC.md.`,
+		Example: `  forge new ts-service my-app              # scaffold a production-grade TypeScript project
+  forge scan all                           # check for secrets, vulnerabilities, and code issues
+  forge ship                               # run the full 6-stage quality gate before pushing
+  forge bugfix --bug "login fails with +"  # diagnose and auto-fix a bug with LLM assistance
+  forge config set llm.model gpt-4o        # persist your default LLM model to forge.yml
+  forge explain bugfix                     # learn what any command does, inputs, and side-effects
+  forge test spec generate rate-limiter    # generate a 9-point YAML test spec for a feature
+  forge test run --spec .forge/specs/rate-limiter/spec.yml  # run tests from the spec`,
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: false,
@@ -147,6 +156,13 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 				if cfg, err := config.Load(wd, nil); err == nil && cfg.LLMModel.Raw != "" {
 					_ = os.Setenv("FORGE_COPILOT_MODEL", cfg.LLMModel.Raw)
 				}
+			}
+		}
+		// Bridge --budget-usd → FORGE_BUDGET_USD env var so all LLM calls made
+		// in this invocation respect the per-invocation cap.  0 means unlimited.
+		if budgetUSD, _ := cmd.Root().PersistentFlags().GetFloat64("budget-usd"); budgetUSD > 0 {
+			if os.Getenv("FORGE_BUDGET_USD") == "" {
+				_ = os.Setenv("FORGE_BUDGET_USD", fmt.Sprintf("%.4f", budgetUSD))
 			}
 		}
 		wd, err := os.Getwd()
@@ -229,6 +245,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		_globalQuiet     bool
 		_globalVerbose   string
 		_globalProfile   string
+		_globalBudgetUSD float64
 	)
 	pf := root.PersistentFlags()
 	pf.BoolVar(&_globalJSON, "json", false, "Emit machine-readable NDJSON output")
@@ -240,6 +257,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	pf.BoolVarP(&_globalQuiet, "quiet", "q", false, "Suppress non-essential output")
 	pf.StringVar(&_globalVerbose, "verbose", "", "Log verbosity level (debug|info|warn)")
 	pf.StringVar(&_globalProfile, "profile", "", "Behavior profile (fast|safe|paranoid): adjusts scan strictness, confidence threshold, and LLM token budget")
+	pf.Float64Var(&_globalBudgetUSD, "budget-usd", 0, "per-invocation LLM spend cap in USD (0 = unlimited); sets FORGE_BUDGET_USD")
 
 	// Silence the linter about intentionally unused persistent-flag bindings.
 	// Commands read these via cmd.Root().PersistentFlags().GetBool/GetString.
@@ -252,6 +270,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	_ = _globalQuiet
 	_ = _globalVerbose
 	_ = _globalProfile
+	_ = _globalBudgetUSD
 
 	// Register backward-compat aliases after all canonical commands are added.
 	registerAliases(root)

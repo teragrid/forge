@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // Package cmdexplain implements `forge explain` (DEV-M0-12). With no arg it
-// lists every registered verb; with one arg it prints that verb's manifest.
+// lists every registered verb grouped by category; with one arg it prints that
+// verb's manifest with examples and a "what to try next" hint.
 package cmdexplain
 
 import (
@@ -51,7 +52,29 @@ func New() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "explain [verb]",
 		Short: "Show what a verb does (inputs, outputs, side-effects).",
-		Args:  cobra.MaximumNArgs(1),
+		Long: strings.TrimSpace(`
+forge explain prints the manifest for any verb: its inputs, outputs, side-effects,
+quality gates it touches, and every error code it can produce.
+
+With no argument it lists all registered verbs grouped by category so you can
+discover what forge can do.
+
+Examples:
+  forge explain                 # list all verbs by category
+  forge explain ship            # what does forge ship do?
+  forge explain bugfix          # flags, side-effects, and error codes for forge bugfix
+  forge explain --json bugfix   # machine-readable manifest
+
+Tip: every command also accepts --help for its full flag reference:
+  forge ship --help
+  forge bugfix --help
+  forge test spec --help
+`),
+		Example: `  forge explain                # list all verbs grouped by category
+  forge explain ship           # manifest for forge ship
+  forge explain bugfix         # manifest for forge bugfix
+  forge explain --json scan    # machine-readable JSON manifest`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				all := verbmeta.All()
@@ -60,10 +83,7 @@ func New() *cobra.Command {
 					enc.SetIndent("", "  ")
 					return enc.Encode(all)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Verbs (%d):\n", len(all))
-				for _, m := range all {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %-10s %s\n", m.Verb, m.Summary)
-				}
+				renderAllGrouped(cmd.OutOrStdout(), all)
 				return nil
 			}
 			m, ok := verbmeta.Lookup(args[0])
@@ -88,10 +108,80 @@ func New() *cobra.Command {
 	return cmd
 }
 
+// verbGroups maps category labels to the verb names in that category.
+// Any verb not listed here falls under "Other".
+var verbGroups = []struct {
+	label string
+	verbs []string
+}{
+	{"Getting started", []string{"version", "doctor", "new", "init", "tsd", "templates"}},
+	{"Daily workflow", []string{"ship", "scan", "lint", "clean", "fix", "hygiene"}},
+	{"Testing", []string{"test", "eval", "fixtures"}},
+	{"Config & LLM", []string{"config", "spend", "context", "agents"}},
+	{"Bug & incident response", []string{"bugfix", "incident", "postmortem", "ci"}},
+	{"Knowledge & learning", []string{"learn", "explain", "ask", "docs", "insights"}},
+	{"Audit & compliance", []string{"audit", "review", "report", "sla"}},
+	{"Project evolution", []string{"upgrade", "migrate", "generate", "check", "optimize", "add", "adopt", "eject"}},
+	{"Delivery & ops", []string{"deploy", "rollback", "backup", "undo", "plugin"}},
+	{"Meta", []string{"telemetry"}},
+}
+
+// renderAllGrouped prints all verbs grouped by category.
+func renderAllGrouped(w io.Writer, all []verbmeta.Manifest) {
+	// Index for fast lookup.
+	byVerb := make(map[string]verbmeta.Manifest, len(all))
+	for _, m := range all {
+		byVerb[m.Verb] = m
+	}
+
+	printed := make(map[string]bool)
+	total := len(all)
+
+	fmt.Fprintf(w, "Forge verbs (%d total)\n", total)
+	fmt.Fprintf(w, "Run `forge explain <verb>` for full inputs, outputs, and error codes.\n")
+	fmt.Fprintf(w, "Run `forge <verb> --help` for all flags.\n\n")
+
+	for _, g := range verbGroups {
+		var rows []verbmeta.Manifest
+		for _, v := range g.verbs {
+			if m, ok := byVerb[v]; ok {
+				rows = append(rows, m)
+				printed[v] = true
+			}
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "  %s\n", strings.ToUpper(g.label))
+		for _, m := range rows {
+			fmt.Fprintf(w, "    %-14s %s\n", m.Verb, m.Summary)
+		}
+		fmt.Fprintln(w)
+	}
+
+	// Anything not in a named group goes to "Other".
+	var other []verbmeta.Manifest
+	for _, m := range all {
+		if !printed[m.Verb] {
+			other = append(other, m)
+		}
+	}
+	if len(other) > 0 {
+		fmt.Fprintf(w, "  OTHER\n")
+		for _, m := range other {
+			fmt.Fprintf(w, "    %-14s %s\n", m.Verb, m.Summary)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
 func renderText(cmd *cobra.Command, m verbmeta.Manifest) {
 	w := cmd.OutOrStdout()
-	fmt.Fprintf(w, "verb:    %s\n", m.Verb)
-	fmt.Fprintf(w, "summary: %s\n", m.Summary)
+	sep := strings.Repeat("─", 56)
+	fmt.Fprintf(w, "%s\n", sep)
+	fmt.Fprintf(w, "forge %s\n", m.Verb)
+	fmt.Fprintf(w, "%s\n\n", sep)
+	fmt.Fprintf(w, "  %s\n\n", m.Summary)
 	bullets(w, "inputs", m.Inputs)
 	bullets(w, "outputs", m.Outputs)
 	bullets(w, "side-effects", m.SideEffects)
@@ -101,19 +191,22 @@ func renderText(cmd *cobra.Command, m verbmeta.Manifest) {
 	if len(m.ErrorCodes) > 0 {
 		strs := make([]string, len(m.ErrorCodes))
 		for i, c := range m.ErrorCodes {
-			strs[i] = fmt.Sprintf("%s — %s", c, errcode.Description(c))
+			strs[i] = fmt.Sprintf("FORGE-%d — %s", c, errcode.Description(c))
 		}
 		bullets(w, "error codes", strs)
 	}
+	fmt.Fprintf(w, "\nNext steps:\n")
+	fmt.Fprintf(w, "  forge %s --help          full flag reference\n", m.Verb)
+	fmt.Fprintf(w, "  forge explain --json %s  machine-readable manifest\n", m.Verb)
 }
 
 func bullets(w io.Writer, label string, items []string) {
-	fmt.Fprintf(w, "%s:\n", label)
 	if len(items) == 0 {
-		fmt.Fprintf(w, "  (none)\n")
 		return
 	}
+	fmt.Fprintf(w, "%s:\n", label)
 	for _, it := range items {
 		fmt.Fprintf(w, "  - %s\n", it)
 	}
+	fmt.Fprintln(w)
 }

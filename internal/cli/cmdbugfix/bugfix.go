@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +158,24 @@ func New() *cobra.Command {
 			"All applied fixes are recorded in .forge/audit.log.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Read bug description from stdin when --bug is "-" (explicit pipe) or
+			// when stdin is piped and --bug was not set.  This lets callers do:
+			//   echo "nil panic in checkout" | forge bugfix
+			//   forge bugfix --bug - < crash.txt
+			if bug == "-" {
+				data, err := io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return errcode.New(ErrBugfixFailed, "read stdin", err)
+				}
+				bug = strings.TrimSpace(string(data))
+			} else if bug == "" {
+				if stat, err := os.Stdin.Stat(); err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+					data, err := io.ReadAll(os.Stdin)
+					if err == nil {
+						bug = strings.TrimSpace(string(data))
+					}
+				}
+			}
 			if bug == "" && finding == "" && test == "" {
 				return errcode.New(ErrNoSourceSpecified, "missing flag", nil)
 			}

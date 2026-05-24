@@ -337,12 +337,33 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge lint` | Check code style, missing `.gitignore` rules, and hygiene |
 | `forge clean` | Remove AI-generated junk (placeholder comments, dead TODOs) |
 
+### Testing
+
+| Command | What it does |
+|---|---|
+| `forge test unit` | Run unit tests |
+| `forge test integration` | Run integration tests |
+| `forge test e2e` | Run end-to-end tests |
+| `forge test spec generate <feature>` | Generate a 9-case YAML test spec covering happy path, boundary, negative, idempotency, concurrency, authz, regression, data accuracy, and false-positive scenarios — edit it, then run `forge test run --spec` |
+| `forge test run --spec <path>` | Execute (or plan with `--dry-run`) the test families declared in a spec.yml |
+| `forge test run --feature <name>` | Same as above but locates `.forge/specs/<name>/spec.yml` automatically |
+
+### Config & LLM model
+
+| Command | What it does |
+|---|---|
+| `forge config set llm.model <model>` | Persist your default LLM model to `forge.yml` — takes effect for all subsequent commands without requiring a shell profile change (e.g. `forge config set llm.model gpt-4o`) |
+| `forge config show` | Show the current resolved config |
+| `forge <any-command> --model <model>` | Override the LLM model for one invocation |
+| `forge <any-command> --budget-usd <n>` | Hard cap LLM spend for one invocation in USD (e.g. `--budget-usd 0.50`); sets `FORGE_BUDGET_USD` |
+
 ### Money & limits
 
 | Command | What it does |
 |---|---|
 | `forge spend set` | Set daily/monthly AI spending limits |
 | `forge spend status` | See how much you've spent today and this month |
+| `forge <any> --budget-usd 0.50` | Cap this single invocation to 50 cents of LLM spend |
 
 ### Audit & compliance
 
@@ -355,9 +376,13 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 
 | Command | What it does |
 |---|---|
-| `forge bugfix --bug "<description>"` | Diagnose a bug from a plain-language report, generate a surgical patch and regression test (dry-run) |
+| `forge bugfix --bug "<description>"` | Diagnose a bug from a plain-language description, generate a surgical patch and regression test (dry-run by default) |
+| `echo "<description>" \| forge bugfix` | Pipe a bug description from stdin — equivalent to `--bug "-"` |
+| `forge bugfix --bug - < crash.txt` | Pipe a bug description from a file |
 | `forge bugfix --finding <id>` | Fix a specific finding ID from `forge review` results |
 | `forge bugfix --test "<pattern>"` | Fix the root cause of a failing test; produces patch + regression test |
+| `forge bugfix --bug "..." --stack "$(cat crash.log)" --file handler.go` | Include a stack trace and source file for richer LLM context |
+| `forge bugfix --bug "..." --model gpt-4o --apply` | Override the LLM model and write the fix to disk |
 | `forge bugfix ... --apply` | Write the patch and regression test to disk; appends a tamper-proof entry to `.forge/audit.log` |
 | `forge incident new` | Log a production incident with a structured record |
 | `forge incident triage <id>` | Forge suggests what the problem is and what to do |
