@@ -1170,16 +1170,29 @@ func countChangedFiles(root string) int {
 func checkVerify(root, description string) Checkpoint {
 	cp := Checkpoint{Name: "Ship"}
 
-	// Run security scan
+	// Run security scan.
+	// G-022: assign confidence scores and only block ship on HIGH-confidence
+	// findings (actual hardcoded secrets / credential leaks).  Medium-confidence
+	// items (loose semver pins, admin-only SQL, etc.) and low-confidence items
+	// (doc examples, test fixtures) are reported as warnings but do not block
+	// the pipeline — they should be addressed via `forge scan security` in a
+	// separate pass.
 	scanRes, err := cmdscan.RunSecurity(root)
 	if err != nil {
 		cp.Status = "warning"
 		cp.Detail = fmt.Sprintf("security scan error: %v", err)
 		return cp
 	}
-	if len(scanRes.Findings) > 0 {
+	scanRes.Findings = cmdscan.AssignConfidence(scanRes.Findings)
+	var highFindings []cmdscan.Finding
+	for _, f := range scanRes.Findings {
+		if f.Confidence == string(cmdscan.ConfidenceHigh) {
+			highFindings = append(highFindings, f)
+		}
+	}
+	if len(highFindings) > 0 {
 		cp.Status = "fail"
-		cp.Detail = fmt.Sprintf("security scan: %d finding(s) — fix before shipping (run: forge scan security)", len(scanRes.Findings))
+		cp.Detail = fmt.Sprintf("security scan: %d high-confidence finding(s) — fix before shipping (run: forge scan security)", len(highFindings))
 		return cp
 	}
 
@@ -1223,7 +1236,12 @@ func checkVerify(root, description string) Checkpoint {
 	}
 
 	cp.Status = "ok"
-	cp.Detail = fmt.Sprintf("security scan clean; hygiene OK; manifest OK (%d patterns)", patternCount)
+	warnCount := len(scanRes.Findings) - len(highFindings)
+	if warnCount > 0 {
+		cp.Detail = fmt.Sprintf("security scan: no high-confidence findings (%d medium/low advisory — run `forge scan security` to review); hygiene OK; manifest OK (%d patterns)", warnCount, patternCount)
+	} else {
+		cp.Detail = fmt.Sprintf("security scan clean; hygiene OK; manifest OK (%d patterns)", patternCount)
+	}
 	if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
 		// Warning-only gaps — note them but don't fail.
 		cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
