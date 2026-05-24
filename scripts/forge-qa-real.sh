@@ -222,15 +222,18 @@ else
   rm -f "$MCP_INPUT"
 
   if echo "$MCP_SERVE_OUT" | grep -q '"protocolVersion"'; then
-    TOOL_COUNT=$(echo "$MCP_SERVE_OUT" | grep -c '"name"' || echo 0)
-    if [[ "$TOOL_COUNT" -ge 4 ]]; then
-      qa_pass "QA-08  mcp serve JSON-RPC (protocolVersion present, ${TOOL_COUNT} tool entries)"
+    # Check for the specific tool names the server must expose
+    TOOLS_OK=1
+    for _tool in forge_kb_search forge_get_workflow forge_get_standards forge_run; do
+      echo "$MCP_SERVE_OUT" | grep -q "\"${_tool}\"" || { TOOLS_OK=0; break; }
+    done
+    if [[ "$TOOLS_OK" -eq 1 ]]; then
+      qa_pass "QA-08  mcp serve JSON-RPC (protocolVersion present, all 4 tools registered)"
     else
-      qa_fail "QA-08  mcp serve JSON-RPC (only ${TOOL_COUNT} tool name entries, want ≥4)"
+      qa_fail "QA-08  mcp serve JSON-RPC (one or more expected tools missing; got: $(echo \"$MCP_SERVE_OUT\"))"
     fi
   else
     qa_fail "QA-08  mcp serve JSON-RPC (no 'protocolVersion' in response)"
-    echo "    Response was: $(echo "$MCP_SERVE_OUT" | head -2)"
   fi
 fi
 
@@ -341,8 +344,8 @@ echo "── P6: doctor ──────────────────�
 # QA-19  forge doctor (advisory; [WARN] lines are acceptable)
 DOCTOR_OUT=$("$FORGE_BIN" doctor 2>&1) && DOCTOR_EXIT=0 || DOCTOR_EXIT=$?
 if [[ "$DOCTOR_EXIT" -eq 0 ]]; then
-  WARN_COUNT=$(echo "$DOCTOR_OUT" | grep -c "WARN" || echo 0)
-  ERROR_COUNT=$(echo "$DOCTOR_OUT" | grep -c "ERROR" || echo 0)
+  WARN_COUNT=$(echo "$DOCTOR_OUT" | grep -c "WARN" 2>/dev/null) || WARN_COUNT=0
+  ERROR_COUNT=$(echo "$DOCTOR_OUT" | grep -c "ERROR" 2>/dev/null) || ERROR_COUNT=0
   if [[ "$ERROR_COUNT" -gt 0 ]]; then
     qa_fail "QA-19  doctor (${ERROR_COUNT} ERROR(s), ${WARN_COUNT} WARN(s))"
     echo "$DOCTOR_OUT" | grep "ERROR" | sed 's/^/    /'
