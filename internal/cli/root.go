@@ -61,6 +61,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdreview"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
 	"github.com/teragrid/forge/internal/cli/cmdship"
+	"github.com/teragrid/forge/internal/cli/cmdskill"
 	"github.com/teragrid/forge/internal/cli/cmdsla"
 	"github.com/teragrid/forge/internal/cli/cmdspend"
 	"github.com/teragrid/forge/internal/cli/cmdtelemetry"
@@ -230,6 +231,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		cmdtsd.New(),
 		// Template enhancement: community template browser
 		cmdtemplates.New(),
+		// Forge expert skill installer for VS Code Copilot
+		cmdskill.New(),
 	)
 
 	// Universal flags (G-080): every verb inherits these via PersistentFlags.

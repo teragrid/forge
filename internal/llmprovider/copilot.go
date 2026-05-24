@@ -312,7 +312,21 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 	if err != nil {
 		return nil, fmt.Errorf("copilot: read response: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// continue
+	case http.StatusUnauthorized, http.StatusForbidden:
+		// The most common cause is a GitHub token that exists but lacks the
+		// 'copilot' OAuth scope (e.g. a token created before Copilot support
+		// was added, or a fine-grained PAT without the scope).
+		// Running `gh auth refresh -s copilot` re-authenticates and adds the
+		// scope without creating a new token.
+		return nil, fmt.Errorf(
+			"copilot: API returned HTTP %d — your GitHub token may be missing the 'copilot' scope.\n"+
+				"Run: gh auth refresh -s copilot\n"+
+				"Then retry. (raw: %s)",
+			resp.StatusCode, string(respData))
+	default:
 		return nil, fmt.Errorf("copilot: API error %d: %s", resp.StatusCode, string(respData))
 	}
 

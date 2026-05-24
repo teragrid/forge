@@ -99,3 +99,4 @@ You can also look up any code with `forge ask error <code>`.
 | `FORGE-6550` | bugfix failed | [forge.dev/errors/6550](https://forge.dev/errors/6550) |
 | `FORGE-6551` | no bug source specified — provide --bug, --finding, or --test | [forge.dev/errors/6551](https://forge.dev/errors/6551) |
 | `FORGE-6552` | finding not found in review results | [forge.dev/errors/6552](https://forge.dev/errors/6552) |
+| `FORGE-6700` | skill operation failed (forge skill install/list/remove) | [forge.dev/errors/6700](https://forge.dev/errors/6700) |

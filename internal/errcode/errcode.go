@@ -104,6 +104,8 @@ var reservedRanges = []struct {
 	{6500, 6549, "internal/cli/cmdtsd"},
 	// DEV-M3-bugfix: post-delivery bug fix workflow.
 	{6550, 6599, "cli/bugfix"},
+	// forge skill: VS Code Copilot expert role installer.
+	{6700, 6799, "cli/skill"},
 	{9000, 9099, "internal/test"},
 }
 
