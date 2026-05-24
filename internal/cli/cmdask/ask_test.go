@@ -33,7 +33,17 @@ import (
 func TestRun_NoProvider(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
-	root := t.TempDir()
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("AZURE_OPENAI_API_KEY", "")
+	t.Setenv("AWS_BEDROCK_REGION", "")
+	t.Setenv("OLLAMA_HOST", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	tmp := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", filepath.Join(tmp, "none"))
+	// Block `gh auth token` subprocess so the test is hermetic.
+	t.Setenv("PATH", tmp)
+	root := tmp
 	res := cmdask.Run(root, "What is the architecture?", "", false)
 	if !res.NoProvider {
 		t.Error("expected NoProvider=true when no API keys set")
