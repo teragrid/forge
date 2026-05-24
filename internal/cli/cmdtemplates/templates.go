@@ -67,6 +67,12 @@ var communityTemplates = []communityTemplate{
 		Mode:        "tsd",
 		Tags:        []string{"saas", "ai", "payments", "python", "nextjs"},
 	},
+	{
+		ID:          "mcp-server",
+		Description: "Standalone MCP server — exposes project tools to AI agents (VS Code Copilot, Claude, Cursor, Windsurf). Go (default) or Python scaffold.",
+		Mode:        "classic",
+		Tags:        []string{"mcp", "ai-agent", "llm", "go", "python"},
+	},
 }
 
 // tsdTemplateContent holds the embedded TSD YAML for each registered TSD template.

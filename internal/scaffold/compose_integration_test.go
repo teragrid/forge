@@ -49,3 +49,64 @@ func TestCompose_IntegrationMultiModule(t *testing.T) {
 		}
 	}
 }
+
+// TEST-COMP-17: real core/mcp-server scaffold reads from forge-knowledge/ (integration).
+func TestCompose_Integration_MCPServer_RealScaffold(t *testing.T) {
+	// This test reads from the actual forge-knowledge/templates directory.
+	// Path is relative to internal/scaffold/ where this package lives.
+	result, err := scaffold.Compose(
+		[]string{"core/mcp-server"},
+		scaffold.CompositionOptions{
+			ModulesRoot: "../../forge-knowledge/templates",
+			SkipMissing: false,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Compose core/mcp-server from real templates: %v", err)
+	}
+
+	wantFiles := []string{
+		"cmd/mcp/main.go.tmpl",
+		"internal/mcpserver/server.go.tmpl",
+		"internal/mcpserver/tools.go.tmpl",
+		"internal/mcpserver/tools_test.go.tmpl",
+		".vscode/settings.json.tmpl",
+		".env.example",
+	}
+	for _, f := range wantFiles {
+		if _, ok := result.Files[f]; !ok {
+			t.Errorf("real core/mcp-server scaffold missing %q", f)
+		}
+	}
+}
+
+// TEST-COMP-18: real core/mcp-server Python scaffold selected with Language=python.
+func TestCompose_Integration_MCPServer_PythonScaffold(t *testing.T) {
+	result, err := scaffold.Compose(
+		[]string{"core/mcp-server"},
+		scaffold.CompositionOptions{
+			ModulesRoot: "../../forge-knowledge/templates",
+			Language:    "python",
+			SkipMissing: false,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Compose core/mcp-server Python from real templates: %v", err)
+	}
+
+	wantFiles := []string{
+		"mcp_server.py.tmpl",
+		"tools/__init__.py.tmpl",
+		"requirements-mcp.txt",
+		".vscode/settings.json.tmpl",
+		".env.example",
+	}
+	for _, f := range wantFiles {
+		if _, ok := result.Files[f]; !ok {
+			t.Errorf("real core/mcp-server Python scaffold missing %q", f)
+		}
+	}
+	if _, ok := result.Files["cmd/mcp/main.go.tmpl"]; ok {
+		t.Error("Go entry point must not be present when Language=python")
+	}
+}

@@ -40,6 +40,7 @@ var coreModules = []string{
 	"core/audit-log",
 	"core/feature-flags",
 	"core/soft-delete",
+	"core/mcp-server", // MCP server — every forge project exposes MCP tools to AI agents
 }
 
 // frontendModuleMap maps stack.frontend.framework to a module ID.

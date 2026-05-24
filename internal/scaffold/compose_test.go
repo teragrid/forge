@@ -487,3 +487,114 @@ func TestCompose_LanguageVariant_FallsBackWhenMissing(t *testing.T) {
 		t.Errorf("expected fallback to scaffold/ when scaffold-go/ absent; got keys: %v", fileKeys(result))
 	}
 }
+
+// ── TEST-COMP-14: core/mcp-server Go scaffold composes without error ──────────
+
+func TestCompose_MCPServer_GoScaffold(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	makeModule(t, root, "core/mcp-server", map[string]string{
+		"cmd/mcp/main.go.tmpl":                        "package main\n",
+		"internal/mcpserver/server.go.tmpl":            "package mcpserver\n",
+		"internal/mcpserver/tools.go.tmpl":             "package mcpserver\n",
+		"internal/mcpserver/tools_test.go.tmpl":        "package mcpserver_test\n",
+		".vscode/settings.json.tmpl":                   `{"mcp":{"servers":{}}}`,
+		".env.example":                                 "MCP_SERVER_NAME=myapp\n",
+	})
+
+	result, err := scaffold.Compose(
+		[]string{"core/mcp-server"},
+		scaffold.CompositionOptions{ModulesRoot: root},
+	)
+	if err != nil {
+		t.Fatalf("Compose core/mcp-server (Go): %v", err)
+	}
+	for _, want := range []string{
+		"cmd/mcp/main.go.tmpl",
+		"internal/mcpserver/server.go.tmpl",
+		"internal/mcpserver/tools.go.tmpl",
+		"internal/mcpserver/tools_test.go.tmpl",
+		".vscode/settings.json.tmpl",
+		".env.example",
+	} {
+		if _, ok := result.Files[want]; !ok {
+			t.Errorf("expected %q in mcp-server Go scaffold; got keys: %v", want, fileKeys(result))
+		}
+	}
+}
+
+// ── TEST-COMP-15: core/mcp-server Python scaffold selected when Language=python
+
+func TestCompose_MCPServer_PythonScaffold(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Default Go scaffold.
+	makeModule(t, root, "core/mcp-server", map[string]string{
+		"cmd/mcp/main.go.tmpl": "package main\n",
+	})
+	// Python variant.
+	pyDir := filepath.Join(root, "core/mcp-server", "scaffold-python")
+	for _, f := range []string{
+		"mcp_server.py.tmpl",
+		"tools/__init__.py.tmpl",
+		"requirements-mcp.txt",
+		".env.example",
+		".vscode/settings.json.tmpl",
+	} {
+		full := filepath.Join(pyDir, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("# mcp\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := scaffold.Compose(
+		[]string{"core/mcp-server"},
+		scaffold.CompositionOptions{ModulesRoot: root, Language: "python"},
+	)
+	if err != nil {
+		t.Fatalf("Compose core/mcp-server (Python): %v", err)
+	}
+	if _, ok := result.Files["mcp_server.py.tmpl"]; !ok {
+		t.Errorf("expected Python mcp_server.py.tmpl; got keys: %v", fileKeys(result))
+	}
+	if _, ok := result.Files["cmd/mcp/main.go.tmpl"]; ok {
+		t.Errorf("Go entry point must not be present when Language=python")
+	}
+}
+
+// ── TEST-COMP-16: core/mcp-server composed with core/rbac (no file conflict) ─
+
+func TestCompose_MCPServer_ComposedWithRBAC(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	makeModule(t, root, "core/mcp-server", map[string]string{
+		"cmd/mcp/main.go.tmpl":               "package main\n",
+		"internal/mcpserver/server.go.tmpl":   "package mcpserver\n",
+		".env.example":                        "MCP_SERVER_NAME=\n",
+	})
+	makeModule(t, root, "core/rbac", map[string]string{
+		"internal/middleware/rbac.go.tmpl": "package middleware\n",
+		".env.example":                     "RBAC_KEY=\n",
+	})
+
+	result, err := scaffold.Compose(
+		[]string{"core/mcp-server", "core/rbac"},
+		scaffold.CompositionOptions{ModulesRoot: root},
+	)
+	if err != nil {
+		t.Fatalf("Compose mcp-server+rbac: %v", err)
+	}
+	for _, want := range []string{
+		"cmd/mcp/main.go.tmpl",
+		"internal/mcpserver/server.go.tmpl",
+		"internal/middleware/rbac.go.tmpl",
+		".env.example", // merged additive
+	} {
+		if _, ok := result.Files[want]; !ok {
+			t.Errorf("expected %q after composition; got keys: %v", want, fileKeys(result))
+		}
+	}
+}
