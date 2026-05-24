@@ -8,7 +8,7 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ### Added
 
-- **`forge test spec generate <feature>`** — scaffolds a structured YAML test spec covering all 9 test-design categories: happy path, boundary, negative, idempotency/replay, concurrency/race, cross-tenant/authz, regression, data-accuracy, and false-positive guard. Output written to `.forge/specs/<feature>/spec.yml`; `--dry-run` previews without writing.
+- **`forge test spec <feature>`** — writes a structured YAML test spec to `.forge/specs/<feature>/spec.yml` covering all 9 test-design categories: happy path, boundary, negative, idempotency/replay, concurrency/race, cross-tenant/authz, regression, data-accuracy, and false-positive guard. Use `--dry-run` to preview without writing.
 - **`forge test run --spec <path>`** — executes (or dry-runs) the test families declared in a spec file. Use `--feature <name>` as a shorthand to locate `.forge/specs/<name>/spec.yml` automatically.
 - **`forge config set <key> <value>`** — persists defaults to `forge.yml`. Valid keys: `llm.provider`, `llm.model`, `llm.daily_budget_usd`, `llm.monthly_budget_usd`, `telemetry.enabled`, `telemetry.install_id`, `log.format`, `log.level`. Re-running is idempotent and does not clobber unrelated keys.
 - **`--budget-usd <float>` global flag** — per-invocation spend cap passed as `FORGE_BUDGET_USD`; complements the persisted `llm.daily_budget_usd` config key.

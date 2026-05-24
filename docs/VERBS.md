@@ -53,7 +53,7 @@ The following flags are available on every verb:
 | `forge scan` | Run security / quality scanners | `FORGE-1400..1499` |
 | `forge lint` | Check conventions and hygiene markers | `FORGE-1500..1599` |
 | `forge ship` | Full five-checkpoint delivery pipeline: `forge ship auth/email` (positional arg); `--resume` to continue; checkpoint 5 renamed from `verify` → `ship` (G-003) | `FORGE-1600..1699` |
-| `forge test` | Run any of 13 test families (unit/integration/e2e/journey/perf/load/soak/…); `forge test spec generate <feature>` scaffolds a 9-case YAML test spec; `forge test run --spec <path>` (or `--feature <name>`) executes the declared families | `FORGE-4300..4399` |
+| `forge test` | Run any of 13 test families (unit/integration/e2e/journey/perf/load/soak/…); `forge test spec <feature>` writes a 9-case YAML test spec to `.forge/specs/<feature>/spec.yml`; `forge test run --spec <path>` (or `--feature <name>`) executes the declared families | `FORGE-4300..4399` |
 | `forge upgrade` | Apply built-in or plugin codemods (renamed from `forge migrate-code`) | `FORGE-2000..2099` |
 | `forge audit` | Query / verify the audit ledger; `forge audit erase` (renamed from `forge gdpr erase`); `forge audit export` (renamed from `forge compliance export`) | `FORGE-3400..3499` |
 | `forge eval` | Run deterministic evaluation scenarios | `FORGE-3600..3699` |

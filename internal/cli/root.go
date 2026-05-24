@@ -89,7 +89,7 @@ func NewRootCommand(version string) *cobra.Command {
   forge bugfix --bug "login fails with +"  # diagnose and auto-fix a bug with LLM assistance
   forge config set llm.model gpt-4o        # persist your default LLM model to forge.yml
   forge explain bugfix                     # learn what any command does, inputs, and side-effects
-  forge test spec generate rate-limiter    # generate a 9-point YAML test spec for a feature
+  forge test spec rate-limiter             # generate a 9-point YAML test spec for a feature
   forge test run --spec .forge/specs/rate-limiter/spec.yml  # run tests from the spec`,
 		Version:       version,
 		SilenceUsage:  true,

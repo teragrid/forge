@@ -219,7 +219,7 @@ For full platform-by-platform instructions, see [docs/INSTALLATION.md](docs/INST
 
 **Classic mode** — pick a built-in template and go:
 
-```sh
+```sh![alt text](image-1.png)
 # TypeScript / JavaScript (most vibe-coded apps land here)
 forge new ts-service my-app
 cd my-app
@@ -344,7 +344,7 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge test unit` | Run unit tests |
 | `forge test integration` | Run integration tests |
 | `forge test e2e` | Run end-to-end tests |
-| `forge test spec generate <feature>` | Generate a 9-case YAML test spec covering happy path, boundary, negative, idempotency, concurrency, authz, regression, data accuracy, and false-positive scenarios — edit it, then run `forge test run --spec` |
+| `forge test spec <feature>` | Generate and save a 9-case YAML test spec to `.forge/specs/<feature>/spec.yml` covering happy path, boundary, negative, idempotency, concurrency, authz, regression, data accuracy, and false-positive scenarios — edit it, then run `forge test run --spec` |
 | `forge test run --spec <path>` | Execute (or plan with `--dry-run`) the test families declared in a spec.yml |
 | `forge test run --feature <name>` | Same as above but locates `.forge/specs/<name>/spec.yml` automatically |
 
