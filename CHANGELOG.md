@@ -4,6 +4,23 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.7] — 2026-05-24
+
+### Added
+
+- **`forge test spec generate <feature>`** — scaffolds a structured YAML test spec covering all 9 test-design categories: happy path, boundary, negative, idempotency/replay, concurrency/race, cross-tenant/authz, regression, data-accuracy, and false-positive guard. Output written to `.forge/specs/<feature>/spec.yml`; `--dry-run` previews without writing.
+- **`forge test run --spec <path>`** — executes (or dry-runs) the test families declared in a spec file. Use `--feature <name>` as a shorthand to locate `.forge/specs/<name>/spec.yml` automatically.
+- **`forge config set <key> <value>`** — persists defaults to `forge.yml`. Valid keys: `llm.provider`, `llm.model`, `llm.daily_budget_usd`, `llm.monthly_budget_usd`, `telemetry.enabled`, `telemetry.install_id`, `log.format`, `log.level`. Re-running is idempotent and does not clobber unrelated keys.
+- **`--budget-usd <float>` global flag** — per-invocation spend cap passed as `FORGE_BUDGET_USD`; complements the persisted `llm.daily_budget_usd` config key.
+- **`--profile` flag end-to-end** — validates `fast | safe | paranoid` in `PersistentPreRunE` and applies the profile's `MaxLLMTokenBudget` to every LLM call via a `profileProvider` wrapper in `internal/llmprovider`.
+- **GitHub Copilot LLM provider** — auto-detected from `GH_TOKEN` or `gh` CLI config. `Capabilities()` fetches the live model list from `GET /models` (cached via `sync.Once`) and falls back to a curated known-models list when the endpoint is unreachable.
+
+### Changed
+
+- **`forge bugfix` real-world improvements** — new `--stack`, `--file` (repeatable), `--context`, and `--model` flags; `--bug -` reads the bug description from stdin; `applyPatch` saves patches to `.forge/patches/<ts>-<file>.patch` and applies them via `git apply`; `MaxTokens` no longer hardcoded — governed by active `--profile`.
+- **`forge explain` UX** — verbs are now grouped into 10 logical categories with next-step hints; the `--format json` flag works end-to-end.
+- **`forge.yml llm.model` → `FORGE_COPILOT_MODEL` bridge** — `PersistentPreRunE` in `root.go` reads the persisted model and sets the env var automatically, so `forge config set llm.model gpt-4o` takes effect without any shell-profile change.
+
 ## [1.1.6] — 2026-05-24
 
 ### Added
