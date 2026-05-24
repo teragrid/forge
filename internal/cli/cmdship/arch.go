@@ -144,7 +144,7 @@ func checkArch(root, description string, pipe *LLMPipe) Checkpoint {
 		openapiContent = openapiStub(description)
 		cp.Detail = fmt.Sprintf(
 			"arch stub created: .forge/specs/%s/arch.md + openapi.yaml — edit before continuing "+
-				"(set ANTHROPIC_API_KEY to auto-generate via LLM)",
+				"(run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)",
 			slug)
 	}
 

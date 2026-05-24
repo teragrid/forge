@@ -249,8 +249,8 @@ func TestCheckArch_NoLLM_StubWritten(t *testing.T) {
 	if !strings.Contains(string(openapiData), "openapi:") {
 		t.Errorf("openapi.yaml stub should contain 'openapi:' field: %s", string(openapiData))
 	}
-	if !strings.Contains(cp.Detail, "ANTHROPIC_API_KEY") {
-		t.Errorf("detail should hint about ANTHROPIC_API_KEY: %s", cp.Detail)
+	if !strings.Contains(cp.Detail, "forge config set llm.provider") {
+		t.Errorf("detail should hint about forge config set llm.provider: %s", cp.Detail)
 	}
 }
 

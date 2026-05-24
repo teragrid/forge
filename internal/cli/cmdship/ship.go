@@ -784,7 +784,7 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 					specContent = specStub(description)
 					cp.Detail = fmt.Sprintf(
 						"spec.yml found (%d cases, families: %s) — spec.md stub written: .forge/specs/%s/spec.md"+
-							" (set ANTHROPIC_API_KEY to auto-generate via LLM)",
+							" (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)",
 						len(ySpec.Cases), specFamilyList(ySpec.Families), slug)
 				}
 				if err := os.WriteFile(specFile, []byte(specContent), 0o600); err == nil {
@@ -830,7 +830,7 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				specContent = specStub(description)
 				cp.Detail = fmt.Sprintf(
 					"spec stub created: .forge/specs/%s/spec.md — edit before continuing "+
-						"(set ANTHROPIC_API_KEY to auto-generate via LLM)",
+						"(run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)",
 					slug)
 			}
 			if err := os.WriteFile(specFile, []byte(specContent), 0o600); err == nil {
@@ -936,7 +936,7 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 	cp.Status = "warning"
 	cp.Detail = fmt.Sprintf("no test files found — 4 stub artifacts written to tests/%s.*", slug)
 	if pipe == nil {
-		cp.Detail += " (set ANTHROPIC_API_KEY to generate LLM-assisted stubs)"
+		cp.Detail += " (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)"
 	}
 	return cp
 }
@@ -1057,7 +1057,7 @@ func checkBreakdown(root, description string, pipe *LLMPipe) Checkpoint {
 		cp.Status = "warning"
 		cp.Detail = "no breakdown.md found — run forge ship breakdown to generate"
 		if pipe == nil {
-			cp.Detail += " (set ANTHROPIC_API_KEY to auto-generate)"
+			cp.Detail += " (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)"
 		}
 	} else {
 		cp.Status = "warning"
@@ -1117,7 +1117,7 @@ func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
 	cp.Status = "warning"
 	cp.Detail = "no code changes detected in working tree — implement tasks then rerun forge ship code"
 	if pipe == nil {
-		cp.Detail += " (set ANTHROPIC_API_KEY to auto-generate a code plan)"
+		cp.Detail += " (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)"
 	}
 	return cp
 }

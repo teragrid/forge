@@ -29,6 +29,7 @@ package llmprovider
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/teragrid/forge/internal/config"
 	"github.com/teragrid/forge/internal/errcode"
@@ -89,19 +90,29 @@ type Provider interface {
 // ── Profile-aware provider wrapper ───────────────────────────────────────────
 
 // profileProvider wraps any Provider and applies the active profile's
-// MaxLLMTokenBudget when the caller leaves MaxTokens at zero.
+// MaxLLMTokenBudget when the caller leaves MaxTokens at zero, and the
+// forge.yml llm.model when the request leaves Model empty.
 type profileProvider struct {
-	inner Provider
+	inner       Provider
+	configModel string // forge.yml llm.model; applied when Request.Model is empty
 }
 
 func (p *profileProvider) Name() string               { return p.inner.Name() }
 func (p *profileProvider) Capabilities() Capabilities { return p.inner.Capabilities() }
 
 func (p *profileProvider) Complete(ctx context.Context, req *Request) (*Response, error) {
-	if prof := config.ActiveProfile(); prof != nil && prof.MaxLLMTokenBudget > 0 {
-		if req != nil && req.MaxTokens == 0 {
-			copied := *req
+	if req != nil {
+		var modified bool
+		copied := *req
+		if prof := config.ActiveProfile(); prof != nil && prof.MaxLLMTokenBudget > 0 && copied.MaxTokens == 0 {
 			copied.MaxTokens = prof.MaxLLMTokenBudget
+			modified = true
+		}
+		if p.configModel != "" && copied.Model == "" {
+			copied.Model = p.configModel
+			modified = true
+		}
+		if modified {
 			req = &copied
 		}
 	}
@@ -118,6 +129,7 @@ func WithActiveProfile(p Provider) Provider { return &profileProvider{inner: p} 
 
 // Detect inspects the environment and returns the first available Provider.
 // Detection order (highest priority first):
+//  0. forge.yml llm.provider  → provider selected by name (credentials still from env)
 //  1. ANTHROPIC_API_KEY       → AnthropicAdapter
 //  2. OPENAI_API_KEY          → OpenAIAdapter
 //  3. GEMINI_API_KEY          → GeminiAdapter
@@ -129,30 +141,74 @@ func WithActiveProfile(p Provider) Provider { return &profileProvider{inner: p} 
 // Returns ErrNoProvider (FORGE-4050) if no known credentials are present.
 func Detect() (Provider, error) {
 	var inner Provider
-	switch {
-	case os.Getenv("ANTHROPIC_API_KEY") != "":
-		inner = &AnthropicAdapter{apiKey: os.Getenv("ANTHROPIC_API_KEY")}
-	case os.Getenv("OPENAI_API_KEY") != "":
-		inner = &OpenAIAdapter{apiKey: os.Getenv("OPENAI_API_KEY")}
-	default:
-		if p := newGeminiProvider(); p != nil {
-			inner = p
-		} else if p := newAzureOpenAIProvider(); p != nil {
-			inner = p
-		} else if p := newBedrockProvider(); p != nil {
-			inner = p
-		} else if p := newOllamaProvider(); p != nil {
-			inner = p
-		} else if p := newCopilotProvider(); p != nil {
-			inner = p
+	var configModel string
+
+	// Layer 0: forge.yml explicit provider preference takes priority over env-var order.
+	if root, wdErr := os.Getwd(); wdErr == nil {
+		if cfg, cfgErr := config.Load(root, nil); cfgErr == nil {
+			configModel = cfg.LLMModel.Raw
+			if prov := cfg.LLMProvider.Raw; prov != "" && prov != "auto" {
+				inner = detectByName(prov)
+			}
 		}
 	}
+
+	// Env-var auto-detection (used when no explicit provider is configured).
+	if inner == nil {
+		switch {
+		case os.Getenv("ANTHROPIC_API_KEY") != "":
+			inner = &AnthropicAdapter{apiKey: os.Getenv("ANTHROPIC_API_KEY")}
+		case os.Getenv("OPENAI_API_KEY") != "":
+			inner = &OpenAIAdapter{apiKey: os.Getenv("OPENAI_API_KEY")}
+		default:
+			if p := newGeminiProvider(); p != nil {
+				inner = p
+			} else if p := newAzureOpenAIProvider(); p != nil {
+				inner = p
+			} else if p := newBedrockProvider(); p != nil {
+				inner = p
+			} else if p := newOllamaProvider(); p != nil {
+				inner = p
+			} else if p := newCopilotProvider(); p != nil {
+				inner = p
+			}
+		}
+	}
+
 	if inner == nil {
 		return nil, errcode.New(ErrNoProvider,
-			"no LLM provider detected: set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, "+
-				"AZURE_OPENAI_API_KEY, AWS_BEDROCK_REGION, OLLAMA_HOST, or GH_TOKEN (GitHub Copilot)", nil)
+			"no LLM provider detected: run 'forge config set llm.provider <name>' (e.g. copilot, ollama) "+
+				"or set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, "+
+				"AZURE_OPENAI_API_KEY, AWS_BEDROCK_REGION, OLLAMA_HOST, or GH_TOKEN", nil)
 	}
-	return &profileProvider{inner: inner}, nil
+	return &profileProvider{inner: inner, configModel: configModel}, nil
+}
+
+// detectByName initialises a provider by explicit name, using the same
+// credential env-vars as the auto-detection path. Returns nil when the
+// provider's credentials are unavailable.
+func detectByName(name string) Provider {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "anthropic":
+		if k := os.Getenv("ANTHROPIC_API_KEY"); k != "" {
+			return &AnthropicAdapter{apiKey: k}
+		}
+	case "openai":
+		if k := os.Getenv("OPENAI_API_KEY"); k != "" {
+			return &OpenAIAdapter{apiKey: k}
+		}
+	case "gemini":
+		return newGeminiProvider()
+	case "azure", "azure_openai", "azure-openai":
+		return newAzureOpenAIProvider()
+	case "bedrock", "aws_bedrock", "aws-bedrock":
+		return newBedrockProvider()
+	case "ollama":
+		return newOllamaProvider()
+	case "copilot", "github_copilot", "github-copilot":
+		return newCopilotProvider()
+	}
+	return nil
 }
 
 // ── Anthropic adapter ─────────────────────────────────────────────────────────
