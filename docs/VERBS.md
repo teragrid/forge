@@ -3,6 +3,12 @@
 > Complete reference for every `forge` CLI command. One row per verb in the
 > summary table; detailed flags, examples, and error codes follow.
 
+> **AI agents / LLMs:** For exact input/output schemas, MCP tool specs, CI
+> patterns, and machine-readable JSON examples see
+> [AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md). The quick-reference table below
+> covers all verbs; use `--json` on any verb for machine-parsable output and
+> `forge explain --json` for a full manifest of every verb at runtime.
+
 ---
 
 ## New to Forge? Read this first.

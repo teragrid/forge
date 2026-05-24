@@ -19,15 +19,16 @@
 ## Contents
 
 1. [What is Forge?](#what-is-forge)
-2. [The 7 things Forge does for you](#the-7-things-forge-does-for-you)
-3. [Install](#install)
-4. [Your first 5 minutes](#your-first-5-minutes)
-5. [Commands at a glance](#commands-at-a-glance)
-6. [Real-world scenarios](#real-world-scenarios)
-7. [Built with Forge](#built-with-forge)
-8. [FAQ](#faq)
-9. [Troubleshooting](#troubleshooting)
-10. [License & community](#license--community)
+2. [For AI agents & LLMs](#for-ai-agents--llms)
+3. [The 7 things Forge does for you](#the-7-things-forge-does-for-you)
+4. [Install](#install)
+5. [Your first 5 minutes](#your-first-5-minutes)
+6. [Commands at a glance](#commands-at-a-glance)
+7. [Real-world scenarios](#real-world-scenarios)
+8. [Built with Forge](#built-with-forge)
+9. [FAQ](#faq)
+10. [Troubleshooting](#troubleshooting)
+11. [License & community](#license--community)
 
 ---
 
@@ -48,6 +49,50 @@ forge audit show                 # enterprise-grade change log, always ready
 > **No IT background required.** If you can open a terminal and paste a command, you can use Forge. Every output tells you exactly what to do next.
 
 > **How to open a terminal:** Windows — `Win + R` → `powershell` | Mac — `Cmd + Space` → `Terminal` | VS Code/Cursor — `` Ctrl + ` ``
+
+---
+
+## For AI Agents & LLMs
+
+> **TL;DR for agents:** install with `npm install -g @forgeone/cli`, wire up MCP with `forge mcp info`, then use the 4 MCP tools to search the knowledge base, run commands, and read project standards. Full reference: [docs/AI_AGENT_GUIDE.md](docs/AI_AGENT_GUIDE.md) · [llms.txt](llms.txt)
+
+Forge is fully agent-friendly:
+
+- **MCP server built-in** — `forge mcp serve` exposes 4 tools over JSON-RPC 2.0 stdio, compatible with VS Code Copilot, Claude Desktop, Cursor, and Windsurf.
+- **`--json` flag everywhere** — every scanner, linter, and verb supports `--json` for machine-parsable output.
+- **Deterministic exit codes** — `0` = success/no findings, `1` = findings/failure, `2` = fatal. Safe to use in CI pipelines.
+- **Non-interactive install** — `npm install -g @forgeone/cli` (no prompts, no TTY required).
+- **`llms.txt`** — a distilled machine-readable reference at the repo root: [llms.txt](llms.txt).
+
+### Wire Forge into your AI chat (30 seconds)
+
+```bash
+# 1. Install
+npm install -g @forgeone/cli
+
+# 2. Get ready-to-paste MCP config for your tool
+forge mcp info
+```
+
+The command prints copy-paste config for VS Code, Claude Desktop, Cursor, and Windsurf.
+The repo already ships `.vscode/settings.json` — open it in VS Code and Forge tools are active immediately.
+
+### MCP tools
+
+| Tool | What it does | Example prompt |
+|---|---|---|
+| `forge_kb_search` | Search 172 KB entries (architectures, standards, patterns) | *"Search forge KB for rate limiting patterns"* |
+| `forge_get_workflow` | Get step-by-step workflow for any verb | *"Get the forge ship workflow"* |
+| `forge_get_standards` | Read project coding standards from `.forge/instructions/` | *"What are this project's coding standards?"* |
+| `forge_run` | Execute any Forge verb and return its output | *"Run forge scan all"* |
+
+### Skill files — inject Forge knowledge into your AI tool
+
+```bash
+forge skill install --for all   # writes expert-role files for Copilot, Claude, Cursor, Windsurf
+```
+
+For the full agent reference — exact command syntax, MCP tool specs, exit codes, CI patterns, error recovery — see **[docs/AI_AGENT_GUIDE.md](docs/AI_AGENT_GUIDE.md)**.
 
 ---
 
@@ -396,6 +441,8 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge bundle create` | Package Forge for air-gapped or offline environments |
 
 ### Use Forge in your AI chat (MCP)
+
+> Full agent reference with exact tool schemas, CI patterns, and error recovery: **[docs/AI_AGENT_GUIDE.md](docs/AI_AGENT_GUIDE.md)**
 
 Forge ships a built-in [Model Context Protocol](https://modelcontextprotocol.io) server so every AI chat tool (VS Code Copilot, Claude Desktop, Cursor, Windsurf) can call Forge directly — no copy-pasting commands.
 

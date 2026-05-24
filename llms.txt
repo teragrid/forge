@@ -1,0 +1,114 @@
+# Forge
+
+Forge is a single-binary Go CLI (`github.com/teragrid/forge`) that wraps the
+scan-fix-learn loop, an LLM gateway, a WASM plugin runtime, and a ship
+workflow for AI-generated code. Run `forge` in any directory to add
+production-grade quality gates, secret scanning, LLM spend controls, and a
+tamper-proof audit trail to AI-vibe-coded projects.
+
+## Docs
+
+- [README.md](README.md): project overview, install, first-5-minutes walkthrough, all commands, FAQ
+- [docs/AI_AGENT_GUIDE.md](docs/AI_AGENT_GUIDE.md): full agent reference — MCP tools, exact command syntax, exit codes, task patterns, error recovery
+- [docs/INSTALLATION.md](docs/INSTALLATION.md): platform-by-platform install including non-interactive/CI one-liners
+- [docs/VERBS.md](docs/VERBS.md): complete command (verb) reference with flags and error-code ranges
+- [GETTING_STARTED.md](GETTING_STARTED.md): beginner walkthrough from zero to first `forge ship`
+- [docs/ERROR_CODES.md](docs/ERROR_CODES.md): every FORGE-XXXX error code with cause and fix
+- [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md): internals, repo layout, design decisions
+- [AGENTS.md](AGENTS.md): conventions for AI coding assistants working inside the forge codebase itself
+
+## Quick capability map
+
+| You want to… | Run |
+|---|---|
+| Install (one-shot, non-interactive) | `npm install -g @forgeone/cli` |
+| Confirm everything is wired | `forge doctor` |
+| Add Forge to an existing project | `forge init --minimal` |
+| Scan for secrets | `forge scan secrets` |
+| Scan for all issues | `forge scan all` |
+| Run the full quality gate before a push | `forge ship` |
+| Get an LLM-readable context bundle | `forge context generate` |
+| Search the 172-entry knowledge base | `forge mcp serve` → tool `forge_kb_search` |
+| Cap LLM spend | `forge spend set --daily 2.00 --monthly 30.00` |
+| Read the audit log | `forge audit show` |
+| Fix a bug | `forge bugfix --bug "<description>"` |
+| Generate a 9-case test spec | `forge test spec "<feature>"` |
+| Install Forge as an MCP server | `forge mcp info` (prints ready-to-paste configs) |
+| Install expert-role skill files | `forge skill install --for all` |
+
+## Install (one-liner)
+
+```bash
+# npm (recommended)
+npm install -g @forgeone/cli
+
+# go install
+go install github.com/teragrid/forge/cmd/forge@latest
+
+# curl (Linux amd64)
+curl -Lo forge https://github.com/teragrid/forge/releases/latest/download/forge-linux-amd64 && chmod +x forge && sudo mv forge /usr/local/bin/
+```
+
+## MCP server (use Forge from your AI chat)
+
+```jsonc
+// VS Code — .vscode/settings.json (already present in this repo)
+{ "mcp": { "servers": { "forge": { "type": "stdio", "command": "forge", "args": ["mcp", "serve"] } } } }
+
+// Claude Desktop — ~/Library/Application Support/Claude/claude_desktop_config.json
+{ "mcpServers": { "forge": { "command": "forge", "args": ["mcp", "serve"] } } }
+
+// Cursor / Windsurf — run: forge mcp info  ← prints copy-paste config for every platform
+```
+
+MCP tools exposed:
+
+| Tool name | Parameters | Returns |
+|---|---|---|
+| `forge_kb_search` | `{"query":"<text>","limit":<int>}` | JSON array of KB entries (title, body, tags, relevance) |
+| `forge_get_workflow` | `{"verb":"<forge-verb>"}` | Markdown step-by-step workflow for that verb |
+| `forge_get_standards` | `{}` | Contents of `.forge/instructions/*.md` + `AGENTS.md` |
+| `forge_run` | `{"verb":"<verb>","args":[...]}` | Stdout + stderr of running `forge <verb> [args]` |
+
+## Common agent task patterns
+
+```bash
+# Pattern: scan a project, report findings
+forge scan all --json        # machine-readable JSON output
+
+# Pattern: gate a push (non-interactive)
+forge ship --dry-run         # exit 0 if all stages pass, 1 if any fail
+
+# Pattern: fix a failing test
+forge bugfix --test "TestName" --apply    # patches + regression test
+
+# Pattern: generate a context snapshot for another LLM
+forge context generate       # writes .forge/context/snapshot.md
+
+# Pattern: verify audit integrity
+forge audit verify           # exit 0 = untampered, 1 = hash mismatch
+
+# Pattern: look up error code
+forge ask error FORGE-1001   # plain-English cause + fix
+```
+
+## Exit codes
+
+All forge verbs:
+- **0** — success (no findings for scanners, all stages pass for `ship`)
+- **1** — failure (findings present, stage failed, or bad arguments)
+- **2** — fatal (binary misconfigured, missing dependency)
+
+`forge scan *` exits 1 when findings are present even if `--exit-zero` is not set. Pass `--exit-zero` to always exit 0 (useful in advisory CI steps).
+
+## Key file paths
+
+| Path | Purpose |
+|---|---|
+| `forge.config.yml` | Project config (created by `forge init`) |
+| `.forge/audit.log` | Hash-chained JSONL audit ledger |
+| `.forge/context/snapshot.md` | LLM-readable project context |
+| `.forge/instructions/*.md` | Project coding standards (read by `forge_get_standards`) |
+| `.forge/specs/<feature>/spec.yml` | 9-case test spec (written by `forge test spec`) |
+| `.forge/learned/gotchas.jsonl` | CI failure lessons |
+| `AGENTS.md` | Coding-assistant instructions (in-repo conventions) |

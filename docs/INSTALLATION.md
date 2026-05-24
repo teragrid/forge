@@ -156,6 +156,72 @@ Sigstore signature verification is on the roadmap.
 
 ---
 
+## CI / AI-Agent (Non-Interactive) Install
+
+Use these one-liners in CI pipelines, Dockerfiles, GitHub Actions, and agent
+scripts. All are fully non-interactive (no TTY, no prompts).
+
+### GitHub Actions
+
+```yaml
+- name: Install Forge
+  run: npm install -g @forgeone/cli --no-update-notifier
+
+- name: Run quality gate
+  run: forge ship --dry-run
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # or ANTHROPIC_API_KEY
+```
+
+### Docker / Linux container (npm)
+
+```dockerfile
+RUN npm install -g @forgeone/cli --no-update-notifier
+```
+
+### Docker / Linux container (binary, no Node.js)
+
+```dockerfile
+ARG FORGE_VERSION=latest
+RUN curl -fsSL https://github.com/teragrid/forge/releases/latest/download/forge-linux-amd64 \
+    -o /usr/local/bin/forge && chmod +x /usr/local/bin/forge
+```
+
+### Shell one-liner (Linux amd64)
+
+```bash
+curl -fsSL https://github.com/teragrid/forge/releases/latest/download/forge-linux-amd64 \
+  -o /usr/local/bin/forge && chmod +x /usr/local/bin/forge && forge version
+```
+
+### go install (CI with Go toolchain)
+
+```bash
+go install github.com/teragrid/forge/cmd/forge@latest
+export PATH="$PATH:$(go env GOPATH)/bin"
+forge version
+```
+
+### Verify non-interactive health check
+
+```bash
+forge doctor      # exits 0 if healthy, 1 if something is wrong
+forge version     # print version string (always exits 0)
+```
+
+**Environment variables for headless LLM use:**
+
+```bash
+export OPENAI_API_KEY=sk-...         # or ANTHROPIC_API_KEY
+export FORGE_BUDGET_USD=0.50        # per-invocation cap (optional)
+forge scan all --json               # no TTY needed; outputs JSON
+```
+
+> **Full agent reference** (MCP tools, exact command syntax, CI patterns):
+> [AI_AGENT_GUIDE.md](AI_AGENT_GUIDE.md)
+
+---
+
 ## Uninstall
 
 | Installed via | Uninstall command |
