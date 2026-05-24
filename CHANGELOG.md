@@ -4,6 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.8] — 2026-05-24
+
+### Fixed
+
+- **`forge test spec <feature>` now writes by default** — `--dry-run` flag defaulted to `true`, so running `forge test spec <feature>` without any flags was silently doing a preview instead of writing the file. Default changed to `false`; use `--dry-run` explicitly to preview.
+- **`forge test spec` is now a direct command (no `generate` subcommand)** — previously `forge test spec generate <feature>`; now just `forge test spec <feature>`. The `generate` subcommand was removed to match the documented short form.
+
 ## [1.1.7] — 2026-05-24
 
 ### Added
