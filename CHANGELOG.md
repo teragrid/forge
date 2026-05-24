@@ -4,6 +4,18 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.11] — 2026-05-24
+
+### Added
+
+- **`forge config set llm.provider <name>`** — configuring a provider in `forge.yml` is now sufficient to enable all LLM-powered commands without setting any environment variable. Supported values: `copilot`, `ollama`, `openai`, `anthropic`, `gemini`, `azure`, `bedrock`.
+- **`forge config set llm.model <model>`** — the configured model is automatically applied to every LLM request. Set once; applies to `forge ship`, `forge bugfix`, `forge scan`, and every other command.
+
+### Changed
+
+- **`llmprovider.Detect()` reads `forge.yml` first** — the forge.yml `llm.provider` setting now takes priority over the environment-variable detection order. If the configured provider's credentials are absent, detection falls back to env-var order automatically.
+- **LLM error hints updated** — all "no provider" error hints now read `"run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY"` instead of pointing only at Anthropic.
+
 ## [1.1.10] — 2026-05-24
 
 ### Added
