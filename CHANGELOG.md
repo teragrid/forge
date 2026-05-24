@@ -4,6 +4,23 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.1.10] — 2026-05-24
+
+### Added
+
+- **Short flags on all key commands** — every frequently-used flag now has a single-character shorthand:
+  - `forge ship`: `-d/--dry-run`, `-j/--json`, `-y/--yes`, `-Y/--yolo`, `-Q/--quick`, `-f/--from`, `-s/--skip-checkpoint`, `-p/--pr`, `-r/--root`, `-R/--resume`, `-B/--no-branch`
+  - `forge ship spec`: `-n/--name` (renames `--spec` to `--name`; canonical usage: `forge ship spec "description" -n "name"`)
+  - `forge scan`: `-r/--root`, `-j/--json`, `-m/--mode`, `-s/--since`, `-f/--fast`
+  - `forge bugfix`: `-b/--bug`, `-f/--finding`, `-t/--test`, `-s/--stack`, `-c/--context`, `-m/--model`, `-a/--apply`, `-j/--json`, `-r/--root`
+  - `forge init`: `-t/--template`, `-n/--name`, `-m/--minimal`, `-f/--force`, `-j/--json`
+  - `forge new`: `-t/--tsd`, `-n/--name`, `-f/--force`, `-j/--json`, `-l/--list`
+  - `forge audit`: `-r/--root`, `-j/--json`; `export`: `-o/--output`; `erase`: `-d/--dry-run`
+
+### Changed
+
+- **`forge ship spec --spec` renamed to `--name/-n`** — the flag that overrides the spec directory slug is now `--name` (with shorthand `-n`). The old `--spec` name is removed.
+
 ## [1.1.9] — 2026-05-25
 
 ### Added
