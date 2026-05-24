@@ -166,12 +166,12 @@ func New(forgeVersion string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&tsdPath, "tsd", "", "path to TSD file (auto-detects .forge/tsd.yml when omitted)")
-	cmd.Flags().StringVar(&name, "name", "", "project name (default: basename of <path>)")
+	cmd.Flags().StringVarP(&tsdPath, "tsd", "t", "", "path to TSD file (auto-detects .forge/tsd.yml when omitted)")
+	cmd.Flags().StringVarP(&name, "name", "n", "", "project name (default: basename of <path>)")
 	cmd.Flags().StringVar(&module, "module", "", "Go module path (default: example.com/<name>)")
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite into a non-empty target")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
-	cmd.Flags().BoolVar(&listOnly, "list", false, "list available templates and exit")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite into a non-empty target")
+	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
+	cmd.Flags().BoolVarP(&listOnly, "list", "l", false, "list available templates and exit")
 	return cmd
 }
 

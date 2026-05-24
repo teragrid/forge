@@ -324,6 +324,12 @@ type RunOptions struct {
 	// cosmetic in the current implementation (all structural checkpoints still
 	// run) but prevents LLM calls and git operations in future M1 gating.
 	DryRun bool
+	// SpecName, when non-empty, overrides the slug derived from Description for
+	// the spec checkpoint. Use this when the spec directory was created under a
+	// different name than the feature description
+	// (e.g. `forge test spec login` creates .forge/specs/login/; pass
+	// SpecName="login" so `forge ship spec` looks in the right directory).
+	SpecName string
 	// EventWriter, when non-nil, receives one NDJSON ShipEvent line per
 	// checkpoint as each completes. Set by runCheckpoint when --yes && --json (G-004).
 	EventWriter interface{ Write([]byte) (int, error) }

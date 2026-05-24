@@ -90,8 +90,8 @@ func New() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: cwd)")
+	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
 	cmd.Flags().StringVar(&verb, "verb", "", "(append) verb name")
 	cmd.Flags().StringVar(&action, "action", "", "(append) action name")
 	cmd.AddCommand(newQueryCmd())
@@ -204,9 +204,9 @@ func newExportCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
-	cmd.Flags().StringVar(&output, "output", "-", "output file path (default: stdout)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON (default for export)")
+	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: cwd)")
+	cmd.Flags().StringVarP(&output, "output", "o", "-", "output file path (default: stdout)")
+	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON (default for export)")
 	return cmd
 }
 
@@ -266,7 +266,7 @@ func newEraseCmd() *cobra.Command {
 				"forge audit erase: full log compaction scheduled for M2; run with --dry-run to preview")
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", true, "preview what would be erased without modifying the ledger")
+	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: cwd)")
+	cmd.Flags().BoolVarP(&dryRun, "dry-run", "d", true, "preview what would be erased without modifying the ledger")
 	return cmd
 }

@@ -31,7 +31,7 @@ func TestCheckSpec_WritesSpecYML(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
-	cp := checkSpec(root, "add login", nil)
+	cp := checkSpec(root, "add login", "", nil)
 	if cp.Status != "ok" {
 		t.Fatalf("expected status ok, got %q (detail: %s)", cp.Status, cp.Detail)
 	}

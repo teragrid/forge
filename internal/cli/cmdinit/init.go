@@ -201,11 +201,11 @@ func New(forgeVersion string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&tmplFlag, "template", "", "template to apply (default: auto-detect)")
-	cmd.Flags().StringVar(&name, "name", "", "project name (default: current directory name — no flag needed when running from the project root)")
-	cmd.Flags().BoolVar(&minimal, "minimal", false, "inject only forge runtime files + knowledge index (safe for existing projects; name auto-detected from current directory)")
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite files that already exist; also overwrites drifted forge-managed blocks (.gitignore, .gitleaks.toml)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().StringVarP(&tmplFlag, "template", "t", "", "template to apply (default: auto-detect)")
+	cmd.Flags().StringVarP(&name, "name", "n", "", "project name (default: current directory name \u2014 no flag needed when running from the project root)")
+	cmd.Flags().BoolVarP(&minimal, "minimal", "m", false, "inject only forge runtime files + knowledge index (safe for existing projects; name auto-detected from current directory)")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "overwrite files that already exist; also overwrites drifted forge-managed blocks (.gitignore, .gitleaks.toml)")
+	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
 	return cmd
 }
 

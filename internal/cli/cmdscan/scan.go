@@ -255,13 +255,13 @@ func New() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
-	cmd.Flags().StringVar(&mode, "mode", "report", "scan mode: report|suggest|apply (G-021)")
+	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: cwd)")
+	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
+	cmd.Flags().StringVarP(&mode, "mode", "m", "report", "scan mode: report|suggest|apply (G-021)")
 	cmd.Flags().StringVar(&minConf, "min-confidence", "", "minimum confidence to gate on: high|medium|low (default: all)")
-	cmd.Flags().StringVar(&since, "since", "", "diff findings against baseline from this git ref (G-023)")
+	cmd.Flags().StringVarP(&since, "since", "s", "", "diff findings against baseline from this git ref (G-023)")
 	cmd.Flags().BoolVar(&includeMedium, "include-medium", false, "apply medium-confidence fixes in --mode apply (G-022)")
-	cmd.Flags().BoolVar(&fast, "fast", false, "pre-commit fast mode: security runs secrets-only; skips slow scanners (G-024)")
+	cmd.Flags().BoolVarP(&fast, "fast", "f", false, "pre-commit fast mode: security runs secrets-only; skips slow scanners (G-024)")
 	return cmd
 }
 

@@ -35,6 +35,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/teragrid/forge/internal/cli/cmdtest"
 	"github.com/teragrid/forge/internal/llmprovider"
 )
@@ -770,7 +772,7 @@ func TestCheckSpec_LLM_GeneratesNewSpec(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Spec: add login\n\n## What\nAdd a login form.\n"),
 	}
-	cp := checkSpec(root, "add login", mockPipe(root, mock))
+	cp := checkSpec(root, "add login", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -809,7 +811,7 @@ func TestCheckSpec_LLM_ReviewsExistingSpec(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Enhanced Spec\n\n## What\nImproved content.\n"),
 	}
-	cp := checkSpec(root, "review feature", mockPipe(root, mock))
+	cp := checkSpec(root, "review feature", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -829,7 +831,7 @@ func TestCheckSpec_LLM_ProviderFails_GracefulDegradation(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkSpec(root, "failing feature", mockPipe(root, mock))
+	cp := checkSpec(root, "failing feature", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("provider error must not fail the spec checkpoint; got %q: %s", cp.Status, cp.Detail)
@@ -842,7 +844,7 @@ func TestCheckSpec_LLM_NoDescription_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Response: mockResponse("ignored")}
-	cp := checkSpec(root, "", mockPipe(root, mock))
+	cp := checkSpec(root, "", "", mockPipe(root, mock))
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning with no description, got %q: %s", cp.Status, cp.Detail)
@@ -917,7 +919,7 @@ func TestCheckSpec_YAML_WithLLM_KBEnrichedReview(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Enhanced Spec\n## What\nKB-enriched.\n"),
 	}
-	cp := checkSpec(root, feature, mockPipe(root, mock))
+	cp := checkSpec(root, feature, "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -955,7 +957,7 @@ func TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, nil)
+	cp := checkSpec(root, feature, "", nil)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -982,7 +984,7 @@ func TestCheckSpec_YAML_ZeroCases_StillOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, nil)
+	cp := checkSpec(root, feature, "", nil)
 
 	if cp.Status != "ok" {
 		t.Fatalf("spec with 0 cases must still be ok; got %q: %s", cp.Status, cp.Detail)
@@ -1008,7 +1010,7 @@ func TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, nil)
+	cp := checkSpec(root, feature, "", nil)
 
 	if cp.Status != "ok" {
 		t.Fatalf("corrupt spec.yml must not fail checkpoint; got %q: %s", cp.Status, cp.Detail)
@@ -1031,8 +1033,8 @@ func TestCheckSpec_YAML_Idempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp1 := checkSpec(root, feature, nil)
-	cp2 := checkSpec(root, feature, nil)
+	cp1 := checkSpec(root, feature, "", nil)
+	cp2 := checkSpec(root, feature, "", nil)
 
 	if cp1.Status != "ok" || cp2.Status != "ok" {
 		t.Fatalf("both calls must be ok; got %q, %q", cp1.Status, cp2.Status)
@@ -1061,7 +1063,7 @@ func TestCheckSpec_YAML_Regression_SpecMDOnly(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Enhanced\n"),
 	}
-	cp := checkSpec(root, feature, mockPipe(root, mock))
+	cp := checkSpec(root, feature, "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("spec.md-only path must be ok; got %q: %s", cp.Status, cp.Detail)
@@ -1087,7 +1089,7 @@ func TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies(t *testing.T)
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, nil)
+	cp := checkSpec(root, feature, "", nil)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1122,7 +1124,7 @@ func TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure(t *testing.T) {
 		t.Fatal("test pre-condition: spec.yml must not exist")
 	}
 
-	cp := checkSpec(root, feature, nil)
+	cp := checkSpec(root, feature, "", nil)
 
 	if cp.Status != "ok" {
 		t.Fatalf("absent spec.yml must not fail; got %q: %s", cp.Status, cp.Detail)
@@ -1146,7 +1148,7 @@ func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Generated from YAML\n## Acceptance Criteria\n- happy path\n"),
 	}
-	cp := checkSpec(root, feature, mockPipe(root, mock))
+	cp := checkSpec(root, feature, "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok when generating from spec.yml; got %q: %s", cp.Status, cp.Detail)
@@ -1163,6 +1165,251 @@ func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
 	}
 	if mock.Calls() == 0 {
 		t.Error("expected LLM call for spec.md generation from YAML; got none")
+	}
+}
+
+// ── --name/-n flag (spec-name override) ──────────────────────────────────────
+
+// TestCheckSpec_SpecName_HappyPath — when --name login is given the checkpoint
+// targets .forge/specs/login/ regardless of the description text.
+func TestCheckSpec_SpecName_HappyPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Spec lives under "login", not under slugify("add login feature").
+	dir := filepath.Join(root, ".forge", "specs", "login")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Login Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, "add login feature", "login", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok with --name login override, got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "login") {
+		t.Errorf("detail should reference spec dir 'login'; got: %s", cp.Detail)
+	}
+}
+
+// TestCheckSpec_SpecName_WithYAML_KBEnriched — happy path: --name with spec.yml
+// present; KB-enriched LLM call must be made.
+func TestCheckSpec_SpecName_WithYAML_KBEnriched(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, ".forge", "specs", "auth")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestSpecYAML(t, dir, minTestSpec("auth"))
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Auth Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("# Auth Spec Enhanced\n"),
+	}
+
+	cp := checkSpec(root, "authentication flow", "auth", mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if mock.Calls() == 0 {
+		t.Error("expected KB-enriched LLM call via --name; got none")
+	}
+}
+
+// TestCheckSpec_SpecName_Empty_FallsBackToSlug — boundary: empty --name must
+// fall back to the slug derived from description (regression guard).
+func TestCheckSpec_SpecName_Empty_FallsBackToSlug(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	feature := "rate-limiting"
+	slug := slugify(feature)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Rate Limiting\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// specName="" → must resolve via slugify(feature).
+	cp := checkSpec(root, feature, "", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("empty specName must use derived slug %q; got %q: %s", slug, cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, slug) {
+		t.Errorf("detail should contain slug %q; got: %s", slug, cp.Detail)
+	}
+}
+
+// TestCheckSpec_SpecName_NoSuchDir_GeneratesStub — negative: --name unknown
+// where the dir does not exist; a stub spec.md must be created there.
+func TestCheckSpec_SpecName_NoSuchDir_GeneratesStub(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	cp := checkSpec(root, "my feature", "unknown-spec", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("missing spec dir should produce stub, not fail; got %q: %s", cp.Status, cp.Detail)
+	}
+	stubPath := filepath.Join(root, ".forge", "specs", "unknown-spec", "spec.md")
+	if _, err := os.Stat(stubPath); os.IsNotExist(err) {
+		t.Errorf("stub spec.md must be created under --name directory; not found at %s", stubPath)
+	}
+}
+
+// TestCheckSpec_SpecName_Idempotency — calling checkSpec twice with the same
+// --name must produce identical "ok" results.
+func TestCheckSpec_SpecName_Idempotency(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, ".forge", "specs", "my-feature")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# My Feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp1 := checkSpec(root, "some description", "my-feature", nil)
+	cp2 := checkSpec(root, "some description", "my-feature", nil)
+
+	if cp1.Status != "ok" || cp2.Status != "ok" {
+		t.Fatalf("both calls must be ok; got %q, %q", cp1.Status, cp2.Status)
+	}
+	if cp1.Detail != cp2.Detail {
+		t.Errorf("idempotency: detail changed\n  first:  %s\n  second: %s", cp1.Detail, cp2.Detail)
+	}
+}
+
+// TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks — regression:
+// existing callers that pass no specName must continue to derive the slug from
+// description exactly as before.
+func TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	desc := "add payment gateway"
+	slug := slugify(desc)
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Payment Gateway\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, desc, "", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("description-derived slug path must still work; got %q: %s", cp.Status, cp.Detail)
+	}
+}
+
+// TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName — data-accuracy:
+// detail string must reference the exact --name value used.
+func TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, ".forge", "specs", "dashboard")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Dashboard\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, "admin dashboard feature", "dashboard", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "dashboard") {
+		t.Errorf("detail must reference the spec name 'dashboard'; got: %s", cp.Detail)
+	}
+}
+
+// TestCheckSpec_SpecName_FalsePositiveGuard_OtherCheckpoints_Unaffected — false-
+// positive guard: the --name flag on other checkpoints (arch, test, etc.) must
+// have no observable effect; those functions do not accept a specName parameter.
+// This test uses RunOptions.SpecName only in RunWithOptions (which only routes it
+// to checkSpec), confirming no unintended side-effects on other checkpoints.
+func TestCheckSpec_SpecName_FalsePositiveGuard_OtherCheckpoints_Unaffected(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Run only the "arch" checkpoint; SpecName set to something non-empty.
+	res := RunWithOptions(RunOptions{
+		Root:        root,
+		Description: "my feature",
+		SpecName:    "my-feature", // must not affect arch checkpoint
+		Names:       []string{"arch"},
+	})
+	if len(res.Checkpoints) != 1 {
+		t.Fatalf("expected 1 checkpoint (arch), got %d", len(res.Checkpoints))
+	}
+	if !strings.EqualFold(res.Checkpoints[0].Name, "arch") {
+		t.Fatalf("expected arch checkpoint, got %q", res.Checkpoints[0].Name)
+	}
+}
+
+// TestCheckSpec_SpecName_OnlySpecName_NoDescription_UsesSpecNameAsContext — when
+// only --name is set and description is empty, the spec name is used as the LLM
+// feature context and the spec directory is found by the exact name.
+func TestCheckSpec_SpecName_OnlySpecName_NoDescription(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, ".forge", "specs", "login")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Login\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkSpec(root, "", "login", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("spec-name-only (no description) must be ok; got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "login") {
+		t.Errorf("detail must reference spec name 'login'; got: %s", cp.Detail)
+	}
+}
+
+// TestCheckSpec_SpecName_CobraFlag_ExposedOnSpecSubcmd — verifies that the
+// `forge ship spec` subcommand exposes `--name`/`-n` flag and not other subcommands.
+func TestCheckSpec_SpecName_CobraFlag_ExposedOnSpecSubcmd(t *testing.T) {
+	t.Parallel()
+	cmd := New()
+
+	var specSubCmd, archSubCmd *cobra.Command
+	for _, sub := range cmd.Commands() {
+		switch sub.Name() {
+		case "spec":
+			specSubCmd = sub
+		case "arch":
+			archSubCmd = sub
+		}
+	}
+	if specSubCmd == nil {
+		t.Fatal("spec subcommand not found")
+	}
+	if specSubCmd.Flags().Lookup("name") == nil {
+		t.Error("forge ship spec must expose --name/-n flag")
+	}
+	if specSubCmd.Flags().ShorthandLookup("n") == nil {
+		t.Error("forge ship spec must expose -n shorthand")
+	}
+	if archSubCmd == nil {
+		t.Fatal("arch subcommand not found")
+	}
+	if archSubCmd.Flags().Lookup("name") != nil {
+		t.Error("forge ship arch must NOT expose --name flag (false-positive guard)")
 	}
 }
 

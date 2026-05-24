@@ -183,6 +183,7 @@ func New() *cobra.Command {
 	var (
 		dryRun         bool
 		description    string
+		specName       string // --name/-n: override spec directory name for 'forge ship spec'
 		asJSON         bool
 		yolo           bool
 		quick          bool   // --quick: lightweight spec+code only (skip test+breakdown+verify)
@@ -197,18 +198,18 @@ func New() *cobra.Command {
 
 	// bindFlags attaches shared flags to a subcommand or the parent.
 	bindFlags := func(c *cobra.Command) {
-		c.Flags().BoolVar(&dryRun, "dry-run", false, "preview what would happen without making LLM calls or git operations")
+		c.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "preview what would happen without making LLM calls or git operations")
 		c.Flags().StringVar(&description, "description", "", "what this change does (deprecated: use positional arg instead)")
-		c.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
-		c.Flags().BoolVar(&yolo, "yolo", false, "skip all approval gates (ship without review prompts)")
-		c.Flags().BoolVar(&quick, "quick", false, "lightweight run: spec+code only (skips test, breakdown, verify)")
-		c.Flags().BoolVar(&yes, "yes", false, "auto-approve all checkpoint gates (alias for --yolo)")
-		c.Flags().StringVar(&from, "from", "", "resume pipeline from this checkpoint (e.g. --from=code)")
-		c.Flags().StringVar(&skipCheckpoint, "skip-checkpoint", "", "skip a specific checkpoint by name")
-		c.Flags().BoolVar(&pr, "pr", false, "create a draft GitHub PR after all checkpoints pass (requires gh CLI)")
-		c.Flags().StringVar(&rootDir, "root", "", "project root (default: cwd)")
-		c.Flags().BoolVar(&resume, "resume", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
-		c.Flags().BoolVar(&noBranch, "no-branch", false, "skip automatic feature-branch creation; work on the current branch")
+		c.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
+		c.Flags().BoolVarP(&yolo, "yolo", "Y", false, "skip all approval gates (ship without review prompts)")
+		c.Flags().BoolVarP(&quick, "quick", "Q", false, "lightweight run: spec+code only (skips test, breakdown, verify)")
+		c.Flags().BoolVarP(&yes, "yes", "y", false, "auto-approve all checkpoint gates (alias for --yolo)")
+		c.Flags().StringVarP(&from, "from", "f", "", "resume pipeline from this checkpoint (e.g. --from=code)")
+		c.Flags().StringVarP(&skipCheckpoint, "skip-checkpoint", "s", "", "skip a specific checkpoint by name")
+		c.Flags().BoolVarP(&pr, "pr", "p", false, "create a draft GitHub PR after all checkpoints pass (requires gh CLI)")
+		c.Flags().StringVarP(&rootDir, "root", "r", "", "project root (default: cwd)")
+		c.Flags().BoolVarP(&resume, "resume", "R", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
+		c.Flags().BoolVarP(&noBranch, "no-branch", "B", false, "skip automatic feature-branch creation; work on the current branch")
 	}
 
 	// runCheckpoint is the shared body: run only the named checkpoint(s).
@@ -299,6 +300,7 @@ func New() *cobra.Command {
 		runOpts := RunOptions{
 			Root:        root,
 			Description: description,
+			SpecName:    specName,
 			Names:       names,
 			Gate:        gate,
 			CreatePR:    pr,
@@ -411,9 +413,15 @@ func New() *cobra.Command {
 	verifyDeprecated := makeCheckpointCmd("verify",
 		"[deprecated] Checkpoint 6: use 'forge ship ship' instead.")
 	verifyDeprecated.Deprecated = "use 'forge ship ship' instead"
+	// The spec subcommand gets a dedicated --name/-n flag so users can target a
+	// named spec directory directly (e.g. `forge ship spec --name login`) rather
+	// than relying on the slug derived from the description.
+	specSubCmd := makeCheckpointCmd("spec",
+		"Checkpoint 1: validate or generate the feature spec")
+	specSubCmd.Flags().StringVarP(&specName, "name", "n", "",
+		"name of the spec directory in .forge/specs/ (overrides the slug derived from description)")
 	cmd.AddCommand(
-		makeCheckpointCmd("spec",
-			"Checkpoint 1: validate or generate the feature spec"),
+		specSubCmd,
 		makeCheckpointCmd("arch",
 			"Checkpoint 2: multi-role architecture debate → ADR document"),
 		makeCheckpointCmd("test",
@@ -644,13 +652,23 @@ func specYAMLContext(spec *cmdtest.TestSpec) string {
 // Without an LLMPipe (no provider configured): a Markdown stub is written.
 // When a pre-generated spec.yml (from `forge test spec`) exists it is loaded
 // to enrich the LLM call via InvokeWithKnowledge and surfaced in the detail.
-func checkSpec(root, description string, pipe *LLMPipe) Checkpoint {
+func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Spec"}
 	// G-011: surface recent spec failures as context for the LLM.
 	recentSpecFailures := loadRecentFailures(root, "spec", 3)
 	specsDir := filepath.Join(root, ".forge", "specs")
-	if description != "" {
-		slug := slugify(description)
+	if description != "" || specName != "" {
+		// Determine the spec directory name: --name/-n flag takes priority over the
+		// slug derived from the description, letting users target a known spec
+		// directory directly (e.g. `forge ship spec --name login`).
+		slug := specName
+		if slug == "" {
+			slug = slugify(description)
+		}
+		// When only --name is given (no description), use it as LLM feature context.
+		if description == "" {
+			description = specName
+		}
 		specFile := filepath.Join(specsDir, slug, "spec.md")
 		yamlSpecPath := filepath.Join(specsDir, slug, "spec.yml")
 
@@ -1230,7 +1248,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	}
 
 	allCPs := []Checkpoint{
-		checkSpec(root, opts.Description, pipe),
+		checkSpec(root, opts.Description, opts.SpecName, pipe),
 		checkArch(root, opts.Description, pipe),
 		checkTest(root, opts.Description, pipe),
 		checkBreakdown(root, opts.Description, pipe),

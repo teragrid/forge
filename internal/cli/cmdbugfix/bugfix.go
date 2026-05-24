@@ -213,16 +213,16 @@ func New() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
-	cmd.Flags().StringVar(&bug, "bug", "", "plain-language bug description")
-	cmd.Flags().StringVar(&finding, "finding", "", "review finding ID (from forge review output)")
-	cmd.Flags().StringVar(&test, "test", "", "failing test name or go test -run pattern")
-	cmd.Flags().StringVar(&stack, "stack", "", "stack trace or panic output to attach as context")
+	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: cwd)")
+	cmd.Flags().StringVarP(&bug, "bug", "b", "", "plain-language bug description")
+	cmd.Flags().StringVarP(&finding, "finding", "f", "", "review finding ID (from forge review output)")
+	cmd.Flags().StringVarP(&test, "test", "t", "", "failing test name or go test -run pattern")
+	cmd.Flags().StringVarP(&stack, "stack", "s", "", "stack trace or panic output to attach as context")
 	cmd.Flags().StringArrayVar(&files, "file", nil, "source file to include as context (repeatable)")
-	cmd.Flags().StringVar(&extraCtx, "context", "", "additional free-form context for the LLM")
-	cmd.Flags().StringVar(&model, "model", "", "LLM model override for this run (e.g. gpt-4o)")
-	cmd.Flags().BoolVar(&apply, "apply", false, "write fix and regression test to disk")
-	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().StringVarP(&extraCtx, "context", "c", "", "additional free-form context for the LLM")
+	cmd.Flags().StringVarP(&model, "model", "m", "", "LLM model override for this run (e.g. gpt-4o)")
+	cmd.Flags().BoolVarP(&apply, "apply", "a", false, "write fix and regression test to disk")
+	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
 	return cmd
 }
 
