@@ -40,15 +40,18 @@ import (
 // It is Checkpoint 2 in the 6-checkpoint pipeline, running immediately after
 // checkSpec and before checkTest.
 //
+// specName, when non-empty, overrides the slug derived from description and
+// lets callers target a named spec directory (e.g. --name login).
+//
 // Behaviour:
 //   - If arch.md already exists: returns "ok" immediately (idempotent).
 //   - If spec.md is missing: returns "warning" with a hint to run spec first.
 //   - With an LLMPipe: generates a full ADR-format document from spec content.
 //   - Without an LLMPipe: writes a structured stub ADR to arch.md.
-func checkArch(root, description string, pipe *LLMPipe) Checkpoint {
+func checkArch(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Arch"}
 
-	if description == "" {
+	if description == "" && specName == "" {
 		cp.Status = "warning"
 		if pipe != nil {
 			cp.Detail = fmt.Sprintf(
@@ -60,7 +63,15 @@ func checkArch(root, description string, pipe *LLMPipe) Checkpoint {
 		return cp
 	}
 
-	slug := slugify(description)
+	// Determine slug: --name/-n takes priority over the slug derived from description.
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
+	// When only --name is given (no description), use it as LLM feature context.
+	if description == "" {
+		description = specName
+	}
 	archFile := filepath.Join(root, ".forge", "specs", slug, "arch.md")
 	openapiFile := filepath.Join(root, ".forge", "specs", slug, "openapi.yaml")
 

@@ -210,6 +210,8 @@ func New() *cobra.Command {
 		c.Flags().StringVarP(&rootDir, "root", "r", "", "project root (default: cwd)")
 		c.Flags().BoolVarP(&resume, "resume", "R", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
 		c.Flags().BoolVarP(&noBranch, "no-branch", "B", false, "skip automatic feature-branch creation; work on the current branch")
+		c.Flags().StringVarP(&specName, "name", "n", "",
+			"name of the spec directory in .forge/specs/ (overrides slug derived from description; applies to all checkpoints)")
 	}
 
 	// runCheckpoint is the shared body: run only the named checkpoint(s).
@@ -413,13 +415,8 @@ func New() *cobra.Command {
 	verifyDeprecated := makeCheckpointCmd("verify",
 		"[deprecated] Checkpoint 6: use 'forge ship ship' instead.")
 	verifyDeprecated.Deprecated = "use 'forge ship ship' instead"
-	// The spec subcommand gets a dedicated --name/-n flag so users can target a
-	// named spec directory directly (e.g. `forge ship spec --name login`) rather
-	// than relying on the slug derived from the description.
 	specSubCmd := makeCheckpointCmd("spec",
 		"Checkpoint 1: validate or generate the feature spec")
-	specSubCmd.Flags().StringVarP(&specName, "name", "n", "",
-		"name of the spec directory in .forge/specs/ (overrides the slug derived from description)")
 	cmd.AddCommand(
 		specSubCmd,
 		makeCheckpointCmd("arch",
@@ -875,10 +872,11 @@ func slugify(s string) string {
 
 // checkTest verifies existing test files and (when an LLMPipe is available)
 // generates failing test stubs via the configured LLM provider.
+// specName, when non-empty, overrides the slug derived from description.
 // M1-03: git timestamp guard — test files must predate or match their
 // corresponding production files. If any prod file is newer than its test
 // file by more than 60 seconds the checkpoint is marked as a failure.
-func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
+func checkTest(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Test"}
 	testFiles := findTestFiles(root)
 
@@ -894,7 +892,11 @@ func checkTest(root, description string, pipe *LLMPipe) Checkpoint {
 		return cp
 	}
 
-	slug := slugify(description)
+	// Determine slug: --name/-n takes priority over the slug derived from description.
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
 
 	// G-006: write / verify all 4 named test artifacts.
 	if description != "" {
@@ -1021,10 +1023,15 @@ func findTestFiles(root string) []string {
 
 // checkBreakdown looks for a task-breakdown file in .forge/specs/<slug>/ and,
 // when an LLMPipe is available, generates one if it does not exist.
-func checkBreakdown(root, description string, pipe *LLMPipe) Checkpoint {
+// specName, when non-empty, overrides the slug derived from description.
+func checkBreakdown(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Breakdown"}
-	if description != "" {
-		slug := slugify(description)
+	if description != "" || specName != "" {
+		// Determine slug: --name/-n takes priority over slug derived from description.
+		slug := specName
+		if slug == "" {
+			slug = slugify(description)
+		}
 		breakdownFile := filepath.Join(root, ".forge", "specs", slug, "breakdown.md")
 		if _, err := os.Stat(breakdownFile); err == nil {
 			cp.Status = "ok"
@@ -1068,9 +1075,16 @@ func checkBreakdown(root, description string, pipe *LLMPipe) Checkpoint {
 
 // checkCode verifies working-tree changes and (when an LLMPipe is available)
 // generates a step-by-step code implementation plan from the spec+breakdown.
-func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
+// specName, when non-empty, overrides the slug derived from description.
+func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Code"}
 	changedFiles := countChangedFiles(root)
+
+	// Determine slug: --name/-n takes priority over slug derived from description.
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
 
 	if pipe != nil {
 		plan, err := generateCodePlan(root, description, pipe)
@@ -1090,18 +1104,18 @@ func checkCode(root, description string, pipe *LLMPipe) Checkpoint {
 			if changedFiles > 0 {
 				cp.Status = "ok"
 				cp.Detail = fmt.Sprintf("%d modified file(s); code plan written by %s (see .forge/specs/%s/code-plan.md)",
-					changedFiles, pipe.ProviderName(), slugify(description))
+					changedFiles, pipe.ProviderName(), slug)
 			} else {
 				cp.Status = "ok"
 				cp.Detail = fmt.Sprintf("code plan written by %s (see .forge/specs/%s/code-plan.md) — implement then rerun",
-					pipe.ProviderName(), slugify(description))
+					pipe.ProviderName(), slug)
 			}
 			return cp
 		}
 	}
 
 	// G-009: auto-advance when all tasks complete.
-	if description != "" && allTasksComplete(root, slugify(description)) {
+	if description != "" && allTasksComplete(root, slug) {
 		cp.Status = "ok"
 		cp.AutoAdvance = true
 		cp.Detail = "all tasks complete — auto-advancing to Ship checkpoint"
@@ -1249,10 +1263,10 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	allCPs := []Checkpoint{
 		checkSpec(root, opts.Description, opts.SpecName, pipe),
-		checkArch(root, opts.Description, pipe),
-		checkTest(root, opts.Description, pipe),
-		checkBreakdown(root, opts.Description, pipe),
-		checkCode(root, opts.Description, pipe),
+		checkArch(root, opts.Description, opts.SpecName, pipe),
+		checkTest(root, opts.Description, opts.SpecName, pipe),
+		checkBreakdown(root, opts.Description, opts.SpecName, pipe),
+		checkCode(root, opts.Description, opts.SpecName, pipe),
 		checkVerify(root, opts.Description),
 	}
 	// PR checkpoint: appended only for full-pipeline runs with --pr.

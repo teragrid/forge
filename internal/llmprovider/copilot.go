@@ -18,7 +18,8 @@
 //  1. GH_TOKEN environment variable
 //  2. GITHUB_TOKEN environment variable
 //  3. gh CLI config file (~/.config/gh/hosts.yml or %APPDATA%\GitHub CLI\hosts.yml)
-//  4. `gh auth token` subprocess (covers OS-keychain / credential-helper storage)
+//  4. VS Code GitHub Copilot extension hosts.json (%APPDATA%\GitHub Copilot\hosts.json on Windows)
+//  5. `gh auth token` subprocess (covers OS-keychain / credential-helper storage)
 //
 // Uses the GitHub Copilot chat completions API at https://api.githubcopilot.com,
 // which exposes an OpenAI-compatible interface. This lets VS Code / GitHub Copilot
@@ -108,7 +109,7 @@ func (c *CopilotProvider) loadModels() {
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Copilot-Integration-Id", "forge-cli")
-	req.Header.Set("Editor-Version", "forge/1.1.6")
+	req.Header.Set("Editor-Version", "forge/1.2.1")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -147,7 +148,11 @@ func (c *CopilotProvider) loadModels() {
 }
 
 // detectGitHubToken returns a GitHub OAuth token from the environment or
-// the gh CLI config file, in that priority order.
+// config files, in priority order:
+//  1. GH_TOKEN / GITHUB_TOKEN environment variables
+//  2. gh CLI hosts.yml (plain-text storage)
+//  3. VS Code GitHub Copilot extension hosts.json
+//  4. `gh auth token` subprocess (OS keychain / credential helper)
 func detectGitHubToken() string {
 	if t := os.Getenv("GH_TOKEN"); t != "" {
 		return t
@@ -155,8 +160,12 @@ func detectGitHubToken() string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
 		return t
 	}
-	// Try the config file first (plain-text storage).
+	// Try the gh CLI config file first (plain-text storage).
 	if t := readGHConfigToken(); t != "" {
+		return t
+	}
+	// VS Code GitHub Copilot extension stores its token separately from gh CLI.
+	if t := readVSCodeCopilotToken(); t != "" {
 		return t
 	}
 	// Modern gh CLI may store the token in the OS keychain instead of the
@@ -213,6 +222,57 @@ func readGHConfigToken() string {
 	return ""
 }
 
+// readVSCodeCopilotToken reads the oauth_token from the VS Code GitHub Copilot
+// extension's hosts.json file. This covers users who have the VS Code extension
+// installed but do not use the gh CLI.
+// Format: {"github.com:": {"user": "username", "oauth_token": "ghu_XXXXX"}}
+// Note: the key uses a trailing colon ("github.com:").
+func readVSCodeCopilotToken() string {
+	path := vscodeCopilotConfigPath()
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from known safe locations
+	if err != nil {
+		return ""
+	}
+	var hosts map[string]map[string]string
+	if err := json.Unmarshal(data, &hosts); err != nil {
+		return ""
+	}
+	for _, entry := range hosts {
+		if t := entry["oauth_token"]; t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// vscodeCopilotConfigPath returns the path to the VS Code GitHub Copilot
+// extension's hosts.json file, or "" if the path cannot be determined.
+func vscodeCopilotConfigPath() string {
+	if runtime.GOOS == "windows" {
+		appdata := os.Getenv("APPDATA")
+		if appdata == "" {
+			return ""
+		}
+		return filepath.Join(appdata, "GitHub Copilot", "hosts.json")
+	}
+	if runtime.GOOS == "darwin" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		return filepath.Join(home, "Library", "Application Support", "GitHub Copilot", "hosts.json")
+	}
+	// Linux
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "github-copilot", "hosts.json")
+}
+
 // ghConfigPath returns the path to the gh CLI hosts.yml config file.
 func ghConfigPath() string {
 	// Respect GH_CONFIG_DIR if set (official gh env var).
@@ -254,14 +314,16 @@ func (c *CopilotProvider) Capabilities() Capabilities {
 }
 
 // Complete sends a chat completion request to the GitHub Copilot API.
+// On HTTP 400 with a model-availability error, it automatically retries with
+// the next model from copilotKnownModels (unless req.Model is explicitly set).
 func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response, error) {
 	if req == nil {
 		return nil, errcode.New(ErrInvalidInput, "request must not be nil", nil)
 	}
 
-	model := c.model
+	primaryModel := c.model
 	if req.Model != "" {
-		model = req.Model
+		primaryModel = req.Model
 	}
 
 	// Build OpenAI-compatible chat messages.
@@ -269,6 +331,12 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
+	type chatRequest struct {
+		Model     string        `json:"model"`
+		Messages  []chatMessage `json:"messages"`
+		MaxTokens int           `json:"max_tokens,omitempty"`
+	}
+
 	messages := make([]chatMessage, 0, 2)
 	if req.SystemPrompt != "" {
 		messages = append(messages, chatMessage{Role: "system", Content: req.SystemPrompt})
@@ -277,83 +345,111 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 		messages = append(messages, chatMessage{Role: "user", Content: req.UserPrompt})
 	}
 
-	type chatRequest struct {
-		Model     string        `json:"model"`
-		Messages  []chatMessage `json:"messages"`
-		MaxTokens int           `json:"max_tokens,omitempty"`
-	}
-	body := chatRequest{
-		Model:     model,
-		Messages:  messages,
-		MaxTokens: req.MaxTokens,
+	// attempt sends one request with the given model.
+	// Returns (response, shouldRetry, error): shouldRetry is true only on a
+	// model-availability HTTP 400 so the caller can try the next model.
+	attempt := func(model string) (*Response, bool, error) {
+		body := chatRequest{Model: model, Messages: messages, MaxTokens: req.MaxTokens}
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, false, fmt.Errorf("copilot: marshal request: %w", err)
+		}
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(raw))
+		if err != nil {
+			return nil, false, fmt.Errorf("copilot: create request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+c.token)
+		httpReq.Header.Set("Copilot-Integration-Id", "forge-cli")
+		httpReq.Header.Set("Editor-Version", "forge/1.2.1")
+
+		resp, err := c.client.Do(httpReq)
+		if err != nil {
+			return nil, false, fmt.Errorf("copilot: http: %w", err)
+		}
+		defer resp.Body.Close() //nolint:errcheck
+
+		respData, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
+		if err != nil {
+			return nil, false, fmt.Errorf("copilot: read response: %w", err)
+		}
+		switch resp.StatusCode {
+		case http.StatusOK:
+			// fall through to parse response below
+		case http.StatusBadRequest:
+			// Retry with next model when the API signals a model-availability error.
+			// Example body: {"error":{"message":"The requested model is not supported..."}}
+			if strings.Contains(strings.ToLower(string(respData)), "model") {
+				return nil, true, fmt.Errorf("copilot: model %q unavailable (HTTP 400): %s", model, string(respData))
+			}
+			return nil, false, fmt.Errorf("copilot: API error %d: %s", resp.StatusCode, string(respData))
+		case http.StatusUnauthorized, http.StatusForbidden:
+			// The most common cause is a GitHub token that exists but lacks the
+			// 'copilot' OAuth scope (e.g. a token created before Copilot support
+			// was added, or a fine-grained PAT without the scope).
+			// Running `gh auth refresh -s copilot` re-authenticates and adds the
+			// scope without creating a new token.
+			return nil, false, fmt.Errorf(
+				"copilot: API returned HTTP %d — your GitHub token may be missing the 'copilot' scope.\n"+
+					"Run: gh auth refresh -s copilot\n"+
+					"Then retry. (raw: %s)",
+				resp.StatusCode, string(respData))
+		default:
+			return nil, false, fmt.Errorf("copilot: API error %d: %s", resp.StatusCode, string(respData))
+		}
+
+		// Parse OpenAI-compatible response.
+		var cr struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(respData, &cr); err != nil {
+			return nil, false, fmt.Errorf("copilot: parse response: %w", err)
+		}
+		if len(cr.Choices) == 0 || cr.Choices[0].Message.Content == "" {
+			return nil, false, fmt.Errorf("copilot: empty response")
+		}
+		return &Response{
+			Content:      cr.Choices[0].Message.Content,
+			InputTokens:  cr.Usage.PromptTokens,
+			OutputTokens: cr.Usage.CompletionTokens,
+			Model:        cr.Model,
+		}, false, nil
 	}
 
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("copilot: marshal request: %w", err)
+	// Try the primary model first.
+	if resp, retry, err := attempt(primaryModel); !retry {
+		return resp, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("copilot: create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.token)
-	httpReq.Header.Set("Copilot-Integration-Id", "forge-cli")
-	httpReq.Header.Set("Editor-Version", "forge/1.1.6")
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("copilot: http: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respData, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
-	if err != nil {
-		return nil, fmt.Errorf("copilot: read response: %w", err)
-	}
-	switch resp.StatusCode {
-	case http.StatusOK:
-		// continue
-	case http.StatusUnauthorized, http.StatusForbidden:
-		// The most common cause is a GitHub token that exists but lacks the
-		// 'copilot' OAuth scope (e.g. a token created before Copilot support
-		// was added, or a fine-grained PAT without the scope).
-		// Running `gh auth refresh -s copilot` re-authenticates and adds the
-		// scope without creating a new token.
+	// Model-availability error: do NOT silently fall back when the caller explicitly
+	// requested a specific model (req.Model != ""), so user intent is honoured.
+	if req.Model != "" {
 		return nil, fmt.Errorf(
-			"copilot: API returned HTTP %d — your GitHub token may be missing the 'copilot' scope.\n"+
-				"Run: gh auth refresh -s copilot\n"+
-				"Then retry. (raw: %s)",
-			resp.StatusCode, string(respData))
-	default:
-		return nil, fmt.Errorf("copilot: API error %d: %s", resp.StatusCode, string(respData))
+			"copilot: model %q returned HTTP 400; set FORGE_COPILOT_MODEL to a supported model",
+			primaryModel)
 	}
 
-	// Parse OpenAI-compatible response.
-	var cr struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		} `json:"usage"`
-		Model string `json:"model"`
+	// Iterate through known fallback models.
+	for _, fallback := range copilotKnownModels {
+		if fallback == primaryModel {
+			continue
+		}
+		if resp, retry, err := attempt(fallback); !retry {
+			return resp, err
+		}
+		// fallback also model-unavailable; try next
 	}
-	if err := json.Unmarshal(respData, &cr); err != nil {
-		return nil, fmt.Errorf("copilot: parse response: %w", err)
-	}
-	if len(cr.Choices) == 0 || cr.Choices[0].Message.Content == "" {
-		return nil, fmt.Errorf("copilot: empty response")
-	}
-
-	return &Response{
-		Content:      cr.Choices[0].Message.Content,
-		InputTokens:  cr.Usage.PromptTokens,
-		OutputTokens: cr.Usage.CompletionTokens,
-		Model:        cr.Model,
-	}, nil
+	return nil, fmt.Errorf(
+		"copilot: no available model for this account; tried %q and all fallbacks — "+
+			"run: forge config list-models",
+		primaryModel)
 }

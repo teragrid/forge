@@ -25,7 +25,7 @@ import (
 	"github.com/teragrid/forge/internal/llmprovider"
 )
 
-// ── G-005: spec.yml written alongside spec.md ────────────────────────────────
+// â”€â”€ G-005: spec.yml written alongside spec.md â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestCheckSpec_WritesSpecYML(t *testing.T) {
 	t.Parallel()
@@ -43,7 +43,7 @@ func TestCheckSpec_WritesSpecYML(t *testing.T) {
 	}
 }
 
-// ── G-006: four named test artifacts written at Test checkpoint ───────────────
+// â”€â”€ G-006: four named test artifacts written at Test checkpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestCheckTest_FourArtefacts(t *testing.T) {
 	t.Parallel()
@@ -66,7 +66,7 @@ func TestCheckTest_FourArtefacts(t *testing.T) {
 	}
 }
 
-// ── G-007: breakdown checkpoint writes tasks.md ──────────────────────────────
+// â”€â”€ G-007: breakdown checkpoint writes tasks.md â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestCheckBreakdown_TasksMD(t *testing.T) {
 	t.Parallel()
@@ -83,7 +83,7 @@ func TestCheckBreakdown_TasksMD(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("1. Set up route handler\n2. Write database migration\n3. Add auth middleware\n"),
 	}
-	cp := checkBreakdown(root, "add login", mockPipe(root, mock))
+	cp := checkBreakdown(root, "add login", "", mockPipe(root, mock))
 	if cp.Status != "ok" {
 		t.Fatalf("expected status ok, got %q (detail: %s)", cp.Status, cp.Detail)
 	}
@@ -103,7 +103,7 @@ func TestCheckBreakdown_TasksMD(t *testing.T) {
 	}
 }
 
-// ── G-008: ErrContextBudgetExceeded when bundle exceeds token budget ──────────
+// â”€â”€ G-008: ErrContextBudgetExceeded when bundle exceeds token budget â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestContextBundle_OverBudget(t *testing.T) {
 	t.Parallel()
@@ -131,7 +131,7 @@ func TestContextBundle_OverBudget(t *testing.T) {
 	}
 }
 
-// ── G-009: AutoAdvance=true when all tasks are complete ──────────────────────
+// â”€â”€ G-009: AutoAdvance=true when all tasks are complete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestAutoAdvanceToShip(t *testing.T) {
 	t.Parallel()
@@ -149,14 +149,14 @@ func TestAutoAdvanceToShip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkCode(root, feature, nil)
+	cp := checkCode(root, feature, "", nil)
 	if !cp.AutoAdvance {
 		t.Errorf("expected AutoAdvance=true when all tasks complete, got false (status=%s detail=%s)",
 			cp.Status, cp.Detail)
 	}
 }
 
-// ── G-010: project-local prompt overrides ────────────────────────────────────
+// â”€â”€ G-010: project-local prompt overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestPromptTemplate_ProjectOverride(t *testing.T) {
 	t.Parallel()
@@ -191,7 +191,7 @@ func TestPromptTemplate_MissingReturnsEmpty(t *testing.T) {
 	}
 }
 
-// ── G-011: learning loop — appendFailure / loadRecentFailures ─────────────────
+// â”€â”€ G-011: learning loop â€” appendFailure / loadRecentFailures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestLearningLoop_AppendAndRead(t *testing.T) {
 	t.Parallel()

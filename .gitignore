@@ -12,7 +12,7 @@ go.work
 go.work.sum
 
 # Editor / OS
-.vscode/
+.vscode/*
 !.vscode/settings.json
 .idea/
 .DS_Store

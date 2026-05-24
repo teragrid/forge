@@ -13,15 +13,15 @@
 // limitations under the License.
 
 // Test-design checklist (always-write-tests.md 9-point):
-//  1. Happy path          — full pipeline and each single-checkpoint subcommand exit 0.
-//  2. Boundary            — empty description; single-checkpoint on "verify" (manifest check).
-//  3. Negative            — RunCheckpoints with unknown checkpoint name → Ready=false.
-//  4. Idempotency         — Run called twice yields identical checkpoint count.
-//  5. Concurrency         — all tests are parallel with isolated TempDirs.
-//  6. Cross-checkpoint    — "spec" subcommand must NOT return verify/code results.
-//  7. Regression          — Run must always return 5 checkpoints (original contract).
-//  8. Data-accuracy       — each checkpoint name matches the requested name.
-//  9. False-positive guard — "verify" must not fail on a fresh temp dir.
+//  1. Happy path          â€” full pipeline and each single-checkpoint subcommand exit 0.
+//  2. Boundary            â€” empty description; single-checkpoint on "verify" (manifest check).
+//  3. Negative            â€” RunCheckpoints with unknown checkpoint name â†’ Ready=false.
+//  4. Idempotency         â€” Run called twice yields identical checkpoint count.
+//  5. Concurrency         â€” all tests are parallel with isolated TempDirs.
+//  6. Cross-checkpoint    â€” "spec" subcommand must NOT return verify/code results.
+//  7. Regression          â€” Run must always return 5 checkpoints (original contract).
+//  8. Data-accuracy       â€” each checkpoint name matches the requested name.
+//  9. False-positive guard â€” "verify" must not fail on a fresh temp dir.
 package cmdship
 
 import (
@@ -41,7 +41,7 @@ import (
 	"github.com/teragrid/forge/internal/llmprovider"
 )
 
-// ── Happy path: full pipeline ─────────────────────────────────────────────────
+// â”€â”€ Happy path: full pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestRun_DryRun(t *testing.T) {
 	t.Parallel()
@@ -88,7 +88,7 @@ func TestCmd_JSON(t *testing.T) {
 	}
 }
 
-// ── Checkpoint subcommands ────────────────────────────────────────────────────
+// â”€â”€ Checkpoint subcommands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestRunCheckpoints_Single(t *testing.T) {
 	t.Parallel()
@@ -162,7 +162,7 @@ func TestCmd_Subcommand_Verify_JSON(t *testing.T) {
 	}
 }
 
-// ── Negative: unknown checkpoint name ─────────────────────────────────────────
+// â”€â”€ Negative: unknown checkpoint name â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestRunCheckpoints_UnknownName(t *testing.T) {
 	t.Parallel()
@@ -178,7 +178,7 @@ func TestRunCheckpoints_UnknownName(t *testing.T) {
 	}
 }
 
-// ── Idempotency ───────────────────────────────────────────────────────────────
+// â”€â”€ Idempotency â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestRun_Idempotent(t *testing.T) {
 	t.Parallel()
@@ -193,7 +193,7 @@ func TestRun_Idempotent(t *testing.T) {
 	}
 }
 
-// ── Cross-checkpoint isolation ────────────────────────────────────────────────
+// â”€â”€ Cross-checkpoint isolation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestRunCheckpoints_Spec_NoVerifyResult(t *testing.T) {
 	t.Parallel()
@@ -205,7 +205,7 @@ func TestRunCheckpoints_Spec_NoVerifyResult(t *testing.T) {
 	}
 }
 
-// ── False-positive guard: verify on empty dir must not fail ───────────────────
+// â”€â”€ False-positive guard: verify on empty dir must not fail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 func TestRunCheckpoints_Verify_FreshDir_OK(t *testing.T) {
 	t.Parallel()
@@ -218,20 +218,20 @@ func TestRunCheckpoints_Verify_FreshDir_OK(t *testing.T) {
 	}
 }
 
-// ── YOLO mode ─────────────────────────────────────────────────────────────────
+// â”€â”€ YOLO mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Test-design coverage (always-write-tests.md 9-point):
-//  1. Happy path    — --yolo: all 5 checkpoints, Ready=true, Approved=nil
-//  2. Happy path    — interactive, all "y": 4 gates fired, Approved=true on first 4
-//  3. Boundary      — single subcommand: gate never called, no Approved field
-//  4. Negative      — "n" at first gate: stops at 1, Ready=false
-//  5. Negative      — "y\nn": stops at 2nd, 2 checkpoints, Ready=false
-//  6. Idempotency   — RunCheckpointsGated(nil gate) twice → same count
-//  7. Concurrency   — all tests t.Parallel() with isolated TempDirs
-//  8. Data-accuracy — Approved=true/false matches gate return value
-//  9. False-positive — --json disables gate: all 6 run, Approved=nil
+//  1. Happy path    â€” --yolo: all 5 checkpoints, Ready=true, Approved=nil
+//  2. Happy path    â€” interactive, all "y": 4 gates fired, Approved=true on first 4
+//  3. Boundary      â€” single subcommand: gate never called, no Approved field
+//  4. Negative      â€” "n" at first gate: stops at 1, Ready=false
+//  5. Negative      â€” "y\nn": stops at 2nd, 2 checkpoints, Ready=false
+//  6. Idempotency   â€” RunCheckpointsGated(nil gate) twice â†’ same count
+//  7. Concurrency   â€” all tests t.Parallel() with isolated TempDirs
+//  8. Data-accuracy â€” Approved=true/false matches gate return value
+//  9. False-positive â€” --json disables gate: all 6 run, Approved=nil
 
-// TestRunCheckpointsGated_NilGate_YOLO — nil gate runs all 6, no Approved fields.
+// TestRunCheckpointsGated_NilGate_YOLO â€” nil gate runs all 6, no Approved fields.
 func TestRunCheckpointsGated_NilGate_YOLO(t *testing.T) {
 	t.Parallel()
 	res := RunCheckpointsGated(t.TempDir(), "", nil, nil)
@@ -248,7 +248,7 @@ func TestRunCheckpointsGated_NilGate_YOLO(t *testing.T) {
 	}
 }
 
-// TestRunCheckpointsGated_AllApproved — gate always returns true; 4 gates called
+// TestRunCheckpointsGated_AllApproved â€” gate always returns true; 4 gates called
 // (never for the last checkpoint), first 4 have Approved=true.
 func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 	t.Parallel()
@@ -278,7 +278,7 @@ func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 	}
 }
 
-// TestRunCheckpointsGated_RejectAtFirst — gate returns false at idx=0.
+// TestRunCheckpointsGated_RejectAtFirst â€” gate returns false at idx=0.
 // Only the first checkpoint should be in the result, Ready=false.
 func TestRunCheckpointsGated_RejectAtFirst(t *testing.T) {
 	t.Parallel()
@@ -295,7 +295,7 @@ func TestRunCheckpointsGated_RejectAtFirst(t *testing.T) {
 	}
 }
 
-// TestRunCheckpointsGated_RejectAtSecond — approve first, reject second.
+// TestRunCheckpointsGated_RejectAtSecond â€” approve first, reject second.
 // Two checkpoints returned, Ready=false.
 func TestRunCheckpointsGated_RejectAtSecond(t *testing.T) {
 	t.Parallel()
@@ -321,7 +321,7 @@ func TestRunCheckpointsGated_RejectAtSecond(t *testing.T) {
 	}
 }
 
-// TestRunCheckpointsGated_SingleCheckpoint_GateNotCalled — a single-checkpoint
+// TestRunCheckpointsGated_SingleCheckpoint_GateNotCalled â€” a single-checkpoint
 // run (e.g. "verify") never triggers the gate.
 func TestRunCheckpointsGated_SingleCheckpoint_GateNotCalled(t *testing.T) {
 	t.Parallel()
@@ -342,7 +342,7 @@ func TestRunCheckpointsGated_SingleCheckpoint_GateNotCalled(t *testing.T) {
 	}
 }
 
-// TestRunCheckpointsGated_Idempotent — calling with nil gate twice yields the
+// TestRunCheckpointsGated_Idempotent â€” calling with nil gate twice yields the
 // same checkpoint count and Ready status.
 func TestRunCheckpointsGated_Idempotent(t *testing.T) {
 	t.Parallel()
@@ -357,7 +357,7 @@ func TestRunCheckpointsGated_Idempotent(t *testing.T) {
 	}
 }
 
-// TestCmd_Yolo_JSON — forge ship --yolo --json: G-004 NDJSON stream with 6 events.
+// TestCmd_Yolo_JSON â€” forge ship --yolo --json: G-004 NDJSON stream with 6 events.
 func TestCmd_Yolo_JSON(t *testing.T) {
 	t.Parallel()
 	cmd := New()
@@ -391,7 +391,7 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	}
 }
 
-// TestCmd_Yolo_Text — forge ship --yolo: text output contains "YOLO" badge.
+// TestCmd_Yolo_Text â€” forge ship --yolo: text output contains "YOLO" badge.
 func TestCmd_Yolo_Text(t *testing.T) {
 	t.Parallel()
 	cmd := New()
@@ -407,7 +407,7 @@ func TestCmd_Yolo_Text(t *testing.T) {
 	}
 }
 
-// TestCmd_JSON_DisablesGate — --json mode never prompts; all 6 checkpoints run
+// TestCmd_JSON_DisablesGate â€” --json mode never prompts; all 6 checkpoints run
 // without reading stdin. Approved=nil on all (false-positive guard: the gate
 // must NOT fire in --json mode).
 func TestCmd_JSON_DisablesGate(t *testing.T) {
@@ -416,7 +416,7 @@ func TestCmd_JSON_DisablesGate(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	// Provide no stdin data — if the gate fired it would block / return false.
+	// Provide no stdin data â€” if the gate fired it would block / return false.
 	cmd.SetIn(strings.NewReader(""))
 	cmd.SetArgs([]string{"--json", "--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
@@ -434,7 +434,7 @@ func TestCmd_JSON_DisablesGate(t *testing.T) {
 	}
 }
 
-// TestCmd_Interactive_AllApproved — inject "y" for each of the 4 gates.
+// TestCmd_Interactive_AllApproved â€” inject "y" for each of the 4 gates.
 // Pipeline completes with Ready=true and text output contains "approved".
 func TestCmd_Interactive_AllApproved(t *testing.T) {
 	t.Parallel()
@@ -444,7 +444,7 @@ func TestCmd_Interactive_AllApproved(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetIn(strings.NewReader("y\ny\ny\ny\ny\n"))
-	cmd.SetArgs([]string{"--root", t.TempDir()}) // full pipeline, no --yolo, no --json → interactive
+	cmd.SetArgs([]string{"--root", t.TempDir()}) // full pipeline, no --yolo, no --json â†’ interactive
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("interactive all-approved: %v\n%s", err, out.String())
 	}
@@ -457,7 +457,7 @@ func TestCmd_Interactive_AllApproved(t *testing.T) {
 	}
 }
 
-// TestCmd_Interactive_RejectFirst — inject "n" at the first gate.
+// TestCmd_Interactive_RejectFirst â€” inject "n" at the first gate.
 // Pipeline stops; command returns an error; output contains "rejected".
 func TestCmd_Interactive_RejectFirst(t *testing.T) {
 	t.Parallel()
@@ -476,7 +476,7 @@ func TestCmd_Interactive_RejectFirst(t *testing.T) {
 	}
 }
 
-// TestCmd_Interactive_RejectMiddle — approve first two, reject third.
+// TestCmd_Interactive_RejectMiddle â€” approve first two, reject third.
 // Output should contain "rejected" and three checkpoints in the summary.
 func TestCmd_Interactive_RejectMiddle(t *testing.T) {
 	t.Parallel()
@@ -500,7 +500,7 @@ func TestCmd_Interactive_RejectMiddle(t *testing.T) {
 	}
 }
 
-// TestCmd_Subcommand_Spec_NoApproval — single-checkpoint subcommand needs no
+// TestCmd_Subcommand_Spec_NoApproval â€” single-checkpoint subcommand needs no
 // stdin; completes without error even with empty input.
 func TestCmd_Subcommand_Spec_NoApproval(t *testing.T) {
 	t.Parallel()
@@ -525,7 +525,7 @@ func TestCmd_Subcommand_Spec_NoApproval(t *testing.T) {
 	}
 }
 
-// TestRenderText_YoloBadge — ShipResult with Yolo=true produces "YOLO" in text.
+// TestRenderText_YoloBadge â€” ShipResult with Yolo=true produces "YOLO" in text.
 func TestRenderText_YoloBadge(t *testing.T) {
 	t.Parallel()
 	res := &ShipResult{
@@ -544,7 +544,7 @@ func TestRenderText_YoloBadge(t *testing.T) {
 	}
 }
 
-// TestRenderText_RejectedAnnotation — Approved=false produces "[rejected]" in text.
+// TestRenderText_RejectedAnnotation â€” Approved=false produces "[rejected]" in text.
 func TestRenderText_RejectedAnnotation(t *testing.T) {
 	t.Parallel()
 	f := false
@@ -565,7 +565,7 @@ func TestRenderText_RejectedAnnotation(t *testing.T) {
 	}
 }
 
-// TestRenderText_ApprovedAnnotation — Approved=true produces "[approved]" in text.
+// TestRenderText_ApprovedAnnotation â€” Approved=true produces "[approved]" in text.
 func TestRenderText_ApprovedAnnotation(t *testing.T) {
 	t.Parallel()
 	tr := true
@@ -586,9 +586,9 @@ func TestRenderText_ApprovedAnnotation(t *testing.T) {
 	}
 }
 
-// ── Self-debate integration (ship_test additions) ─────────────────────────
+// â”€â”€ Self-debate integration (ship_test additions) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCmd_Yolo_JSON_IncludesDebate — RunWithOptions with DebateOpts produces a ShipResult
+// TestCmd_Yolo_JSON_IncludesDebate â€” RunWithOptions with DebateOpts produces a ShipResult
 // where DebateEnabled=true and each checkpoint has a non-nil Debate object.
 func TestCmd_Yolo_JSON_IncludesDebate(t *testing.T) {
 	t.Parallel()
@@ -615,7 +615,7 @@ func TestCmd_Yolo_JSON_IncludesDebate(t *testing.T) {
 	}
 }
 
-// TestCmd_Yolo_Text_ShowsDebate — RunWithOptions with DebateOpts populates Debate.Roles.
+// TestCmd_Yolo_Text_ShowsDebate â€” RunWithOptions with DebateOpts populates Debate.Roles.
 func TestCmd_Yolo_Text_ShowsDebate(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -641,7 +641,7 @@ func TestCmd_Yolo_Text_ShowsDebate(t *testing.T) {
 	}
 }
 
-// TestCmd_Yolo_Text_ShowsImprovements — RunWithOptions with DebateOpts populates Improvements.
+// TestCmd_Yolo_Text_ShowsImprovements â€” RunWithOptions with DebateOpts populates Improvements.
 func TestCmd_Yolo_Text_ShowsImprovements(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -668,7 +668,7 @@ func TestCmd_Yolo_Text_ShowsImprovements(t *testing.T) {
 	}
 }
 
-// TestRunWithOptions_DebateEnabled — RunWithOptions with DebateOpts sets Debate on
+// TestRunWithOptions_DebateEnabled â€” RunWithOptions with DebateOpts sets Debate on
 // every checkpoint, consensus is always reached in dry-run, improvements non-empty.
 func TestRunWithOptions_DebateEnabled(t *testing.T) {
 	t.Parallel()
@@ -704,7 +704,7 @@ func TestRunWithOptions_DebateEnabled(t *testing.T) {
 	}
 }
 
-// TestRenderText_DebateSummary — renderText shows the self-debate summary line when
+// TestRenderText_DebateSummary â€” renderText shows the self-debate summary line when
 // Debate is set on a checkpoint.
 func TestRenderText_DebateSummary(t *testing.T) {
 	t.Parallel()
@@ -741,7 +741,7 @@ func TestRenderText_DebateSummary(t *testing.T) {
 	}
 }
 
-// ── LLM-driven checkpoint tests (MockProvider injection) ─────────────────────
+// â”€â”€ LLM-driven checkpoint tests (MockProvider injection) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // These tests exercise every LLM-driven code path by injecting a
 // *llmprovider.MockProvider via newLLMPipeWithProvider. No real API keys or
@@ -762,9 +762,9 @@ func mockResponse(content string) *llmprovider.Response {
 	}
 }
 
-// ── Spec checkpoint (LLM-driven) ─────────────────────────────────────────────
+// â”€â”€ Spec checkpoint (LLM-driven) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCheckSpec_LLM_GeneratesNewSpec — when no spec exists the LLM generates one
+// TestCheckSpec_LLM_GeneratesNewSpec â€” when no spec exists the LLM generates one
 // and the file is written under .forge/specs/<slug>/spec.md.
 func TestCheckSpec_LLM_GeneratesNewSpec(t *testing.T) {
 	t.Parallel()
@@ -793,7 +793,7 @@ func TestCheckSpec_LLM_GeneratesNewSpec(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_LLM_ReviewsExistingSpec — when a spec already exists the LLM
+// TestCheckSpec_LLM_ReviewsExistingSpec â€” when a spec already exists the LLM
 // reviews it and the file is overwritten with the enhanced version.
 func TestCheckSpec_LLM_ReviewsExistingSpec(t *testing.T) {
 	t.Parallel()
@@ -825,7 +825,7 @@ func TestCheckSpec_LLM_ReviewsExistingSpec(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_LLM_ProviderFails_GracefulDegradation — when the LLM returns an
+// TestCheckSpec_LLM_ProviderFails_GracefulDegradation â€” when the LLM returns an
 // error during spec generation, the checkpoint is still "ok" with a stub file.
 func TestCheckSpec_LLM_ProviderFails_GracefulDegradation(t *testing.T) {
 	t.Parallel()
@@ -838,7 +838,7 @@ func TestCheckSpec_LLM_ProviderFails_GracefulDegradation(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_LLM_NoDescription_Warning — no description and no existing specs
+// TestCheckSpec_LLM_NoDescription_Warning â€” no description and no existing specs
 // results in "warning" (provider name should appear in detail).
 func TestCheckSpec_LLM_NoDescription_Warning(t *testing.T) {
 	t.Parallel()
@@ -854,18 +854,18 @@ func TestCheckSpec_LLM_NoDescription_Warning(t *testing.T) {
 	}
 }
 
-// ── YAML spec (spec.yml) integration tests ────────────────────────────────────
+// â”€â”€ YAML spec (spec.yml) integration tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Test-design checklist (always-write-tests.md 9-point):
-//  1. Happy path (LLM)     — spec.yml + spec.md exist; LLM KB-enriched review; detail shows case count.
-//  2. Happy path (no LLM)  — spec.yml + spec.md exist; nil pipe; detail shows case count.
-//  3. Boundary             — spec.yml with 0 cases; checkpoint still "ok".
-//  4. Negative             — corrupt spec.yml; falls back to plain spec.md behavior.
-//  5. Idempotency          — call checkSpec twice; identical "ok" result.
-//  6. Regression           — spec.md only (no spec.yml); original plain Invoke behavior unchanged.
-//  7. Data-accuracy        — detail has exact case count and family list.
-//  8. False-positive guard — no spec.yml; plain spec.md must not fail.
-//  9. New spec from YAML   — spec.yml present, spec.md absent; spec.md generated from YAML.
+//  1. Happy path (LLM)     â€” spec.yml + spec.md exist; LLM KB-enriched review; detail shows case count.
+//  2. Happy path (no LLM)  â€” spec.yml + spec.md exist; nil pipe; detail shows case count.
+//  3. Boundary             â€” spec.yml with 0 cases; checkpoint still "ok".
+//  4. Negative             â€” corrupt spec.yml; falls back to plain spec.md behavior.
+//  5. Idempotency          â€” call checkSpec twice; identical "ok" result.
+//  6. Regression           â€” spec.md only (no spec.yml); original plain Invoke behavior unchanged.
+//  7. Data-accuracy        â€” detail has exact case count and family list.
+//  8. False-positive guard â€” no spec.yml; plain spec.md must not fail.
+//  9. New spec from YAML   â€” spec.yml present, spec.md absent; spec.md generated from YAML.
 
 // writeTestSpecYAML writes a minimal spec.yml for tests.
 func writeTestSpecYAML(t *testing.T, dir string, spec *cmdtest.TestSpec) {
@@ -900,7 +900,7 @@ func minTestSpec(feature string) *cmdtest.TestSpec {
 	}
 }
 
-// TestCheckSpec_YAML_WithLLM_KBEnrichedReview — happy path: spec.yml + spec.md both
+// TestCheckSpec_YAML_WithLLM_KBEnrichedReview â€” happy path: spec.yml + spec.md both
 // present; LLM does KB-enriched review; detail shows case count and families.
 func TestCheckSpec_YAML_WithLLM_KBEnrichedReview(t *testing.T) {
 	t.Parallel()
@@ -941,7 +941,7 @@ func TestCheckSpec_YAML_WithLLM_KBEnrichedReview(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount — happy path: spec.yml + spec.md,
+// TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount â€” happy path: spec.yml + spec.md,
 // no LLM configured; detail must include case count and families.
 func TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount(t *testing.T) {
 	t.Parallel()
@@ -967,7 +967,7 @@ func TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_ZeroCases_StillOK — boundary: spec.yml with 0 cases;
+// TestCheckSpec_YAML_ZeroCases_StillOK â€” boundary: spec.yml with 0 cases;
 // checkpoint must still be "ok".
 func TestCheckSpec_YAML_ZeroCases_StillOK(t *testing.T) {
 	t.Parallel()
@@ -991,7 +991,7 @@ func TestCheckSpec_YAML_ZeroCases_StillOK(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD — negative: corrupt spec.yml
+// TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD â€” negative: corrupt spec.yml
 // must not cause a failure; plain spec.md behavior applies.
 func TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD(t *testing.T) {
 	t.Parallel()
@@ -1017,7 +1017,7 @@ func TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_Idempotency — calling checkSpec twice on the same dir
+// TestCheckSpec_YAML_Idempotency â€” calling checkSpec twice on the same dir
 // must produce identical "ok" results.
 func TestCheckSpec_YAML_Idempotency(t *testing.T) {
 	t.Parallel()
@@ -1045,7 +1045,7 @@ func TestCheckSpec_YAML_Idempotency(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_Regression_SpecMDOnly — regression: spec.md only (no spec.yml)
+// TestCheckSpec_YAML_Regression_SpecMDOnly â€” regression: spec.md only (no spec.yml)
 // must still return "ok" via the original plain-Invoke path.
 func TestCheckSpec_YAML_Regression_SpecMDOnly(t *testing.T) {
 	t.Parallel()
@@ -1073,7 +1073,7 @@ func TestCheckSpec_YAML_Regression_SpecMDOnly(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies — data-accuracy:
+// TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies â€” data-accuracy:
 // detail string must contain the exact case count (2) and both families.
 func TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies(t *testing.T) {
 	t.Parallel()
@@ -1105,7 +1105,7 @@ func TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies(t *testing.T)
 	}
 }
 
-// TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure — false-positive: absent
+// TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure â€” false-positive: absent
 // spec.yml must never cause a failure when spec.md is present.
 func TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure(t *testing.T) {
 	t.Parallel()
@@ -1131,7 +1131,7 @@ func TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD — when spec.yml is present but
+// TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD â€” when spec.yml is present but
 // spec.md is absent, spec.md must be generated from the YAML spec.
 func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
 	t.Parallel()
@@ -1143,7 +1143,7 @@ func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestSpecYAML(t, dir, minTestSpec(feature))
-	// No spec.md — intentionally absent.
+	// No spec.md â€” intentionally absent.
 
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Generated from YAML\n## Acceptance Criteria\n- happy path\n"),
@@ -1168,9 +1168,9 @@ func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
 	}
 }
 
-// ── --name/-n flag (spec-name override) ──────────────────────────────────────
+// â”€â”€ --name/-n flag (spec-name override) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCheckSpec_SpecName_HappyPath — when --name login is given the checkpoint
+// TestCheckSpec_SpecName_HappyPath â€” when --name login is given the checkpoint
 // targets .forge/specs/login/ regardless of the description text.
 func TestCheckSpec_SpecName_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -1194,7 +1194,7 @@ func TestCheckSpec_SpecName_HappyPath(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_WithYAML_KBEnriched — happy path: --name with spec.yml
+// TestCheckSpec_SpecName_WithYAML_KBEnriched â€” happy path: --name with spec.yml
 // present; KB-enriched LLM call must be made.
 func TestCheckSpec_SpecName_WithYAML_KBEnriched(t *testing.T) {
 	t.Parallel()
@@ -1221,7 +1221,7 @@ func TestCheckSpec_SpecName_WithYAML_KBEnriched(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_Empty_FallsBackToSlug — boundary: empty --name must
+// TestCheckSpec_SpecName_Empty_FallsBackToSlug â€” boundary: empty --name must
 // fall back to the slug derived from description (regression guard).
 func TestCheckSpec_SpecName_Empty_FallsBackToSlug(t *testing.T) {
 	t.Parallel()
@@ -1236,7 +1236,7 @@ func TestCheckSpec_SpecName_Empty_FallsBackToSlug(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// specName="" → must resolve via slugify(feature).
+	// specName="" â†’ must resolve via slugify(feature).
 	cp := checkSpec(root, feature, "", nil)
 
 	if cp.Status != "ok" {
@@ -1247,7 +1247,7 @@ func TestCheckSpec_SpecName_Empty_FallsBackToSlug(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_NoSuchDir_GeneratesStub — negative: --name unknown
+// TestCheckSpec_SpecName_NoSuchDir_GeneratesStub â€” negative: --name unknown
 // where the dir does not exist; a stub spec.md must be created there.
 func TestCheckSpec_SpecName_NoSuchDir_GeneratesStub(t *testing.T) {
 	t.Parallel()
@@ -1264,7 +1264,7 @@ func TestCheckSpec_SpecName_NoSuchDir_GeneratesStub(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_Idempotency — calling checkSpec twice with the same
+// TestCheckSpec_SpecName_Idempotency â€” calling checkSpec twice with the same
 // --name must produce identical "ok" results.
 func TestCheckSpec_SpecName_Idempotency(t *testing.T) {
 	t.Parallel()
@@ -1288,7 +1288,7 @@ func TestCheckSpec_SpecName_Idempotency(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks — regression:
+// TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks â€” regression:
 // existing callers that pass no specName must continue to derive the slug from
 // description exactly as before.
 func TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks(t *testing.T) {
@@ -1311,7 +1311,7 @@ func TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks(t *testing.T)
 	}
 }
 
-// TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName — data-accuracy:
+// TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName â€” data-accuracy:
 // detail string must reference the exact --name value used.
 func TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName(t *testing.T) {
 	t.Parallel()
@@ -1334,7 +1334,7 @@ func TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_FalsePositiveGuard_OtherCheckpoints_Unaffected — false-
+// TestCheckSpec_SpecName_FalsePositiveGuard_OtherCheckpoints_Unaffected â€” false-
 // positive guard: the --name flag on other checkpoints (arch, test, etc.) must
 // have no observable effect; those functions do not accept a specName parameter.
 // This test uses RunOptions.SpecName only in RunWithOptions (which only routes it
@@ -1357,7 +1357,7 @@ func TestCheckSpec_SpecName_FalsePositiveGuard_OtherCheckpoints_Unaffected(t *te
 	}
 }
 
-// TestCheckSpec_SpecName_OnlySpecName_NoDescription_UsesSpecNameAsContext — when
+// TestCheckSpec_SpecName_OnlySpecName_NoDescription_UsesSpecNameAsContext â€” when
 // only --name is set and description is empty, the spec name is used as the LLM
 // feature context and the spec directory is found by the exact name.
 func TestCheckSpec_SpecName_OnlySpecName_NoDescription(t *testing.T) {
@@ -1381,7 +1381,7 @@ func TestCheckSpec_SpecName_OnlySpecName_NoDescription(t *testing.T) {
 	}
 }
 
-// TestCheckSpec_SpecName_CobraFlag_ExposedOnSpecSubcmd — verifies that the
+// TestCheckSpec_SpecName_CobraFlag_ExposedOnSpecSubcmd â€” verifies that the
 // `forge ship spec` subcommand exposes `--name`/`-n` flag and not other subcommands.
 func TestCheckSpec_SpecName_CobraFlag_ExposedOnSpecSubcmd(t *testing.T) {
 	t.Parallel()
@@ -1408,14 +1408,15 @@ func TestCheckSpec_SpecName_CobraFlag_ExposedOnSpecSubcmd(t *testing.T) {
 	if archSubCmd == nil {
 		t.Fatal("arch subcommand not found")
 	}
-	if archSubCmd.Flags().Lookup("name") != nil {
-		t.Error("forge ship arch must NOT expose --name flag (false-positive guard)")
+	// --name/-n is now exposed on ALL checkpoint subcommands (moved to bindFlags).
+	if archSubCmd.Flags().Lookup("name") == nil {
+		t.Error("forge ship arch must expose --name/-n flag (bindFlags global registration)")
 	}
 }
 
-// ── Test-generation checkpoint ────────────────────────────────────────────────
+// â”€â”€ Test-generation checkpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCheckTest_LLM_GeneratesStubs — when no test files exist the LLM generates
+// TestCheckTest_LLM_GeneratesStubs â€” when no test files exist the LLM generates
 // stubs and writes them to .forge/specs/<slug>/test-stubs.md.
 func TestCheckTest_LLM_GeneratesStubs(t *testing.T) {
 	t.Parallel()
@@ -1423,7 +1424,7 @@ func TestCheckTest_LLM_GeneratesStubs(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("```go\nfunc TestLogin(t *testing.T) {}\n```"),
 	}
-	cp := checkTest(root, "add login", mockPipe(root, mock))
+	cp := checkTest(root, "add login", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1445,20 +1446,20 @@ func TestCheckTest_LLM_GeneratesStubs(t *testing.T) {
 	}
 }
 
-// TestCheckTest_LLM_ProviderFails_Warning — when the LLM returns an error and no
+// TestCheckTest_LLM_ProviderFails_Warning â€” when the LLM returns an error and no
 // test files exist, the checkpoint is "warning" (not "fail").
 func TestCheckTest_LLM_ProviderFails_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkTest(root, "broken feature", mockPipe(root, mock))
+	cp := checkTest(root, "broken feature", "", mockPipe(root, mock))
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning on provider error, got %q: %s", cp.Status, cp.Detail)
 	}
 }
 
-// TestCheckTest_LLM_ExistingTestFiles — when test files exist the checkpoint is "ok"
+// TestCheckTest_LLM_ExistingTestFiles â€” when test files exist the checkpoint is "ok"
 // and the LLM may generate additional stubs (non-blocking).
 func TestCheckTest_LLM_ExistingTestFiles(t *testing.T) {
 	t.Parallel()
@@ -1470,16 +1471,16 @@ func TestCheckTest_LLM_ExistingTestFiles(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("```go\nfunc TestExtra(t *testing.T) {}\n```"),
 	}
-	cp := checkTest(root, "extend feature", mockPipe(root, mock))
+	cp := checkTest(root, "extend feature", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("existing test files should give ok, got %q: %s", cp.Status, cp.Detail)
 	}
 }
 
-// ── Breakdown checkpoint ──────────────────────────────────────────────────────
+// â”€â”€ Breakdown checkpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCheckBreakdown_LLM_GeneratesBreakdown — when no breakdown.md exists the LLM
+// TestCheckBreakdown_LLM_GeneratesBreakdown â€” when no breakdown.md exists the LLM
 // produces one and writes it under .forge/specs/<slug>/breakdown.md.
 func TestCheckBreakdown_LLM_GeneratesBreakdown(t *testing.T) {
 	t.Parallel()
@@ -1487,7 +1488,7 @@ func TestCheckBreakdown_LLM_GeneratesBreakdown(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("## Task 1\nImplement route handler.\n\n## Task 2\nWrite tests.\n"),
 	}
-	cp := checkBreakdown(root, "new endpoint", mockPipe(root, mock))
+	cp := checkBreakdown(root, "new endpoint", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1505,7 +1506,7 @@ func TestCheckBreakdown_LLM_GeneratesBreakdown(t *testing.T) {
 	}
 }
 
-// TestCheckBreakdown_LLM_ExistingBreakdown — when breakdown.md already exists the
+// TestCheckBreakdown_LLM_ExistingBreakdown â€” when breakdown.md already exists the
 // checkpoint is "ok" immediately without calling the LLM.
 func TestCheckBreakdown_LLM_ExistingBreakdown(t *testing.T) {
 	t.Parallel()
@@ -1519,7 +1520,7 @@ func TestCheckBreakdown_LLM_ExistingBreakdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock := &llmprovider.MockProvider{Response: mockResponse("should not be called")}
-	cp := checkBreakdown(root, "existing breakdown", mockPipe(root, mock))
+	cp := checkBreakdown(root, "existing breakdown", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("existing breakdown.md must be ok, got %q: %s", cp.Status, cp.Detail)
@@ -1529,21 +1530,21 @@ func TestCheckBreakdown_LLM_ExistingBreakdown(t *testing.T) {
 	}
 }
 
-// TestCheckBreakdown_LLM_ProviderFails_Warning — LLM error + no breakdown → "warning".
+// TestCheckBreakdown_LLM_ProviderFails_Warning â€” LLM error + no breakdown â†’ "warning".
 func TestCheckBreakdown_LLM_ProviderFails_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkBreakdown(root, "breakdown fail", mockPipe(root, mock))
+	cp := checkBreakdown(root, "breakdown fail", "", mockPipe(root, mock))
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning on provider error, got %q: %s", cp.Status, cp.Detail)
 	}
 }
 
-// ── Code+scan checkpoint (full loop) ─────────────────────────────────────────
+// â”€â”€ Code+scan checkpoint (full loop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCheckCode_LLM_GeneratesCodePlan — when spec and breakdown exist the LLM
+// TestCheckCode_LLM_GeneratesCodePlan â€” when spec and breakdown exist the LLM
 // generates a code plan and writes it to .forge/specs/<slug>/code-plan.md.
 func TestCheckCode_LLM_GeneratesCodePlan(t *testing.T) {
 	t.Parallel()
@@ -1563,7 +1564,7 @@ func TestCheckCode_LLM_GeneratesCodePlan(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("## Step 1\nCreate handler.\n\n## Step 2\nAdd tests.\n"),
 	}
-	cp := checkCode(root, "code plan feature", mockPipe(root, mock))
+	cp := checkCode(root, "code plan feature", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1580,13 +1581,13 @@ func TestCheckCode_LLM_GeneratesCodePlan(t *testing.T) {
 	}
 }
 
-// TestCheckCode_LLM_NoContext_NoCallMade — when neither spec.md nor breakdown.md
+// TestCheckCode_LLM_NoContext_NoCallMade â€” when neither spec.md nor breakdown.md
 // exist, generateCodePlan returns early and the LLM is NOT called.
 func TestCheckCode_LLM_NoContext_NoCallMade(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Response: mockResponse("should not be called")}
-	cp := checkCode(root, "empty feature", mockPipe(root, mock))
+	cp := checkCode(root, "empty feature", "", mockPipe(root, mock))
 
 	// Without context files, code plan can't be generated; structural fallback.
 	// Status depends on working-tree state; either warning or ok both acceptable.
@@ -1597,7 +1598,7 @@ func TestCheckCode_LLM_NoContext_NoCallMade(t *testing.T) {
 	}
 }
 
-// TestCheckCode_LLM_ProviderFails_GracefulFallback — provider error with changed files
+// TestCheckCode_LLM_ProviderFails_GracefulFallback â€” provider error with changed files
 // still results in "ok" (falls back to file-count structural check).
 func TestCheckCode_LLM_ProviderFails_GracefulFallback(t *testing.T) {
 	t.Parallel()
@@ -1626,7 +1627,7 @@ func TestCheckCode_LLM_ProviderFails_GracefulFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkCode(root, "provider fail code", mockPipe(root, mock))
+	cp := checkCode(root, "provider fail code", "", mockPipe(root, mock))
 
 	// With changed files but provider error, status is "ok" (structural fallback).
 	if cp.Status != "ok" {
@@ -1634,9 +1635,9 @@ func TestCheckCode_LLM_ProviderFails_GracefulFallback(t *testing.T) {
 	}
 }
 
-// ── PR creation ───────────────────────────────────────────────────────────────
+// â”€â”€ PR creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestCheckPR_GhNotFound_Warning — when gh CLI is not in PATH, checkPR returns
+// TestCheckPR_GhNotFound_Warning â€” when gh CLI is not in PATH, checkPR returns
 // Status="warning" (never "fail") so the pipeline is never hard-blocked.
 func TestCheckPR_GhNotFound_Warning(t *testing.T) {
 	t.Parallel()
@@ -1654,7 +1655,7 @@ func TestCheckPR_GhNotFound_Warning(t *testing.T) {
 	}
 }
 
-// TestRunWithOptions_CreatePR_GhAbsent — full pipeline with CreatePR=true appends
+// TestRunWithOptions_CreatePR_GhAbsent â€” full pipeline with CreatePR=true appends
 // a PR checkpoint that is either "ok" or "warning" (depends on gh availability).
 func TestRunWithOptions_CreatePR_GhAbsent(t *testing.T) {
 	t.Parallel()
@@ -1690,9 +1691,9 @@ func TestRunWithOptions_CreatePR_GhAbsent(t *testing.T) {
 	}
 }
 
-// ── Full pipeline with MockProvider ──────────────────────────────────────────
+// â”€â”€ Full pipeline with MockProvider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// TestRunWithOptions_MockLLM_FullPipeline — inject a MockProvider for the entire
+// TestRunWithOptions_MockLLM_FullPipeline â€” inject a MockProvider for the entire
 // 6-checkpoint pipeline. All checkpoints must pass; the LLM must be called.
 // The mock returns empty content so generateBreakdown does NOT write tasks.md,
 // which would otherwise cause the spec-audit gate in checkVerify to fail.
@@ -1728,7 +1729,7 @@ func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
 	}
 }
 
-// TestRunWithOptions_MockLLM_Idempotent — running the full pipeline twice with the
+// TestRunWithOptions_MockLLM_Idempotent â€” running the full pipeline twice with the
 // same MockProvider and root produces identical checkpoint counts and Ready values.
 func TestRunWithOptions_MockLLM_Idempotent(t *testing.T) {
 	t.Parallel()
@@ -1751,7 +1752,7 @@ func TestRunWithOptions_MockLLM_Idempotent(t *testing.T) {
 	}
 }
 
-// ── testTimestampGuard unit tests ─────────────────────────────────────────────
+// â”€â”€ testTimestampGuard unit tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // These tests exercise the working-tree-scoped TDD gate directly.
 // They require git to be in PATH; otherwise they are skipped.
@@ -1813,7 +1814,7 @@ func commitFiles(t *testing.T, root string, files map[string]string) {
 	run("commit", "-m", "test commit")
 }
 
-// TC-TTG-01: non-git directory → guard returns nil immediately.
+// TC-TTG-01: non-git directory â†’ guard returns nil immediately.
 func TestTimestampGuard_NotGitRepo_ReturnsNil(t *testing.T) {
 	t.Parallel()
 	got := testTimestampGuard(t.TempDir())
@@ -1822,7 +1823,7 @@ func TestTimestampGuard_NotGitRepo_ReturnsNil(t *testing.T) {
 	}
 }
 
-// TC-TTG-02: clean working tree → no dirty files → guard returns nil.
+// TC-TTG-02: clean working tree â†’ no dirty files â†’ guard returns nil.
 func TestTimestampGuard_CleanWorkingTree_ReturnsNil(t *testing.T) {
 	skipIfNoGitShip(t)
 	t.Parallel()
@@ -1833,7 +1834,7 @@ func TestTimestampGuard_CleanWorkingTree_ReturnsNil(t *testing.T) {
 	}
 }
 
-// TC-TTG-03: production file dirty, corresponding test file NOT dirty → violation.
+// TC-TTG-03: production file dirty, corresponding test file NOT dirty â†’ violation.
 func TestTimestampGuard_ProdFileDirty_TestNotDirty_IsViolation(t *testing.T) {
 	skipIfNoGitShip(t)
 	t.Parallel()
@@ -1858,7 +1859,7 @@ func TestTimestampGuard_ProdFileDirty_TestNotDirty_IsViolation(t *testing.T) {
 	}
 }
 
-// TC-TTG-04: both production and test files are dirty → no violation.
+// TC-TTG-04: both production and test files are dirty â†’ no violation.
 func TestTimestampGuard_BothDirty_NoViolation(t *testing.T) {
 	skipIfNoGitShip(t)
 	t.Parallel()
@@ -1877,7 +1878,7 @@ func TestTimestampGuard_BothDirty_NoViolation(t *testing.T) {
 	}
 }
 
-// TC-TTG-05: dirty production file has no corresponding test file → not a violation.
+// TC-TTG-05: dirty production file has no corresponding test file â†’ not a violation.
 func TestTimestampGuard_NoTestFile_NoViolation(t *testing.T) {
 	skipIfNoGitShip(t)
 	t.Parallel()
@@ -1889,12 +1890,12 @@ func TestTimestampGuard_NoTestFile_NoViolation(t *testing.T) {
 	got := testTimestampGuard(root)
 	for _, v := range got {
 		if filepath.ToSlash(v) == "baz.go" {
-			t.Fatalf("baz.go has no test file — should not be a violation; got %v", got)
+			t.Fatalf("baz.go has no test file â€” should not be a violation; got %v", got)
 		}
 	}
 }
 
-// TC-TTG-06: only the test file is dirty → no violation (updating tests alone is fine).
+// TC-TTG-06: only the test file is dirty â†’ no violation (updating tests alone is fine).
 func TestTimestampGuard_TestFileOnlyDirty_NoViolation(t *testing.T) {
 	skipIfNoGitShip(t)
 	t.Parallel()
@@ -1903,7 +1904,7 @@ func TestTimestampGuard_TestFileOnlyDirty_NoViolation(t *testing.T) {
 		"qux.go":      "package main\nfunc Qux() {}\n",
 		"qux_test.go": "package main\nimport \"testing\"\nfunc TestQux(t *testing.T) {}\n",
 	})
-	// Only the test file is modified — this is fine, no TDD violation.
+	// Only the test file is modified â€” this is fine, no TDD violation.
 	os.WriteFile(filepath.Join(root, "qux_test.go"), []byte("package main\nimport \"testing\"\nfunc TestQux(t *testing.T) { t.Skip() }\n"), 0o644) //nolint:errcheck
 	got := testTimestampGuard(root)
 	if len(got) != 0 {
@@ -1911,9 +1912,9 @@ func TestTimestampGuard_TestFileOnlyDirty_NoViolation(t *testing.T) {
 	}
 }
 
-// TC-RENDER-01: warning checkpoint uses △ (U+25B3) marker, not garbled bytes.
-// Regression for the Consolas-font mojibake bug where ⚠ (U+26A0) was
-// double-encoded and rendered as "â˜"" in PowerShell / cmd.exe.
+// TC-RENDER-01: warning checkpoint uses â–³ (U+25B3) marker, not garbled bytes.
+// Regression for the Consolas-font mojibake bug where âš  (U+26A0) was
+// double-encoded and rendered as "Ã¢Ëœ"" in PowerShell / cmd.exe.
 func TestRenderText_WarningMarker_IsTriangle(t *testing.T) {
 	t.Parallel()
 	res := &ShipResult{
@@ -1929,18 +1930,18 @@ func TestRenderText_WarningMarker_IsTriangle(t *testing.T) {
 	cmd.SetOut(&out)
 	renderText(cmd, res)
 	got := out.String()
-	// Must contain the △ triangle (U+25B3), not any garbled multi-byte sequence.
+	// Must contain the â–³ triangle (U+25B3), not any garbled multi-byte sequence.
 	if !strings.Contains(got, "\u25b3") {
-		t.Fatalf("warning marker must be △ (U+25B3); got output:\n%s", got)
+		t.Fatalf("warning marker must be â–³ (U+25B3); got output:\n%s", got)
 	}
-	for _, garbled := range []string{"\u00e2\u0160\u02dc", "\u00e2\u0161 ", "â˜"} {
+	for _, garbled := range []string{"\u00e2\u0160\u02dc", "\u00e2\u0161 ", "Ã¢Ëœ"} {
 		if strings.Contains(got, garbled) {
 			t.Fatalf("warning marker must not contain garbled bytes %q; got output:\n%s", garbled, got)
 		}
 	}
 }
 
-// TC-RENDER-02: interactive gate warning marker is also △ (U+25B3).
+// TC-RENDER-02: interactive gate warning marker is also â–³ (U+25B3).
 func TestInteractiveGate_WarningMarker_IsTriangle(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
@@ -1951,6 +1952,6 @@ func TestInteractiveGate_WarningMarker_IsTriangle(t *testing.T) {
 	gate(2, 5, cp)
 	got := out.String()
 	if !strings.Contains(got, "\u25b3") {
-		t.Fatalf("interactive gate warning marker must be △ (U+25B3); got output:\n%s", got)
+		t.Fatalf("interactive gate warning marker must be â–³ (U+25B3); got output:\n%s", got)
 	}
 }

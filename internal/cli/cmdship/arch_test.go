@@ -61,7 +61,7 @@ func TestCheckArch_LLM_GeneratesArchDoc(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Architecture: add payment API\n\n## 1. Component Topology\n\nPayment service.\n"),
 	}
-	cp := checkArch(root, "add payment api", mockPipe(root, mock))
+	cp := checkArch(root, "add payment api", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -106,7 +106,7 @@ func TestCheckArch_ExistingArch_Idempotent(t *testing.T) {
 	}
 
 	mock := &llmprovider.MockProvider{Response: mockResponse("should not be called")}
-	cp := checkArch(root, "existing arch feature", mockPipe(root, mock))
+	cp := checkArch(root, "existing arch feature", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok for existing arch, got %q: %s", cp.Status, cp.Detail)
@@ -132,7 +132,7 @@ func TestCheckArch_NoSpec_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Response: mockResponse("should not reach LLM")}
-	cp := checkArch(root, "missing spec feature", mockPipe(root, mock))
+	cp := checkArch(root, "missing spec feature", "", mockPipe(root, mock))
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning when no spec, got %q: %s", cp.Status, cp.Detail)
@@ -149,7 +149,7 @@ func TestCheckArch_NoSpec_Warning(t *testing.T) {
 func TestCheckArch_NoDescription_NoLLM_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	cp := checkArch(root, "", nil)
+	cp := checkArch(root, "", "", nil)
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning with no description, got %q: %s", cp.Status, cp.Detail)
@@ -165,7 +165,7 @@ func TestCheckArch_NoDescription_WithLLM_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Response: mockResponse("ignored")}
-	cp := checkArch(root, "", mockPipe(root, mock))
+	cp := checkArch(root, "", "", mockPipe(root, mock))
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning with no description + LLM, got %q: %s", cp.Status, cp.Detail)
@@ -192,7 +192,7 @@ func TestCheckArch_LLMError_StubWritten(t *testing.T) {
 	}
 
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkArch(root, "payment feature", mockPipe(root, mock))
+	cp := checkArch(root, "payment feature", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("LLM error should not fail the arch checkpoint; got %q: %s", cp.Status, cp.Detail)
@@ -227,7 +227,7 @@ func TestCheckArch_NoLLM_StubWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkArch(root, "new feature", nil)
+	cp := checkArch(root, "new feature", "", nil)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok without LLM, got %q: %s", cp.Status, cp.Detail)
@@ -640,7 +640,7 @@ func TestCheckArch_LLM_SupabaseRPCResponse(t *testing.T) {
 		"components:\n  schemas: {}\n```\n"
 
 	mock := &llmprovider.MockProvider{Response: mockResponse(llmResponse)}
-	cp := checkArch(root, "supabase user profile", mockPipe(root, mock))
+	cp := checkArch(root, "supabase user profile", "", mockPipe(root, mock))
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)

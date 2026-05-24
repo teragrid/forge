@@ -140,6 +140,11 @@ func WithActiveProfile(p Provider) Provider { return &profileProvider{inner: p} 
 //
 // Returns ErrNoProvider (FORGE-4050) if no known credentials are present.
 func Detect() (Provider, error) {
+	// FORGE_NO_LLM=1 disables auto-detection (used in integration tests to
+	// prevent real network calls when no mock provider is injected).
+	if os.Getenv("FORGE_NO_LLM") == "1" {
+		return nil, errcode.New(ErrNoProvider, "LLM disabled (FORGE_NO_LLM=1)", nil)
+	}
 	var inner Provider
 	var configModel string
 
