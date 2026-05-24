@@ -245,16 +245,13 @@ else
   fi
   if [[ ! -f "$QA_SCRIPT" ]]; then
     warn "scripts/forge-qa-real.sh not found — skipping qa suite"
-  else
-    QA_OUT=$(bash "$QA_SCRIPT" 2>&1)
-    QA_EXIT=$?
+  elif QA_OUT=$(bash "$QA_SCRIPT" 2>&1); then
     echo "$QA_OUT" | sed 's/^/      /'
-    if [[ "$QA_EXIT" -eq 0 ]]; then
-      pass "forge qa real-command suite"
-    else
-      fail "forge qa real-command suite"
-      echo "      Emergency bypass: FORGE_SKIP_QA=1 SKIP_REASON='...' git push"
-    fi
+    pass "forge qa real-command suite"
+  else
+    echo "$QA_OUT" | sed 's/^/      /'
+    fail "forge qa real-command suite"
+    echo "      Emergency bypass: FORGE_SKIP_QA=1 SKIP_REASON='...' git push"
   fi
 fi
 
