@@ -388,6 +388,12 @@ fi
 
 fi  # end SHIP_QA_ONLY skip (P2-P7)
 
+# When SHIP_QA_ONLY=1 the P2 init step was skipped; run a minimal project
+# init now so the full `forge ship` pipeline (QA-24/26/27) has a config dir.
+if [[ "${SHIP_QA_ONLY}" == "1" ]]; then
+  "$FORGE_BIN" init --minimal 2>/dev/null || true
+fi
+
 # ────────────────────────────────────────────────────────────────────────────
 # P8: forge ship dry-run scenarios (QA-22 – QA-33)
 # ────────────────────────────────────────────────────────────────────────────

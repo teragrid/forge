@@ -280,7 +280,7 @@ else
   fi
   if [[ ! -f "$SHIP_QA_SCRIPT" ]]; then
     warn "scripts/forge-qa-real.sh not found — skipping ship scenarios"
-  elif SHIP_QA_OUT=$(SHIP_QA_ONLY=1 bash "$SHIP_QA_SCRIPT" 2>&1); then
+  elif SHIP_QA_OUT=$(SHIP_QA_ONLY=1 FORGE_NO_LLM=1 bash "$SHIP_QA_SCRIPT" 2>&1); then
     echo "$SHIP_QA_OUT" | grep -E 'QA-2[2-9]|QA-3[0-3]' | sed 's/^/      /' || true
     pass "forge ship dry-run scenarios"
   else
