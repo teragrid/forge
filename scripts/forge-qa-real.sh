@@ -22,6 +22,7 @@ set -euo pipefail
 
 FORGE_BIN="${FORGE_BIN:-forge}"
 SKIP_MCP="${SKIP_MCP:-0}"
+SHIP_QA_ONLY="${SHIP_QA_ONLY:-0}"  # 1 = run only P8 forge ship scenarios (used by pre-push [13/13])
 QA_DIR=""
 _CREATED_DIR=0
 
@@ -127,8 +128,10 @@ qa_run() {
 }
 
 # ────────────────────────────────────────────────────────────────────────────
-# P2: Init & config
+# P2-P7: Full integration suite (skipped when SHIP_QA_ONLY=1)
 # ────────────────────────────────────────────────────────────────────────────
+if [[ "${SHIP_QA_ONLY}" != "1" ]]; then
+
 echo "── P2: init & config ───────────────────────────────────────────────────"
 
 # QA-01  forge init --minimal
@@ -381,6 +384,88 @@ if [[ "$NOKEY_EXIT" -ne 0 ]] || [[ -z "$NOKEY_OUT" ]]; then
   qa_pass "QA-21  config get <nonexistent key> returns empty/error"
 else
   qa_fail "QA-21  config get <nonexistent key> returned '${NOKEY_OUT}' (should be empty or error)"
+fi
+
+fi  # end SHIP_QA_ONLY skip (P2-P7)
+
+# ────────────────────────────────────────────────────────────────────────────
+# P8: forge ship dry-run scenarios (QA-22 – QA-33)
+# ────────────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${CYAN}── P8: forge ship dry-run scenarios ───────────────────────────────────${RESET}"
+
+# QA-22  forge ship --help registers the --dry-run flag
+SHIP_HELP_OUT=$("$FORGE_BIN" ship --help 2>&1) && SHIP_HELP_EXIT=0 || SHIP_HELP_EXIT=$?
+if [[ "$SHIP_HELP_EXIT" -eq 0 ]] && echo "$SHIP_HELP_OUT" | grep -q "dry-run"; then
+  qa_pass "QA-22  ship --help (--dry-run flag registered)"
+else
+  qa_fail "QA-22  ship --help (--dry-run flag missing or exit=${SHIP_HELP_EXIT})"
+fi
+
+# QA-23  forge ship status exits 0 on a project with no active pipeline
+qa_run "QA-23  ship status (empty project, exit 0)" 0 "$FORGE_BIN" ship status
+
+# QA-24  Full pipeline via --json bypasses interactive gate; checkpoints key present
+SHIP_FULL_OUT=$("$FORGE_BIN" ship --dry-run --no-branch --json "qa-smoke" 2>&1) && SHIP_FULL_EXIT=0 || SHIP_FULL_EXIT=$?
+if [[ "$SHIP_FULL_EXIT" -eq 0 ]] && echo "$SHIP_FULL_OUT" | grep -q '"checkpoints"'; then
+  qa_pass "QA-24  ship --dry-run --no-branch --json (exit 0, checkpoints key present)"
+else
+  qa_fail "QA-24  ship --dry-run --no-branch --json (exit=${SHIP_FULL_EXIT} or checkpoints key missing)"
+fi
+
+# QA-25  Single spec checkpoint exits 0
+qa_run "QA-25  ship spec --dry-run (single checkpoint, exit 0)" 0 "$FORGE_BIN" ship spec --dry-run "qa-spec-test"
+
+# QA-26  --json output contains dry_run field
+SHIP_JSON_OUT=$("$FORGE_BIN" ship --dry-run --json "qa-json-test" 2>&1) && SHIP_JSON_EXIT=0 || SHIP_JSON_EXIT=$?
+if [[ "$SHIP_JSON_EXIT" -eq 0 ]] && echo "$SHIP_JSON_OUT" | grep -q '"dry_run"'; then
+  qa_pass "QA-26  ship --dry-run --json (dry_run field present in output)"
+else
+  qa_fail "QA-26  ship --dry-run --json (exit=${SHIP_JSON_EXIT} or dry_run key missing)"
+fi
+
+# QA-27  --skip-checkpoint drops named checkpoint without triggering gate
+SKIP_OUT=$("$FORGE_BIN" ship --dry-run --no-branch --skip-checkpoint test "qa-skip-cp" 2>&1) && SKIP_EXIT=0 || SKIP_EXIT=$?
+if [[ "$SKIP_EXIT" -eq 0 ]]; then
+  qa_pass "QA-27  ship --dry-run --skip-checkpoint test (exit 0)"
+else
+  qa_fail "QA-27  ship --dry-run --skip-checkpoint test (exit=${SKIP_EXIT})"
+fi
+
+# QA-28  Subcommand help exits 0
+qa_run "QA-28  ship arch --help (subcommand help, exit 0)" 0 "$FORGE_BIN" ship arch --help
+
+# QA-29  Single arch checkpoint exits 0
+qa_run "QA-29  ship arch --dry-run (single checkpoint, exit 0)" 0 "$FORGE_BIN" ship arch --dry-run "qa-arch-test"
+
+# QA-30  Single code checkpoint exits 0
+qa_run "QA-30  ship code --dry-run (single checkpoint, exit 0)" 0 "$FORGE_BIN" ship code --dry-run "qa-code-test"
+
+# QA-31  Single test checkpoint exits 0
+qa_run "QA-31  ship test --dry-run (single checkpoint, exit 0)" 0 "$FORGE_BIN" ship test --dry-run "qa-test-cp"
+
+# QA-32  .forge/hooks.yml with disabled hooks is loaded without error
+mkdir -p .forge
+cat > .forge/hooks-qa-tmp.yml <<'HOOKSEOF'
+disabled:
+  - tdd-gate
+  - build-gate
+HOOKSEOF
+mv .forge/hooks-qa-tmp.yml .forge/hooks.yml
+HOOKS_OUT=$("$FORGE_BIN" ship spec --dry-run "qa-hooks-cfg" 2>&1) && HOOKS_EXIT=0 || HOOKS_EXIT=$?
+rm -f .forge/hooks.yml
+if [[ "$HOOKS_EXIT" -eq 0 ]]; then
+  qa_pass "QA-32  ship spec --dry-run with .forge/hooks.yml (hooks config accepted)"
+else
+  qa_fail "QA-32  ship spec --dry-run with .forge/hooks.yml (exit=${HOOKS_EXIT})"
+fi
+
+# QA-33  --from with an unknown checkpoint name must be rejected
+FROM_BAD_OUT=$("$FORGE_BIN" ship --from badcheckpoint "qa-bad-from" 2>&1) && FROM_BAD_EXIT=0 || FROM_BAD_EXIT=$?
+if [[ "$FROM_BAD_EXIT" -ne 0 ]] || echo "$FROM_BAD_OUT" | grep -qiE "unknown|invalid|unrecognized|error"; then
+  qa_pass "QA-33  ship --from badcheckpoint (rejected with error, expected)"
+else
+  qa_fail "QA-33  ship --from badcheckpoint (accepted without error — should have rejected)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

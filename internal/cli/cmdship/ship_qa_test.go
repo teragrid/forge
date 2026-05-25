@@ -24,6 +24,7 @@
 //  7. Regression     — no blocking failure when no runner found (no panic)
 //  8. Data-accuracy  — cp.Name is always "QA-Verify"
 //  9. False-positive — "warning" status must NOT be "fail"
+//
 // 10. Remediation    — LLM pipe clears blocking gap; loop capped at maxRemediationRounds
 package cmdship
 

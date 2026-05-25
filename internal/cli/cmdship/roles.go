@@ -333,6 +333,17 @@ type RunOptions struct {
 	// EventWriter, when non-nil, receives one NDJSON ShipEvent line per
 	// checkpoint as each completes. Set by runCheckpoint when --yes && --json (G-004).
 	EventWriter interface{ Write([]byte) (int, error) }
+	// Hooks, when non-nil, overrides the default quality gate hooks. Pass
+	// defaultHooks() to keep built-in gates or supply a custom slice for testing.
+	// nil means "use defaultHooks()".
+	Hooks []Hook
+	// EnableSteering, when true, applies the steering-injection system to LLM
+	// system prompts at each applicable checkpoint. Off by default in dry-run mode
+	// to avoid token overhead with no LLM calls.
+	EnableSteering bool
+	// EnableLearning, when true, triggers extractAndLearnFromFeature after a
+	// successful full-pipeline run. Requires a live LLMPipe.
+	EnableLearning bool
 }
 
 // ── Concern catalog ───────────────────────────────────────────────────────────

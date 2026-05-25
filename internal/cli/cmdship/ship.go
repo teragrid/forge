@@ -111,17 +111,26 @@ type Gate func(idx, total int, cp Checkpoint) bool
 
 // Checkpoint represents one step in the 7-checkpoint pipeline.
 type Checkpoint struct {
-	Name        string           `json:"name"`
-	Status      string           `json:"status"` // "ok", "skipped", "warning", "fail"
-	Detail      string           `json:"detail"`
-	AutoAdvance        bool             `json:"auto_advance,omitempty"`        // G-009: Code sets true when all tasks done
-	Approved           *bool            `json:"approved,omitempty"`            // nil=yolo/not-gated; true=approved; false=rejected
-	Debate             *DebateResult    `json:"debate,omitempty"`              // populated when --yolo self-debate runs
-	GapAudit           *SpecAuditResult `json:"gap_audit,omitempty"`           // TG-39: spec-vs-code audit result
-	RemediationRounds  int              `json:"remediation_rounds,omitempty"` // rounds of LLM-driven gap remediation
+	Name              string           `json:"name"`
+	Status            string           `json:"status"` // "ok", "skipped", "warning", "fail"
+	Detail            string           `json:"detail"`
+	AutoAdvance       bool             `json:"auto_advance,omitempty"`       // G-009: Code sets true when all tasks done
+	Approved          *bool            `json:"approved,omitempty"`           // nil=yolo/not-gated; true=approved; false=rejected
+	Debate            *DebateResult    `json:"debate,omitempty"`             // populated when --yolo self-debate runs
+	GapAudit          *SpecAuditResult `json:"gap_audit,omitempty"`          // TG-39: spec-vs-code audit result
+	RemediationRounds int              `json:"remediation_rounds,omitempty"` // rounds of LLM-driven gap remediation
 }
 
 // ShipResult summarizes the ship run.
+// AgentAction is a concrete next step for an LLM agent or human operator.
+// AgentActions are populated in ShipResult.NextActions after a pipeline run.
+type AgentAction struct {
+	Priority    int    `json:"priority"`               // 1 = highest; lower number = more urgent
+	Action      string `json:"action"`                 // e.g. "run: go test ./...", "edit: .forge/specs/X/spec.md"
+	Reason      string `json:"reason"`                 // why this action is needed
+	KBReference string `json:"kb_reference,omitempty"` // optional KB entry path that motivated this
+}
+
 type ShipResult struct {
 	DryRun        bool         `json:"dry_run"`
 	Yolo          bool         `json:"yolo,omitempty"`
@@ -131,6 +140,24 @@ type ShipResult struct {
 	Ready         bool         `json:"ready"`
 	Message       string       `json:"message"`
 	FeatureBranch string       `json:"feature_branch,omitempty"` // branch used for this ship run
+
+	// Agent/LLM-friendly fields — populated after every successful pipeline run.
+
+	// AgentHints carries per-checkpoint hints for LLM agents consuming this result.
+	// Key = lower-cased checkpoint name; value = list of actionable hint strings.
+	AgentHints map[string][]string `json:"agent_hints,omitempty"`
+
+	// NextActions is an ordered list of concrete steps the next agent/human should take.
+	// Populated from checkpoint details, gap audit findings, and KB-derived guidance.
+	NextActions []AgentAction `json:"next_actions,omitempty"`
+
+	// TokenUsage tracks the approximate tokens consumed per checkpoint (LLM calls only).
+	// Key = lower-cased checkpoint name; value = estimated token count.
+	TokenUsage map[string]int `json:"token_usage,omitempty"`
+
+	// KBEntriesUsed lists the KB entry IDs injected via InvokeWithKnowledge across the run.
+	// Enables audit trails and downstream KB usage analysis.
+	KBEntriesUsed []string `json:"kb_entries_used,omitempty"`
 }
 
 func init() {
@@ -1282,16 +1309,259 @@ func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
 //
 //  2. Test-runner probe — confirms the shipped artifact is functional:
 //     MCP path (preferred):
-//       Go project  — cmd/mcp/main.go present  → go test ./internal/mcpserver/...
-//       Python proj — mcp_server.py present    → python -m pytest tests/test_mcp_server.py -q
+//     Go project  — cmd/mcp/main.go present  → go test ./internal/mcpserver/...
+//     Python proj — mcp_server.py present    → python -m pytest tests/test_mcp_server.py -q
 //     Fallback (no MCP server):
-//       Go project  — go.mod present           → go test ./... --count=1
-//       Python proj — pyproject.toml/pytest.ini → pytest -q --tb=short
-//       No runner   — warning (no tools configured)
+//     Go project  — go.mod present           → go test ./... --count=1
+//     Python proj — pyproject.toml/pytest.ini → pytest -q --tb=short
+//     No runner   — warning (no tools configured)
+//
+// generateManualTestPlan produces a 6-role manual test plan written to
+// .forge/specs/<slug>/manual-test-plan.md. Each role contributes one section
+// via a targeted KB-enriched InvokeWithKnowledge call. A cross-role gap
+// challenge (Round 2) surfaces coordination gaps between sections.
+//
+// Returns the absolute path written, or "" when pipe is nil or write fails.
+func generateManualTestPlan(root, description string, pipe *LLMPipe) string {
+	if pipe == nil {
+		return ""
+	}
+	slug := slugify(description)
+	planPath := filepath.Join(root, ".forge", "specs", slug, "manual-test-plan.md")
+
+	// Load spec and arch for context.
+	specContent, _ := os.ReadFile(filepath.Join(root, ".forge", "specs", slug, "spec.md"))
+	archContent, _ := os.ReadFile(filepath.Join(root, ".forge", "specs", slug, "arch.md"))
+	featureContext := fmt.Sprintf(
+		"Feature: %s\n\nSpec:\n%s\n\nArchitecture notes:\n%s",
+		description, string(specContent), string(archContent),
+	)
+
+	type roleSection struct {
+		opKey     string   // operation key for InvokeWithKnowledge
+		heading   string   // Markdown heading for this section
+		kbFamily  string   // KB family for InvokeWithKnowledge
+		kbTags    []string // KB tags for InvokeWithKnowledge
+		sysPrompt string   // role-specific system prompt
+	}
+
+	sections := []roleSection{
+		{
+			opKey:    "qa-verify:manual:product-owner",
+			heading:  "## Product Owner — User Acceptance Tests",
+			kbFamily: "",
+			kbTags:   []string{"requirements", "acceptance-criteria", "user-stories"},
+			sysPrompt: "You are a Product Owner writing user acceptance tests. " +
+				"Provide step-by-step UAT walkthroughs verifying business value. " +
+				"Write scenarios executable by a non-technical stakeholder: numbered steps, exact data inputs, expected results. " +
+				"Cover: happy path, main alternative path, and one rejection/undo path per AC item.",
+		},
+		{
+			opKey:    "qa-verify:manual:business-analyst",
+			heading:  "## Business Analyst — Business Rule & Edge Case Tests",
+			kbFamily: "",
+			kbTags:   []string{"edge-cases", "state-transitions", "validation", "business-rules"},
+			sysPrompt: "You are a Business Analyst writing manual test scenarios for business rules. " +
+				"Cover: state-machine transitions, concurrent-update edge cases, validation boundaries (min/max/null), " +
+				"and cross-field dependency rules. Provide exact input values and expected outcomes for each scenario.",
+		},
+		{
+			opKey:    "qa-verify:manual:quality-engineer",
+			heading:  "## Quality Engineer — Full Test Spectrum",
+			kbFamily: "",
+			kbTags: []string{
+				"test-design", "quality-gate", "tdd",
+				"integration-testing", "e2e", "regression",
+				"contract-testing", "mutation-testing", "smoke-testing",
+				"acceptance-testing", "exploratory-testing",
+				"performance-testing", "test-pyramid",
+			},
+			sysPrompt: "You are a senior Quality Engineer writing a full-spectrum manual test plan. " +
+				"Cover ALL test types: smoke (post-deploy checklist), exploratory (session-based), " +
+				"performance sanity (response-time vs spec NFR thresholds), mutation risk areas " +
+				"(list code paths most likely to break on trivial edits), regression guards " +
+				"(prior known defects to re-verify), and contract verification (API schema diffs). " +
+				"Group by test type with explicit preconditions and verdict criteria.",
+		},
+		{
+			opKey:    "qa-verify:manual:security-reviewer",
+			heading:  "## Security Reviewer — Security Probes",
+			kbFamily: "security",
+			kbTags:   []string{"owasp", "authz", "injection", "audit-logging", "rls", "privilege-escalation"},
+			sysPrompt: "You are a Security Reviewer writing security probe test scenarios. " +
+				"Reference OWASP Top 10. For each relevant risk provide: exact probe steps, " +
+				"crafted payloads (safe — no real exploits), and expected outcome (BLOCKED / LOGGED). " +
+				"Mandatory probes: (A01) broken access control attempt, (A02) injection in all input fields, " +
+				"(A07) auth bypass attempt, (A09) audit trail completeness check, " +
+				"(A10) server-side request forgery if external URLs are involved.",
+		},
+		{
+			opKey:    "qa-verify:manual:devops-sre",
+			heading:  "## DevOps / SRE — Operational Readiness Tests",
+			kbFamily: "reliability",
+			kbTags:   []string{"observability", "rollback", "health-check", "slo", "deployment", "circuit-breaker"},
+			sysPrompt: "You are a DevOps/SRE writing operational readiness test scenarios. " +
+				"Include: health-check endpoints respond correctly post-deploy, " +
+				"structured logs and traces emitted for new code paths, " +
+				"rollback procedure (step-by-step) completes within SLO, " +
+				"graceful degradation under load (circuit-breaker trip verified), " +
+				"and alerting rules fire correctly on injected failures.",
+		},
+		{
+			opKey:    "qa-verify:manual:compliance-officer",
+			heading:  "## Compliance & Privacy Officer — Compliance Attestation Tests",
+			kbFamily: "compliance",
+			kbTags:   []string{"pci-dss", "gdpr", "audit", "data-residency", "pii", "consent"},
+			sysPrompt: "You are a Compliance & Privacy Officer writing compliance attestation test scenarios. " +
+				"Reference applicable regulations by article number (e.g. GDPR Art. 25 data-by-design). " +
+				"Cover: PII fields masked/tokenised in logs and error messages, " +
+				"audit-trail entry created for every sensitive operation, " +
+				"data-residency constraints respected (no cross-region leakage), " +
+				"consent management flows work and are reversible, " +
+				"data-retention and right-to-erasure flows tested end-to-end.",
+		},
+	}
+
+	var planParts []string
+	planParts = append(planParts, fmt.Sprintf(
+		"# Manual Test Plan: %s\n\n_Generated by `forge ship qa-verify` — %s_\n\n---\n",
+		description, time.Now().UTC().Format("2006-01-02"),
+	))
+	planParts = append(planParts,
+		"## Preconditions\n\n"+
+			"- [ ] Test environment is provisioned and seeded with representative test data\n"+
+			"- [ ] All automated tests are GREEN before manual testing begins\n"+
+			"- [ ] Tester has the required roles/permissions configured (use placeholder credentials)\n"+
+			"- [ ] `spec.md`, `arch.md`, and this plan are accessible to all testers\n\n---\n",
+	)
+
+	// Round 1: each role generates their independent section.
+	for _, s := range sections {
+		resp, err := pipe.InvokeWithKnowledge(
+			s.opKey, "", s.sysPrompt, featureContext, 800,
+			"qa-verify", s.kbFamily, "", s.kbTags,
+		)
+		if err != nil || resp == "" {
+			resp = fmt.Sprintf(
+				"_Section not generated — check LLM configuration (`forge config set llm.provider <name>`)._",
+			)
+		}
+		planParts = append(planParts, s.heading+"\n\n"+resp+"\n\n---\n")
+	}
+
+	// Round 2: cross-role gap challenge — QA Lead surfaces coordination gaps.
+	combined := strings.Join(planParts, "")
+	gapResp, _ := pipe.Invoke(
+		"qa-verify:manual:cross-challenge", "",
+		"You are a QA Lead reviewing a multi-role manual test plan for completeness. "+
+			"Identify: "+
+			"(1) AC items from the spec not covered by any role's section; "+
+			"(2) scenarios only partially covered (one role handles step A but no one handles step B); "+
+			"(3) coordination requirements between sections (e.g. Security probe requires Ops rollback ready first). "+
+			"Output ONLY a concise '## Cross-Role Gap Analysis' section. Be specific — list gap, owner, and remediation.",
+		combined, 500,
+	)
+	if gapResp != "" {
+		planParts = append(planParts, gapResp+"\n")
+	}
+
+	content := strings.Join(planParts, "")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o755); err != nil {
+		return ""
+	}
+	if err := os.WriteFile(planPath, []byte(content), 0o600); err != nil {
+		return ""
+	}
+	return planPath
+}
+
+// runQATestSuite executes the appropriate automated test suite and returns
+// (status, detail). Called exclusively by checkQAVerify so that the manual
+// test plan generation can run once after all automated tests complete.
+func runQATestSuite(root string) (status, detail string) {
+	sp := procspawn.New("go", "python", "python3", "pytest")
+
+	goMCPEntry := filepath.Join(root, "cmd", "mcp", "main.go")
+	pyMCPEntry := filepath.Join(root, "mcp_server.py")
+	goModFile := filepath.Join(root, "go.mod")
+
+	switch {
+	case pathExists(goMCPEntry):
+		res, err := sp.Run("go",
+			[]string{"test", "./internal/mcpserver/...", "-count=1", "-timeout=120s"},
+			procspawn.Options{Dir: root, Timeout: 130 * time.Second},
+		)
+		if err != nil {
+			return "fail", fmt.Sprintf("QA (MCP/go): mcpserver tests failed — %v", err)
+		}
+		passed := strings.Count(res.Stdout+res.Stderr, "--- PASS")
+		if passed == 0 {
+			passed = strings.Count(res.Stdout, "ok")
+		}
+		return "ok", fmt.Sprintf(
+			"QA via MCP (go): mcpserver unit tests passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
+			passed, res.Duration.Seconds())
+
+	case pathExists(pyMCPEntry):
+		runner, runArgs := "python3", []string{"-m", "pytest", "tests/test_mcp_server.py", "-q", "--tb=short"}
+		res, err := sp.Run(runner, runArgs, procspawn.Options{Dir: root, Timeout: 130 * time.Second})
+		if err != nil && strings.Contains(err.Error(), "not in the spawn allow-list") {
+			runner = "python"
+			res, err = sp.Run(runner, runArgs, procspawn.Options{Dir: root, Timeout: 130 * time.Second})
+		}
+		if err != nil {
+			return "fail", fmt.Sprintf("QA (MCP/python): test_mcp_server.py failed — %v", err)
+		}
+		passed := strings.Count(res.Stdout, " passed")
+		return "ok", fmt.Sprintf(
+			"QA via MCP (python): test_mcp_server.py passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
+			passed, res.Duration.Seconds())
+
+	case pathExists(goModFile):
+		res, err := sp.Run("go",
+			[]string{"test", "./...", "-count=1", "-timeout=180s"},
+			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+		)
+		if err != nil {
+			return "warning", fmt.Sprintf("QA (go test ./...): tests did not pass (%v) — add cmd/mcp/ for MCP-based QA", err)
+		}
+		pkgs := strings.Count(res.Stdout+res.Stderr, "\nok ")
+		return "ok", fmt.Sprintf(
+			"QA (go test ./...): %d package(s) passed (%.1fs) — add cmd/mcp/ to enable MCP agent QA",
+			pkgs, res.Duration.Seconds())
+
+	case pathExists(filepath.Join(root, "pyproject.toml")) ||
+		pathExists(filepath.Join(root, "pytest.ini")) ||
+		pathExists(filepath.Join(root, "setup.cfg")):
+		runner := "python3"
+		res, err := sp.Run(runner,
+			[]string{"-m", "pytest", "-q", "--tb=short"},
+			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+		)
+		if err != nil && strings.Contains(err.Error(), "not in the spawn allow-list") {
+			runner = "python"
+			res, err = sp.Run(runner,
+				[]string{"-m", "pytest", "-q", "--tb=short"},
+				procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+			)
+		}
+		if err != nil {
+			return "warning", fmt.Sprintf("QA (pytest): tests did not pass (%v) — add mcp_server.py for MCP agent QA", err)
+		}
+		passed := strings.Count(res.Stdout, " passed")
+		return "ok", fmt.Sprintf(
+			"QA (pytest): %d case(s) passed (%.1fs) — add mcp_server.py to enable MCP agent QA",
+			passed, res.Duration.Seconds())
+	}
+
+	// No known test runner found.
+	return "warning", ""
+}
+
 func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "QA-Verify"}
 
-	// ── Step 1: spec-vs-code gap audit with auto-remediation loop ────────────
+	// ── Phase 1: spec-vs-code gap audit with auto-remediation loop ───────────
 	// Re-run the same audit that checkpoint 6 runs so that qa-verify is
 	// self-contained. When an LLM is available and blocking gaps are found, the
 	// loop calls remediateGaps to implement the missing pieces, then re-audits.
@@ -1330,131 +1600,44 @@ func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
 		return cp
 	}
 
-	sp := procspawn.New("go", "python", "python3", "pytest")
+	// ── Phase 2: automated test suite ───────────────────────────────────────
+	cp.Status, cp.Detail = runQATestSuite(root)
 
-	goMCPEntry := filepath.Join(root, "cmd", "mcp", "main.go")
-	pyMCPEntry := filepath.Join(root, "mcp_server.py")
-	goModFile := filepath.Join(root, "go.mod")
-
-	switch {
-	case pathExists(goMCPEntry):
-		// MCP server present (Go): run the MCP server's unit tests to validate
-		// every AI-agent tool contract.
-		res, err := sp.Run("go",
-			[]string{"test", "./internal/mcpserver/...", "-count=1", "-timeout=120s"},
-			procspawn.Options{Dir: root, Timeout: 130 * time.Second},
-		)
-		if err != nil {
-			cp.Status = "fail"
-			cp.Detail = fmt.Sprintf("QA (MCP/go): mcpserver tests failed — %v", err)
-			appendFailure(root, "qa-verify", description, cp.Detail)
-			return cp
-		}
-		passed := strings.Count(res.Stdout+res.Stderr, "--- PASS")
-		if passed == 0 {
-			passed = strings.Count(res.Stdout, "ok")
-		}
-		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf(
-			"QA via MCP (go): mcpserver unit tests passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
-			passed, res.Duration.Seconds())
-		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
-			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
-		}
-		return cp
-
-	case pathExists(pyMCPEntry):
-		// MCP server present (Python): run test_mcp_server.py.
-		// Try python3 first; fall back to python.
-		runner, runArgs := "python3", []string{"-m", "pytest", "tests/test_mcp_server.py", "-q", "--tb=short"}
-		res, err := sp.Run(runner, runArgs, procspawn.Options{Dir: root, Timeout: 130 * time.Second})
-		if err != nil && strings.Contains(err.Error(), "not in the spawn allow-list") {
-			runner = "python"
-			res, err = sp.Run(runner, runArgs, procspawn.Options{Dir: root, Timeout: 130 * time.Second})
-		}
-		if err != nil {
-			cp.Status = "fail"
-			cp.Detail = fmt.Sprintf("QA (MCP/python): test_mcp_server.py failed — %v", err)
-			appendFailure(root, "qa-verify", description, cp.Detail)
-			return cp
-		}
-		passed := strings.Count(res.Stdout, " passed")
-		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf(
-			"QA via MCP (python): test_mcp_server.py passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
-			passed, res.Duration.Seconds())
-		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
-			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
-		}
-		return cp
-
-	case pathExists(goModFile):
-		// Fallback: Go project without MCP server — run full test suite.
-		// Failure here is a warning (not fail): the project may have no tests yet or be
-		// a fresh scaffold. Only MCP-explicit paths fail hard.
-		res, err := sp.Run("go",
-			[]string{"test", "./...", "-count=1", "-timeout=180s"},
-			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
-		)
-		if err != nil {
-			cp.Status = "warning"
-			cp.Detail = fmt.Sprintf("QA (go test ./...): tests did not pass (%v) — add cmd/mcp/ for MCP-based QA", err)
-			return cp
-		}
-		pkgs := strings.Count(res.Stdout+res.Stderr, "\nok ")
-		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf(
-			"QA (go test ./...): %d package(s) passed (%.1fs) — add cmd/mcp/ to enable MCP agent QA",
-			pkgs, res.Duration.Seconds())
-		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
-			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
-		}
-		return cp
-
-	case pathExists(filepath.Join(root, "pyproject.toml")) ||
-		pathExists(filepath.Join(root, "pytest.ini")) ||
-		pathExists(filepath.Join(root, "setup.cfg")):
-		// Fallback: Python project without MCP server.
-		runner := "python3"
-		res, err := sp.Run(runner,
-			[]string{"-m", "pytest", "-q", "--tb=short"},
-			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
-		)
-		if err != nil && strings.Contains(err.Error(), "not in the spawn allow-list") {
-			runner = "python"
-			res, err = sp.Run(runner,
-				[]string{"-m", "pytest", "-q", "--tb=short"},
-				procspawn.Options{Dir: root, Timeout: 190 * time.Second},
-			)
-		}
-		if err != nil {
-			cp.Status = "warning"
-			cp.Detail = fmt.Sprintf("QA (pytest): tests did not pass (%v) — add mcp_server.py for MCP agent QA", err)
-			return cp
-		}
-		passed := strings.Count(res.Stdout, " passed")
-		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf(
-			"QA (pytest): %d case(s) passed (%.1fs) — add mcp_server.py to enable MCP agent QA",
-			passed, res.Duration.Seconds())
-		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
-			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
-		}
-		return cp
-	}
-
-	// No known test runner or MCP server found — warn but do not block.
-	cp.Status = "warning"
+	// Append spec audit warnings to detail regardless of runner.
 	if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
-		cp.Detail = fmt.Sprintf("QA-Verify: no test runner found; %d spec audit warning(s) — "+
-			"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, "+
-			"or ensure go.mod / pyproject.toml is present for native test fallback",
-			len(auditRes.Gaps))
-	} else {
-		cp.Detail = "QA-Verify: no MCP server or test runner found — " +
-			"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, " +
-			"or ensure go.mod / pyproject.toml is present for native test fallback"
+		cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
 	}
+
+	// Hard-stop on test failure before generating the manual plan.
+	if cp.Status == "fail" {
+		appendFailure(root, "qa-verify", description, cp.Detail)
+		return cp
+	}
+
+	// No test runner found — warn with actionable detail, skip manual plan.
+	if cp.Status == "warning" && cp.Detail == "" {
+		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+			cp.Detail = fmt.Sprintf("QA-Verify: no test runner found; %d spec audit warning(s) — "+
+				"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, "+
+				"or ensure go.mod / pyproject.toml is present for native test fallback",
+				len(auditRes.Gaps))
+		} else {
+			cp.Detail = "QA-Verify: no MCP server or test runner found — " +
+				"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, " +
+				"or ensure go.mod / pyproject.toml is present for native test fallback"
+		}
+		return cp
+	}
+
+	// ── Phase 3: 6-role manual test plan generation ──────────────────────────
+	// Runs only when automated tests pass (status == "ok") and an LLM is
+	// available. The plan is written to .forge/specs/<slug>/manual-test-plan.md.
+	if cp.Status == "ok" {
+		if planPath := generateManualTestPlan(root, description, pipe); planPath != "" {
+			cp.Detail += "; manual test plan: " + planPath
+		}
+	}
+
 	return cp
 }
 
@@ -1492,6 +1675,14 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	if pipe == nil {
 		pipe = newLLMPipe(root)
 	}
+
+	// Resolve quality-gate hooks and config.
+	// opts.Hooks enables test injection; production code uses defaultHooks().
+	hooks := opts.Hooks
+	if hooks == nil {
+		hooks = defaultHooks()
+	}
+	hookCfg := loadHookConfig(root)
 
 	allCPs := []Checkpoint{
 		checkSpec(root, opts.Description, opts.SpecName, pipe),
@@ -1544,6 +1735,29 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	total := len(selected)
 
 	for i, cp := range selected {
+		// ── Post-checkpoint quality-gate hooks ───────────────────────────────
+		// Hooks run after the check* function and can annotate cp.Detail with
+		// warnings or escalate status to "fail" when HookConfig.Strict is set.
+		if len(hooks) > 0 {
+			hookCtx := HookContext{
+				Phase:          PhasePostCheckpoint,
+				CheckpointName: strings.ToLower(cp.Name),
+				Root:           root,
+				Description:    opts.Description,
+				Pipe:           pipe,
+				Result:         &cp,
+			}
+			if failures := runHooks(PhasePostCheckpoint, hookCtx, hooks, hookCfg); len(failures) > 0 {
+				for _, f := range failures {
+					cp.Detail += " | HOOK[" + f.Message + "]"
+				}
+				if hookCfg.Strict && cp.Status != "fail" {
+					cp.Status = "fail"
+				} else if cp.Status == "ok" {
+					cp.Status = "warning"
+				}
+			}
+		}
 		// Hard stop on failure regardless of gate.
 		if cp.Status == "fail" {
 			res.Checkpoints = append(res.Checkpoints, cp)
@@ -1653,6 +1867,24 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	}
 
 	res.Ready = true
+
+	// ── Post-pipeline hooks (learning extraction, review routing) ────────────
+	if len(hooks) > 0 {
+		hookCtx := HookContext{
+			Phase:       PhasePostPipeline,
+			Root:        root,
+			Description: opts.Description,
+			Pipe:        pipe,
+		}
+		runHooks(PhasePostPipeline, hookCtx, hooks, hookCfg) // post-pipeline failures are advisory only
+	}
+
+	// ── Learning loop: extract patterns from this successful run ─────────────
+	// Writes JSONL + KB-formatted markdown to forge-knowledge when enabled.
+	if opts.EnableLearning && pipe != nil {
+		extractAndLearnFromFeature(root, opts.Description, res, pipe)
+	}
+
 	return res
 }
 

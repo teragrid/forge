@@ -17,6 +17,7 @@
 #   FORGE_SKIP_LINT=1   git push   # skip forge lint
 #   FORGE_SKIP_CHECK=1  git push   # skip forge check
 #   FORGE_SKIP_QA=1     git push   # skip forge qa real-command suite (stage 12)
+#   FORGE_SKIP_SHIP=1   git push   # skip forge ship dry-run scenarios (stage 13)
 #
 # Checks (in order – fail-fast per section):
 #   1.  gofmt / goimports — formatting
@@ -33,6 +34,7 @@
 #   11. forge check                    — pre-flight: typecheck + lint + test fast path
 #   12. forge qa suite                 — real-command integration (init, scan, skill,
 #                                       mcp, audit, test spec, spend, context, doctor)
+#   13. forge ship dry-run scenarios  — ship pipeline smoke tests (QA-22 – QA-33)
 #
 # Stages 9-11 are ADVISORY when the forge binary is not on PATH (warn + skip).
 # They become BLOCKING once `forge` is present.
@@ -77,7 +79,7 @@ audit_bypass() {
 }
 
 echo ""
-echo "━━━  forge pre-push quality gate  (12 checks)  ━━━"
+echo "━━━  forge pre-push quality gate  (13 checks)  ━━━"
 echo ""
 
 # ── 1. formatting ────────────────────────────────────────────────────────────
@@ -260,6 +262,31 @@ else
     echo "$QA_OUT" | sed 's/^/      /'
     fail "forge qa real-command suite"
     echo "      Emergency bypass: FORGE_SKIP_QA=1 SKIP_REASON='...' git push"
+  fi
+fi
+
+# ── 13. forge ship dry-run scenarios ─────────────────────────────────────────
+echo ""
+echo "[13/13] forge ship dry-run scenarios"
+if [[ "${FORGE_SKIP_SHIP:-}" == "1" ]]; then
+  warn "FORGE_SKIP_SHIP=1: forge ship scenarios skipped"
+  audit_bypass "FORGE_SKIP_SHIP"
+elif ! command -v forge &>/dev/null; then
+  warn "forge binary not on PATH — skipping ship scenarios (run 'make build' to install)"
+else
+  SHIP_QA_SCRIPT="$(cd "$(dirname "$0")" && pwd)/../scripts/forge-qa-real.sh"
+  if [[ ! -f "$SHIP_QA_SCRIPT" ]]; then
+    SHIP_QA_SCRIPT="$(git rev-parse --show-toplevel 2>/dev/null)/scripts/forge-qa-real.sh"
+  fi
+  if [[ ! -f "$SHIP_QA_SCRIPT" ]]; then
+    warn "scripts/forge-qa-real.sh not found — skipping ship scenarios"
+  elif SHIP_QA_OUT=$(SHIP_QA_ONLY=1 bash "$SHIP_QA_SCRIPT" 2>&1); then
+    echo "$SHIP_QA_OUT" | grep -E 'QA-2[2-9]|QA-3[0-3]' | sed 's/^/      /' || true
+    pass "forge ship dry-run scenarios"
+  else
+    echo "$SHIP_QA_OUT" | sed 's/^/      /'
+    fail "forge ship dry-run scenarios"
+    echo "      Emergency bypass: FORGE_SKIP_SHIP=1 SKIP_REASON='...' git push"
   fi
 fi
 
