@@ -54,6 +54,12 @@ echo -e "${CYAN}━━━  forge qa real-command suite  (${FORGE_VERSION})  ━�
 echo ""
 
 # ── project setup ─────────────────────────────────────────────────────────────
+# Unset git environment variables that git exports when running hooks.
+# Without this, every git command below (git init, git config, etc.) would
+# operate on the hook's parent repository (.git) instead of the temp project.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
+      GIT_NAMESPACE GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL \
+      GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL 2>/dev/null || true
 if [[ -z "$QA_DIR" ]]; then
   QA_DIR="$(mktemp -d /tmp/forge-qa-XXXXXX 2>/dev/null || mktemp -d "${TMPDIR:-/tmp}/forge-qa-XXXXXX")"
   _CREATED_DIR=1
