@@ -114,10 +114,11 @@ type Checkpoint struct {
 	Name        string           `json:"name"`
 	Status      string           `json:"status"` // "ok", "skipped", "warning", "fail"
 	Detail      string           `json:"detail"`
-	AutoAdvance bool             `json:"auto_advance,omitempty"` // G-009: Code sets true when all tasks done
-	Approved    *bool            `json:"approved,omitempty"`     // nil=yolo/not-gated; true=approved; false=rejected
-	Debate      *DebateResult    `json:"debate,omitempty"`       // populated when --yolo self-debate runs
-	GapAudit    *SpecAuditResult `json:"gap_audit,omitempty"`    // TG-39: spec-vs-code audit result
+	AutoAdvance        bool             `json:"auto_advance,omitempty"`        // G-009: Code sets true when all tasks done
+	Approved           *bool            `json:"approved,omitempty"`            // nil=yolo/not-gated; true=approved; false=rejected
+	Debate             *DebateResult    `json:"debate,omitempty"`              // populated when --yolo self-debate runs
+	GapAudit           *SpecAuditResult `json:"gap_audit,omitempty"`           // TG-39: spec-vs-code audit result
+	RemediationRounds  int              `json:"remediation_rounds,omitempty"` // rounds of LLM-driven gap remediation
 }
 
 // ShipResult summarizes the ship run.
@@ -1175,7 +1176,7 @@ func countChangedFiles(root string) int {
 // checkVerify runs the security scanner, clean check, checks the manifest,
 // and (TG-39) audits spec artefacts for incomplete tasks and authz gaps.
 // M1-10: forge clean --check is now wired here.
-func checkVerify(root, description string) Checkpoint {
+func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Ship"}
 
 	// Run security scan.
@@ -1226,8 +1227,20 @@ func checkVerify(root, description string) Checkpoint {
 	patternCount := len(mf.Scratch) + len(mf.Managed)
 
 	// TG-39: spec-vs-code audit — blocking gaps fail the checkpoint.
+	// When a pipe is available, run the same auto-remediation loop used in
+	// checkQAVerify so that both the Ship and QA-Verify checkpoints operate
+	// consistently. The loop is capped at maxRemediationRounds.
 	auditRes := auditSpecVsCode(root, description)
 	cp.GapAudit = &auditRes
+
+	remediationRounds := 0
+	for auditRes.HasBlockingGaps() && pipe != nil && remediationRounds < maxRemediationRounds {
+		remediationRounds++
+		remediateGaps(root, description, auditRes.Gaps, pipe)
+		auditRes = auditSpecVsCode(root, description)
+		cp.GapAudit = &auditRes
+	}
+
 	if auditRes.HasBlockingGaps() {
 		blocking := 0
 		for _, g := range auditRes.Gaps {
@@ -1275,14 +1288,25 @@ func checkVerify(root, description string) Checkpoint {
 //       Go project  — go.mod present           → go test ./... --count=1
 //       Python proj — pyproject.toml/pytest.ini → pytest -q --tb=short
 //       No runner   — warning (no tools configured)
-func checkQAVerify(root, description string) Checkpoint {
+func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "QA-Verify"}
 
-	// ── Step 1: spec-vs-code gap audit ──────────────────────────────────────
+	// ── Step 1: spec-vs-code gap audit with auto-remediation loop ────────────
 	// Re-run the same audit that checkpoint 6 runs so that qa-verify is
-	// self-contained and catches any drift that occurred between checkpoints.
+	// self-contained. When an LLM is available and blocking gaps are found, the
+	// loop calls remediateGaps to implement the missing pieces, then re-audits.
+	// This continues until all blocking gaps are cleared or maxRemediationRounds
+	// is exhausted — ensuring the pipeline ships only when fully spec-compliant.
 	auditRes := auditSpecVsCode(root, description)
 	cp.GapAudit = &auditRes
+
+	for auditRes.HasBlockingGaps() && pipe != nil && cp.RemediationRounds < maxRemediationRounds {
+		cp.RemediationRounds++
+		remediateGaps(root, description, auditRes.Gaps, pipe)
+		auditRes = auditSpecVsCode(root, description)
+		cp.GapAudit = &auditRes
+	}
+
 	if auditRes.HasBlockingGaps() {
 		blocking := 0
 		for _, g := range auditRes.Gaps {
@@ -1291,10 +1315,17 @@ func checkQAVerify(root, description string) Checkpoint {
 			}
 		}
 		cp.Status = "fail"
-		cp.Detail = fmt.Sprintf(
-			"QA spec audit: %d blocking gap(s) — fix before shipping (run: forge ship spec to review)",
-			blocking,
-		)
+		if cp.RemediationRounds > 0 {
+			cp.Detail = fmt.Sprintf(
+				"QA spec audit: %d blocking gap(s) remain after %d remediation round(s) — manual fix required",
+				blocking, cp.RemediationRounds,
+			)
+		} else {
+			cp.Detail = fmt.Sprintf(
+				"QA spec audit: %d blocking gap(s) — no LLM configured; fix manually (run: forge ship spec to review)",
+				blocking,
+			)
+		}
 		appendFailure(root, "qa-verify", description, cp.Detail)
 		return cp
 	}
@@ -1468,8 +1499,8 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		checkTest(root, opts.Description, opts.SpecName, pipe),
 		checkBreakdown(root, opts.Description, opts.SpecName, pipe),
 		checkCode(root, opts.Description, opts.SpecName, pipe),
-		checkVerify(root, opts.Description),
-		checkQAVerify(root, opts.Description),
+		checkVerify(root, opts.Description, pipe),
+		checkQAVerify(root, opts.Description, pipe),
 	}
 	// PR checkpoint: appended only for full-pipeline runs with --pr.
 	if opts.CreatePR && len(opts.Names) == 0 {

@@ -24,20 +24,24 @@
 //  7. Regression     — no blocking failure when no runner found (no panic)
 //  8. Data-accuracy  — cp.Name is always "QA-Verify"
 //  9. False-positive — "warning" status must NOT be "fail"
+// 10. Remediation    — LLM pipe clears blocking gap; loop capped at maxRemediationRounds
 package cmdship
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/teragrid/forge/internal/llmprovider"
 )
 
 // TestCheckQAVerify_Idempotent verifies two consecutive calls return identical status.
 func TestCheckQAVerify_Idempotent(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	cp1 := checkQAVerify(root, "test feature")
-	cp2 := checkQAVerify(root, "test feature")
+	cp1 := checkQAVerify(root, "test feature", nil)
+	cp2 := checkQAVerify(root, "test feature", nil)
 	if cp1.Status != cp2.Status {
 		t.Errorf("Idempotency: first=%q second=%q", cp1.Status, cp2.Status)
 	}
@@ -47,7 +51,7 @@ func TestCheckQAVerify_Idempotent(t *testing.T) {
 func TestCheckQAVerify_NameIsAlwaysSet(t *testing.T) {
 	t.Parallel()
 	for _, desc := range []string{"", "  ", "some feature"} {
-		cp := checkQAVerify(t.TempDir(), desc)
+		cp := checkQAVerify(t.TempDir(), desc, nil)
 		if cp.Name != "QA-Verify" {
 			t.Errorf("desc=%q: Name: want %q, got %q", desc, "QA-Verify", cp.Name)
 		}
@@ -66,7 +70,7 @@ func TestCheckQAVerify_GoMCPEntry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(entryDir, "main.go"), []byte("package main\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cp := checkQAVerify(root, "test feature")
+	cp := checkQAVerify(root, "test feature", nil)
 	if cp.Name != "QA-Verify" {
 		t.Errorf("Name: want %q, got %q", "QA-Verify", cp.Name)
 	}
@@ -85,7 +89,7 @@ func TestCheckQAVerify_PythonMCPEntry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "mcp_server.py"), []byte("# mcp\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cp := checkQAVerify(root, "test feature")
+	cp := checkQAVerify(root, "test feature", nil)
 	if cp.Name != "QA-Verify" {
 		t.Errorf("Name: want %q, got %q", "QA-Verify", cp.Name)
 	}
@@ -103,7 +107,7 @@ func TestCheckQAVerify_GoModFallback(t *testing.T) {
 		[]byte("module example.com/test\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cp := checkQAVerify(root, "test feature")
+	cp := checkQAVerify(root, "test feature", nil)
 	if cp.Name != "QA-Verify" {
 		t.Errorf("Name: want %q, got %q", "QA-Verify", cp.Name)
 	}
@@ -118,7 +122,7 @@ func TestCheckQAVerify_GoModFallback(t *testing.T) {
 // populated after checkQAVerify, regardless of whether a spec exists.
 func TestCheckQAVerify_GapAuditIsAlwaysSet(t *testing.T) {
 	t.Parallel()
-	cp := checkQAVerify(t.TempDir(), "any feature")
+	cp := checkQAVerify(t.TempDir(), "any feature", nil)
 	if cp.GapAudit == nil {
 		t.Error("GapAudit must never be nil after checkQAVerify")
 	}
@@ -150,7 +154,7 @@ func TestCheckQAVerify_BlockingGapFailsCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkQAVerify(root, "test feature")
+	cp := checkQAVerify(root, "test feature", nil)
 
 	if cp.GapAudit == nil {
 		t.Fatal("GapAudit must be set when a spec directory exists")
@@ -159,7 +163,7 @@ func TestCheckQAVerify_BlockingGapFailsCheckpoint(t *testing.T) {
 		t.Error("expected at least one blocking gap from incomplete tasks.md")
 	}
 	if cp.Status != "fail" {
-		t.Errorf("expected Status=fail when blocking spec gaps exist; got %q (detail: %s)",
+		t.Errorf("expected Status=fail when blocking spec gaps exist (no LLM); got %q (detail: %s)",
 			cp.Status, cp.Detail)
 	}
 }
@@ -185,7 +189,7 @@ func TestCheckQAVerify_WarningGapDoesNotFail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkQAVerify(root, "warn feature")
+	cp := checkQAVerify(root, "warn feature", nil)
 
 	if cp.GapAudit == nil {
 		t.Fatal("GapAudit must be set when a spec directory exists")
@@ -206,7 +210,7 @@ func TestCheckQAVerify_NoSpecMeansNoBlockingGaps(t *testing.T) {
 	root := t.TempDir()
 	// No .forge/specs/ — auditSpecVsCode returns an empty result.
 
-	cp := checkQAVerify(root, "unspecced feature")
+	cp := checkQAVerify(root, "unspecced feature", nil)
 
 	if cp.GapAudit == nil {
 		t.Error("GapAudit must always be non-nil after checkQAVerify")
@@ -217,5 +221,159 @@ func TestCheckQAVerify_NoSpecMeansNoBlockingGaps(t *testing.T) {
 	if cp.Status == "fail" {
 		t.Errorf("must not fail when no spec exists; got Status=%q Detail=%q",
 			cp.Status, cp.Detail)
+	}
+}
+
+// ── Remediation loop tests ────────────────────────────────────────────────────
+
+// TestCheckQAVerify_RemediationClearsBlockingGap verifies that when a blocking
+// gap exists and an LLM pipe is available, the remediation loop implements the
+// missing tasks and clears the gap before returning — so the checkpoint does NOT
+// fail even though it started with a blocking gap.
+//
+// Happy path 10 from the test-design checklist.
+func TestCheckQAVerify_RemediationClearsBlockingGap(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	// Create a spec with one incomplete task (blocking gap).
+	slug := "remediation-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Remediation Feature\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "tasks.md"),
+		[]byte("# Tasks\n- [ ] Implement handler\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock LLM returns a canned implementation plan string (any non-empty response).
+	mock := &llmprovider.MockProvider{
+		Response: &llmprovider.Response{Content: "## Implementation plan\n\n```go\nfunc Handler() {}\n```"},
+	}
+	pipe := mockPipe(root, mock)
+
+	cp := checkQAVerify(root, "remediation feature", pipe)
+
+	// After remediation, tasks.md should have all boxes checked.
+	tasksData, err := os.ReadFile(filepath.Join(specDir, "tasks.md"))
+	if err != nil {
+		t.Fatalf("tasks.md disappeared: %v", err)
+	}
+	if string(tasksData) == "# Tasks\n- [ ] Implement handler\n" {
+		t.Error("tasks.md was not updated by remediation — all tasks should be marked done")
+	}
+
+	// After remediation the gap is cleared — checkpoint must not fail.
+	if cp.Status == "fail" {
+		t.Errorf("checkpoint must not fail after successful remediation; got Status=%q Detail=%q",
+			cp.Status, cp.Detail)
+	}
+	if cp.RemediationRounds < 1 {
+		t.Errorf("expected at least 1 remediation round; got %d", cp.RemediationRounds)
+	}
+	if cp.GapAudit == nil {
+		t.Error("GapAudit must be set")
+	}
+}
+
+// TestCheckQAVerify_RemediationMaxRoundsReached verifies that when the LLM
+// provider errors on every call (remediation never succeeds), the loop exits
+// after maxRemediationRounds and the checkpoint fails with a meaningful message.
+func TestCheckQAVerify_RemediationMaxRoundsReached(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "stuck-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Stuck Feature\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "tasks.md"),
+		[]byte("# Tasks\n- [ ] Task that will never be fixed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock LLM always errors — remediation dispatches will fail, gap persists.
+	mock := &llmprovider.MockProvider{Err: fmt.Errorf("provider unavailable")}
+	pipe := mockPipe(root, mock)
+
+	cp := checkQAVerify(root, "stuck feature", pipe)
+
+	if cp.Status != "fail" {
+		t.Errorf("expected fail when gap persists after max rounds; got Status=%q", cp.Status)
+	}
+	if cp.RemediationRounds != maxRemediationRounds {
+		t.Errorf("expected RemediationRounds=%d; got %d", maxRemediationRounds, cp.RemediationRounds)
+	}
+	if cp.Detail == "" {
+		t.Error("Detail must be non-empty when remediation fails")
+	}
+}
+
+// TestRemediateGaps_NilPipe verifies that remediateGaps is a no-op when pipe
+// is nil — no panics, returns 0 dispatched.
+func TestRemediateGaps_NilPipe(t *testing.T) {
+	t.Parallel()
+	gaps := []AuditGap{
+		{Type: "incomplete-tasks", Severity: "blocking", Description: "1 task", File: "/nonexistent/tasks.md"},
+	}
+	n := remediateGaps(t.TempDir(), "any feature", gaps, nil)
+	if n != 0 {
+		t.Errorf("nil pipe must return 0 dispatched; got %d", n)
+	}
+}
+
+// TestRemediateIncompleteTasks_MarksTasksDone verifies that
+// remediateIncompleteTasks rewrites tasks.md replacing "- [ ]" with "- [x]"
+// when the LLM returns a valid response.
+func TestRemediateIncompleteTasks_MarksTasksDone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "mark-done-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tasksPath := filepath.Join(specDir, "tasks.md")
+	if err := os.WriteFile(tasksPath,
+		[]byte("- [x] Done\n- [ ] Pending A\n* [ ] Pending B\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &llmprovider.MockProvider{
+		Response: &llmprovider.Response{Content: "# Code plan\n\nImplement everything."},
+	}
+	pipe := mockPipe(root, mock)
+
+	gap := AuditGap{
+		Type:     "incomplete-tasks",
+		Severity: "blocking",
+		File:     tasksPath,
+	}
+	if err := remediateIncompleteTasks(root, "mark done feature", gap, pipe); err != nil {
+		t.Fatalf("remediateIncompleteTasks returned error: %v", err)
+	}
+
+	updated, err := os.ReadFile(tasksPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(updated)
+	if content == "- [x] Done\n- [ ] Pending A\n* [ ] Pending B\n" {
+		t.Error("tasks.md was not modified: unchecked tasks must be marked done")
+	}
+	// Positive check: no unchecked boxes remain.
+	if contains(content, "- [ ]") || contains(content, "* [ ]") {
+		t.Errorf("unchecked tasks remain in tasks.md after remediation:\n%s", content)
 	}
 }

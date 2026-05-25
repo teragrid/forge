@@ -375,7 +375,7 @@ func TestCheckVerify_WithBlockingGap_Fails(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"tasks.md": "- [ ] Still pending\n",
 	})
-	cp := checkVerify(root, "add auth")
+	cp := checkVerify(root, "add auth", nil)
 	if cp.Status != "fail" {
 		t.Errorf("expected status 'fail' with blocking gaps, got %q", cp.Status)
 	}
@@ -392,7 +392,7 @@ func TestCheckVerify_WithBlockingGap_Fails(t *testing.T) {
 func TestCheckVerify_CleanProject_Passes(t *testing.T) {
 	t.Parallel()
 	// Fresh temp dir: no .forge/specs/ at all → audit returns empty result.
-	cp := checkVerify(t.TempDir(), "")
+	cp := checkVerify(t.TempDir(), "", nil)
 	if cp.Status == "fail" {
 		t.Errorf("expected checkVerify to pass on clean project, got fail: %s", cp.Detail)
 	}

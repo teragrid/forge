@@ -1966,8 +1966,7 @@ func TestInteractiveGate_WarningMarker_IsTriangle(t *testing.T) {
 func TestCheckQAVerify_NoRunner(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	cp := checkQAVerify(root, "test feature")
-	if cp.Name != "QA-Verify" { t.Errorf("Name: want QA-Verify, got %q", cp.Name) }
+	cp := checkQAVerify(root, "test feature", nil)
 	if cp.Status != "warning" { t.Errorf("Status: want warning, got %q detail: %s", cp.Status, cp.Detail) }
 	if cp.Status == "fail" { t.Error("False-positive guard: must not be fail") }
 }
