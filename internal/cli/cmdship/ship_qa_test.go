@@ -111,3 +111,111 @@ func TestCheckQAVerify_GoModFallback(t *testing.T) {
 		t.Errorf("unexpected Status %q: detail: %s", cp.Status, cp.Detail)
 	}
 }
+
+// ── Spec-gap tests (TG-38/TG-39 wiring in checkpoint 7) ──────────────────────
+
+// TestCheckQAVerify_GapAuditIsAlwaysSet verifies that GapAudit is always
+// populated after checkQAVerify, regardless of whether a spec exists.
+func TestCheckQAVerify_GapAuditIsAlwaysSet(t *testing.T) {
+	t.Parallel()
+	cp := checkQAVerify(t.TempDir(), "any feature")
+	if cp.GapAudit == nil {
+		t.Error("GapAudit must never be nil after checkQAVerify")
+	}
+}
+
+// TestCheckQAVerify_BlockingGapFailsCheckpoint verifies that an incomplete task
+// in tasks.md causes checkQAVerify to return Status="fail" even when no test
+// runner is present.
+//
+// This test FAILS on the pre-fix code and PASSES on the post-fix code — it
+// serves as a regression guard for the spec-audit wiring in checkpoint 7.
+func TestCheckQAVerify_BlockingGapFailsCheckpoint(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "test-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// spec.md presence triggers the audit engine.
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Test Feature spec\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// One unchecked task == one blocking gap.
+	if err := os.WriteFile(filepath.Join(specDir, "tasks.md"),
+		[]byte("# Tasks\n- [x] Done task\n- [ ] Incomplete task\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkQAVerify(root, "test feature")
+
+	if cp.GapAudit == nil {
+		t.Fatal("GapAudit must be set when a spec directory exists")
+	}
+	if !cp.GapAudit.HasBlockingGaps() {
+		t.Error("expected at least one blocking gap from incomplete tasks.md")
+	}
+	if cp.Status != "fail" {
+		t.Errorf("expected Status=fail when blocking spec gaps exist; got %q (detail: %s)",
+			cp.Status, cp.Detail)
+	}
+}
+
+// TestCheckQAVerify_WarningGapDoesNotFail verifies that a spec with no blocking
+// gaps does NOT fail the checkpoint (false-positive guard).
+func TestCheckQAVerify_WarningGapDoesNotFail(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "warn-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Warn Feature spec\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// All tasks complete — no blocking gaps.
+	if err := os.WriteFile(filepath.Join(specDir, "tasks.md"),
+		[]byte("# Tasks\n- [x] All tasks done\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := checkQAVerify(root, "warn feature")
+
+	if cp.GapAudit == nil {
+		t.Fatal("GapAudit must be set when a spec directory exists")
+	}
+	if cp.GapAudit.HasBlockingGaps() {
+		t.Error("expected no blocking gaps when all tasks are checked off")
+	}
+	if cp.Status == "fail" {
+		t.Errorf("status must not be fail when no blocking gaps exist; got %q (detail: %s)",
+			cp.Status, cp.Detail)
+	}
+}
+
+// TestCheckQAVerify_NoSpecMeansNoBlockingGaps verifies that a project without a
+// .forge/specs/ directory does not accumulate blocking gaps.
+func TestCheckQAVerify_NoSpecMeansNoBlockingGaps(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// No .forge/specs/ — auditSpecVsCode returns an empty result.
+
+	cp := checkQAVerify(root, "unspecced feature")
+
+	if cp.GapAudit == nil {
+		t.Error("GapAudit must always be non-nil after checkQAVerify")
+	}
+	if cp.GapAudit != nil && cp.GapAudit.HasBlockingGaps() {
+		t.Error("no blocking gaps expected when no spec directory exists")
+	}
+	if cp.Status == "fail" {
+		t.Errorf("must not fail when no spec exists; got Status=%q Detail=%q",
+			cp.Status, cp.Detail)
+	}
+}

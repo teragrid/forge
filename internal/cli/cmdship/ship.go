@@ -71,7 +71,7 @@ var checkpointEventName = map[string]string{
 	"breakdown": "tasks.broken-down",
 	"code":      "task.completed",
 	"ship":      "ship.passed",
-	"verify":    "ship.passed",    // deprecated alias
+	"verify":    "ship.passed", // deprecated alias
 	"qa-verify": "qa.passed",
 }
 
@@ -1259,24 +1259,45 @@ func checkVerify(root, description string) Checkpoint {
 
 // checkQAVerify is checkpoint 7: quality-assurance verification by a QA/QE agent.
 //
-// It first probes the project's MCP server (if the core/mcp-server scaffold is
-// present) by running its unit-test suite — confirming that every AI-agent tool
-// is operational. When no MCP server is found it falls back to the project's
-// native test runner (go test or pytest). Either path must pass for the
-// checkpoint to succeed.
+// It performs two distinct checks in sequence:
 //
-// MCP path (preferred):
+//  1. Spec-vs-code gap audit — re-runs auditSpecVsCode to verify that every
+//     acceptance criterion in the spec has a corresponding implementation.
+//     Blocking gaps (incomplete tasks, authz roles without RLS tests) cause an
+//     immediate fail. Warning gaps (events not asserted) are reported in the
+//     detail but do not stop the pipeline.
 //
-//	Go project  — cmd/mcp/main.go present  → go test ./internal/mcpserver/...
-//	Python proj — mcp_server.py present    → python -m pytest tests/test_mcp_server.py -q
-//
-// Fallback (no MCP server):
-//
-//	Go project  — go.mod present           → go test ./... --count=1
-//	Python proj — pyproject.toml/pytest.ini present → pytest -q --tb=short
-//	No runner   — warning (no tools configured)
+//  2. Test-runner probe — confirms the shipped artifact is functional:
+//     MCP path (preferred):
+//       Go project  — cmd/mcp/main.go present  → go test ./internal/mcpserver/...
+//       Python proj — mcp_server.py present    → python -m pytest tests/test_mcp_server.py -q
+//     Fallback (no MCP server):
+//       Go project  — go.mod present           → go test ./... --count=1
+//       Python proj — pyproject.toml/pytest.ini → pytest -q --tb=short
+//       No runner   — warning (no tools configured)
 func checkQAVerify(root, description string) Checkpoint {
 	cp := Checkpoint{Name: "QA-Verify"}
+
+	// ── Step 1: spec-vs-code gap audit ──────────────────────────────────────
+	// Re-run the same audit that checkpoint 6 runs so that qa-verify is
+	// self-contained and catches any drift that occurred between checkpoints.
+	auditRes := auditSpecVsCode(root, description)
+	cp.GapAudit = &auditRes
+	if auditRes.HasBlockingGaps() {
+		blocking := 0
+		for _, g := range auditRes.Gaps {
+			if g.Severity == "blocking" {
+				blocking++
+			}
+		}
+		cp.Status = "fail"
+		cp.Detail = fmt.Sprintf(
+			"QA spec audit: %d blocking gap(s) — fix before shipping (run: forge ship spec to review)",
+			blocking,
+		)
+		appendFailure(root, "qa-verify", description, cp.Detail)
+		return cp
+	}
 
 	sp := procspawn.New("go", "python", "python3", "pytest")
 
@@ -1306,6 +1327,9 @@ func checkQAVerify(root, description string) Checkpoint {
 		cp.Detail = fmt.Sprintf(
 			"QA via MCP (go): mcpserver unit tests passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
 			passed, res.Duration.Seconds())
+		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+		}
 		return cp
 
 	case pathExists(pyMCPEntry):
@@ -1328,6 +1352,9 @@ func checkQAVerify(root, description string) Checkpoint {
 		cp.Detail = fmt.Sprintf(
 			"QA via MCP (python): test_mcp_server.py passed (%d case(s) confirmed, %.1fs) — AI-agent tools operational",
 			passed, res.Duration.Seconds())
+		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+		}
 		return cp
 
 	case pathExists(goModFile):
@@ -1348,6 +1375,9 @@ func checkQAVerify(root, description string) Checkpoint {
 		cp.Detail = fmt.Sprintf(
 			"QA (go test ./...): %d package(s) passed (%.1fs) — add cmd/mcp/ to enable MCP agent QA",
 			pkgs, res.Duration.Seconds())
+		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+		}
 		return cp
 
 	case pathExists(filepath.Join(root, "pyproject.toml")) ||
@@ -1376,14 +1406,24 @@ func checkQAVerify(root, description string) Checkpoint {
 		cp.Detail = fmt.Sprintf(
 			"QA (pytest): %d case(s) passed (%.1fs) — add mcp_server.py to enable MCP agent QA",
 			passed, res.Duration.Seconds())
+		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+		}
 		return cp
 	}
 
 	// No known test runner or MCP server found — warn but do not block.
 	cp.Status = "warning"
-	cp.Detail = "QA-Verify: no MCP server or test runner found — " +
-		"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, " +
-		"or ensure go.mod / pyproject.toml is present for native test fallback"
+	if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+		cp.Detail = fmt.Sprintf("QA-Verify: no test runner found; %d spec audit warning(s) — "+
+			"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, "+
+			"or ensure go.mod / pyproject.toml is present for native test fallback",
+			len(auditRes.Gaps))
+	} else {
+		cp.Detail = "QA-Verify: no MCP server or test runner found — " +
+			"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, " +
+			"or ensure go.mod / pyproject.toml is present for native test fallback"
+	}
 	return cp
 }
 
@@ -1481,7 +1521,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			// TG-40: emit gap.detected events (for ship/verify) before ship.failed.
 			if opts.EventWriter != nil {
 				cpLower := strings.ToLower(cp.Name)
-				if (cpLower == "ship" || cpLower == "verify") && cp.GapAudit != nil {
+				if (cpLower == "ship" || cpLower == "verify" || cpLower == "qa-verify") && cp.GapAudit != nil {
 					for _, g := range cp.GapAudit.Gaps {
 						gapCP := Checkpoint{
 							Name:   cp.Name,
@@ -1558,6 +1598,17 @@ func runWithOptions(opts RunOptions) *ShipResult {
 						emitEvent(opts.EventWriter, cp, "ship.passed")
 					}
 				case cpLower == "qa-verify":
+					// Emit gap.detected events before the terminal qa event.
+					if cp.GapAudit != nil {
+						for _, g := range cp.GapAudit.Gaps {
+							gapCP := Checkpoint{
+								Name:   cp.Name,
+								Status: g.Severity,
+								Detail: fmt.Sprintf("[%s] %s — hint: %s", g.Type, g.Description, g.Hint),
+							}
+							emitEvent(opts.EventWriter, gapCP, "gap.detected")
+						}
+					}
 					if cp.Status == "fail" {
 						emitEvent(opts.EventWriter, cp, "qa.failed")
 					} else {
