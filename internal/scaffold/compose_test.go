@@ -494,12 +494,12 @@ func TestCompose_MCPServer_GoScaffold(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	makeModule(t, root, "core/mcp-server", map[string]string{
-		"cmd/mcp/main.go.tmpl":                        "package main\n",
-		"internal/mcpserver/server.go.tmpl":            "package mcpserver\n",
-		"internal/mcpserver/tools.go.tmpl":             "package mcpserver\n",
-		"internal/mcpserver/tools_test.go.tmpl":        "package mcpserver_test\n",
-		".vscode/settings.json.tmpl":                   `{"mcp":{"servers":{}}}`,
-		".env.example":                                 "MCP_SERVER_NAME=myapp\n",
+		"cmd/mcp/main.go.tmpl":                  "package main\n",
+		"internal/mcpserver/server.go.tmpl":     "package mcpserver\n",
+		"internal/mcpserver/tools.go.tmpl":      "package mcpserver\n",
+		"internal/mcpserver/tools_test.go.tmpl": "package mcpserver_test\n",
+		".vscode/settings.json.tmpl":            `{"mcp":{"servers":{}}}`,
+		".env.example":                          "MCP_SERVER_NAME=myapp\n",
 	})
 
 	result, err := scaffold.Compose(
@@ -571,9 +571,9 @@ func TestCompose_MCPServer_ComposedWithRBAC(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	makeModule(t, root, "core/mcp-server", map[string]string{
-		"cmd/mcp/main.go.tmpl":               "package main\n",
-		"internal/mcpserver/server.go.tmpl":   "package mcpserver\n",
-		".env.example":                        "MCP_SERVER_NAME=\n",
+		"cmd/mcp/main.go.tmpl":              "package main\n",
+		"internal/mcpserver/server.go.tmpl": "package mcpserver\n",
+		".env.example":                      "MCP_SERVER_NAME=\n",
 	})
 	makeModule(t, root, "core/rbac", map[string]string{
 		"internal/middleware/rbac.go.tmpl": "package middleware\n",

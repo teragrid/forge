@@ -21,6 +21,7 @@
 package cmdhygiene
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -128,7 +129,7 @@ func newManifestCmd() *cobra.Command {
 		Use:   "manifest",
 		Short: "Manage .forge/hygiene.yml entries.",
 	}
-	cmd.AddCommand(newManifestAddCmd(), newManifestValidateCmd(), newManifestListCmd())
+	cmd.AddCommand(newManifestAddCmd(), newManifestValidateCmd(), newManifestListCmd(), newManifestSyncCmd())
 	return cmd
 }
 
@@ -272,4 +273,116 @@ func newManifestListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	return cmd
+}
+
+// newManifestSyncCmd returns the `forge hygiene manifest sync` subcommand.
+// It reports patterns present in .forge/hygiene.yml but absent from
+// .forge/manifest (and vice versa), helping users keep the two files aligned.
+func newManifestSyncCmd() *cobra.Command {
+	var (
+		root   string
+		asJSON bool
+	)
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Report scratch/managed patterns that differ between hygiene.yml and manifest.",
+		Long: "Compares .forge/hygiene.yml and .forge/manifest.\n" +
+			"Exits non-zero when the two files are out of sync.\n" +
+			"Use 'forge hygiene manifest add' to reconcile differences.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			r, err := projectRoot(root)
+			if err != nil {
+				return errcode.New(ErrHygieneFailed, "getwd", err)
+			}
+			hygieneFile := filepath.Join(r, hygieneManifestPath)
+			manifestFile := filepath.Join(r, manifest.DefaultPath)
+
+			hmf, hErr := manifest.Load(hygieneFile)
+			if hErr != nil {
+				return errcode.New(ErrHygieneInvalid, "load hygiene.yml", hErr)
+			}
+			mmf, mErr := manifest.Load(manifestFile)
+			if mErr != nil {
+				return errcode.New(ErrHygieneInvalid, "load manifest", mErr)
+			}
+
+			inHOnly, inMOnly := syncDiff(hmf.Scratch, mmf.Scratch)
+			inHOnlyM, inMOnlyM := syncDiff(hmf.Managed, mmf.Managed)
+			inHOnly = append(inHOnly, inHOnlyM...)
+			inMOnly = append(inMOnly, inMOnlyM...)
+
+			if asJSON {
+				type syncOut struct {
+					InHygieneOnly  []string `json:"in_hygiene_only"`
+					InManifestOnly []string `json:"in_manifest_only"`
+					InSync         bool     `json:"in_sync"`
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				_ = enc.Encode(syncOut{
+					InHygieneOnly:  nullIfEmpty(inHOnly),
+					InManifestOnly: nullIfEmpty(inMOnly),
+					InSync:         len(inHOnly)+len(inMOnly) == 0,
+				})
+			} else {
+				if len(inHOnly)+len(inMOnly) == 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "hygiene manifest sync: in sync ✓")
+					return nil
+				}
+				if len(inHOnly) > 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "in hygiene.yml only (missing from manifest):")
+					for _, p := range inHOnly {
+						fmt.Fprintf(cmd.OutOrStdout(), "  + %s\n", p)
+					}
+				}
+				if len(inMOnly) > 0 {
+					fmt.Fprintln(cmd.OutOrStdout(), "in manifest only (missing from hygiene.yml):")
+					for _, p := range inMOnly {
+						fmt.Fprintf(cmd.OutOrStdout(), "  - %s\n", p)
+					}
+				}
+			}
+			if len(inHOnly)+len(inMOnly) > 0 {
+				return errcode.Newf(ErrHygieneInvalid, nil,
+					"hygiene.yml and manifest are out of sync (%d pattern(s) differ)",
+					len(inHOnly)+len(inMOnly))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&root, "root", "", "project root (default: cwd)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	return cmd
+}
+
+// syncDiff returns (inA_notB, inB_notA) for two pattern slices.
+func syncDiff(a, b []string) ([]string, []string) {
+	setA := make(map[string]bool, len(a))
+	setB := make(map[string]bool, len(b))
+	for _, p := range a {
+		setA[p] = true
+	}
+	for _, p := range b {
+		setB[p] = true
+	}
+	var onlyA, onlyB []string
+	for _, p := range a {
+		if !setB[p] {
+			onlyA = append(onlyA, p)
+		}
+	}
+	for _, p := range b {
+		if !setA[p] {
+			onlyB = append(onlyB, p)
+		}
+	}
+	return onlyA, onlyB
+}
+
+func nullIfEmpty(s []string) []string {
+	if len(s) == 0 {
+		return []string{}
+	}
+	return s
 }

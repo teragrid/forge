@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -152,6 +153,144 @@ func loadRecentFailures(root, checkpoint string, n int) string {
 		out += r + "\n"
 	}
 	return out
+}
+
+// ── G-015: post-feature knowledge extraction ─────────────────────────────────
+
+// LearnedPattern is one pattern extracted from a completed ship run and
+// written to .forge/learned/patterns-<slug>.jsonl.
+type LearnedPattern struct {
+	TS          string   `json:"ts"`
+	Feature     string   `json:"feature"`
+	PatternType string   `json:"pattern_type"` // "good-practice" | "anti-pattern" | "gap"
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Checkpoints []string `json:"checkpoints,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+}
+
+// extractAndLearnFromFeature is called after a successful ship run to extract
+// patterns and lessons learned.
+//
+// It writes to two destinations:
+//  1. .forge/learned/patterns-<slug>.jsonl   — run history (fast lookup)
+//  2. forge-knowledge/knowledge-base/patterns/workflow/learned/<slug>-<ts>.md
+//     — KB-formatted entry with frontmatter, re-indexed on next forge scan run
+//
+// A nil pipe silently skips extraction (no-op).
+func extractAndLearnFromFeature(root, description string, result *ShipResult, pipe *LLMPipe) {
+	if pipe == nil || result == nil || !result.Ready {
+		return
+	}
+	// Build a concise summary of the run for the LLM.
+	var summary strings.Builder
+	summary.WriteString(fmt.Sprintf("Feature: %s\n", description))
+	summary.WriteString(fmt.Sprintf("Checkpoints (%d):\n", len(result.Checkpoints)))
+	for _, cp := range result.Checkpoints {
+		detail := cp.Detail
+		if len(detail) > 120 {
+			detail = detail[:120] + "…"
+		}
+		fmt.Fprintf(&summary, "  [%s] %s — %s\n", cp.Status, cp.Name, detail)
+		if cp.RemediationRounds > 0 {
+			fmt.Fprintf(&summary, "    remediation_rounds: %d\n", cp.RemediationRounds)
+		}
+	}
+
+	systemPrompt := `You are a senior engineering coach extracting lessons from a completed feature ship run.
+Analyse the checkpoint results and extract up to 3 patterns (good practices, anti-patterns, or recurring gaps).
+Return a JSON array of objects with these fields:
+  pattern_type: "good-practice" | "anti-pattern" | "gap"
+  title: short title (≤ 10 words)
+  description: one sentence explanation
+  checkpoints: array of checkpoint names where this pattern appeared
+  tags: array of ≤3 relevant tags
+
+Rules: only include patterns with clear evidence; return [] if nothing notable.
+Return only the JSON array — no markdown, no explanation.`
+
+	userPrompt := "Ship run summary:\n" + summary.String()
+
+	resp, err := pipe.Invoke("ship-learn", "", systemPrompt, userPrompt, 800)
+	if err != nil || resp == "" {
+		return
+	}
+
+	slug := slugify(description)
+	ts := time.Now().UTC().Format(time.RFC3339)
+	tsShort := time.Now().UTC().Format("20060102-150405")
+
+	// ── Destination 1: .forge/learned/patterns-<slug>.jsonl ──────────────────
+	dir := filepath.Join(root, ".forge", "learned")
+	if mkErr := os.MkdirAll(dir, 0o755); mkErr == nil {
+		path := filepath.Join(dir, "patterns-"+slug+".jsonl")
+		if f, fErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); fErr == nil {
+			envelope := LearnedPattern{
+				TS:          ts,
+				Feature:     description,
+				PatternType: "extraction",
+				Title:       "LLM extraction",
+				Description: resp,
+			}
+			if data, mErr := json.Marshal(envelope); mErr == nil {
+				_, _ = f.Write(data)
+				_, _ = f.WriteString("\n")
+			}
+			_ = f.Close()
+		}
+	}
+
+	// ── Destination 2: forge-knowledge KB markdown with frontmatter ───────────
+	// Written to forge-knowledge/knowledge-base/patterns/workflow/learned/
+	// so the gen-knowledge-index tool picks it up on the next re-index run.
+	kbDir := filepath.Join(root, "forge-knowledge", "knowledge-base", "patterns", "workflow", "learned")
+	if mkErr := os.MkdirAll(kbDir, 0o755); mkErr == nil {
+		kbPath := filepath.Join(kbDir, slug+"-"+tsShort+".md")
+
+		// Collect checkpoint names that ran successfully.
+		var checkpointNames []string
+		for _, cp := range result.Checkpoints {
+			checkpointNames = append(checkpointNames, strings.ToLower(cp.Name))
+		}
+
+		// Write KB-formatted markdown with YAML frontmatter.
+		kbContent := fmt.Sprintf(`---
+id: learned-%s-%s
+title: "Learned patterns: %s"
+category: patterns/workflow
+forge_integration:
+  ship_checkpoints: [%s]
+  scan_families: [security, compliance, reliability]
+  tags: [learned, post-ship, workflow]
+---
+
+# Learned Patterns: %s
+
+_Extracted by `+"`forge ship`"+` learning loop — %s_
+
+## Feature Context
+
+%s
+
+## Extracted Patterns
+
+%s
+
+## Ship Run Summary
+
+%s
+`,
+			slug, tsShort,
+			description,
+			strings.Join(checkpointNames, ", "),
+			description,
+			ts,
+			description,
+			resp,
+			summary.String(),
+		)
+		_ = os.WriteFile(kbPath, []byte(kbContent), 0o600)
+	}
 }
 
 // splitLines splits s by newline, handling CRLF.

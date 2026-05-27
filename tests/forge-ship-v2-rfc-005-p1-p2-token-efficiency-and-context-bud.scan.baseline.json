@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "feature": "forge ship v2: RFC-005 P1+P2 token-efficiency and context-budget improvements",
+  "slug": "forge-ship-v2-rfc-005-p1-p2-token-efficiency-and-context-bud",
+  "families": [
+    "secrets",
+    "sca",
+    "sast",
+    "license",
+    "iac",
+    "container",
+    "api",
+    "supply-chain"
+  ],
+  "allowlist": [],
+  "generated_at": ""
+}

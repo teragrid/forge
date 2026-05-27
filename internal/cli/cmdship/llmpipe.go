@@ -42,6 +42,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/teragrid/forge/internal/contextbudgeter"
 	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/llmprovider"
 	"github.com/teragrid/forge/internal/secretrewriter"
@@ -119,7 +120,8 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 //
 // checkpoint, family, tmpl, and tags are forwarded to knowledge.Select to
 // score entries. Only entries above MinScore are appended, and
-// AppendDocsBudgeted ensures the total prompt stays within maxTokens.
+// AppendDocsBudgeted ensures the total prompt stays within the available input
+// capacity (total context window − output budget − current prompt estimate).
 func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, maxTokens int, checkpoint, family, tmpl string, tags []string) (string, error) {
 	if p == nil {
 		return "", nil
@@ -130,7 +132,19 @@ func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, max
 		return p.Invoke(operation, model, system, user, maxTokens)
 	}
 	entries := knowledge.Select(idx, checkpoint, family, tmpl, tags)
-	enriched := knowledge.AppendDocsBudgeted(system, entries, maxTokens)
+
+	// P0 bug fix: compute the true available input capacity for KB injection.
+	// maxTokens is the *output* budget; the KB must fit in the *remaining input* space.
+	// kbBudget = total context window − output reserve − current prompt estimate.
+	const minKBBudget = 200 // below this it is not worth injecting KB
+	caps := p.provider.Capabilities()
+	promptTokens := contextbudgeter.EstimateTokens(system) + contextbudgeter.EstimateTokens(user)
+	kbBudget := caps.MaxTokens - maxTokens - promptTokens
+	if kbBudget < minKBBudget {
+		kbBudget = 0 // prompts already fill the window; skip KB injection
+	}
+
+	enriched := knowledge.AppendDocsBudgeted(system, entries, kbBudget)
 	return p.Invoke(operation, model, enriched, user, maxTokens)
 }
 
@@ -448,4 +462,159 @@ func generateCodePlan(root, description string, pipe *LLMPipe) (string, error) {
 	}
 	_ = os.WriteFile(filepath.Join(specsDir, "code-plan.md"), []byte(content), 0o600)
 	return content, nil
+}
+
+// ── L1: Stripped Debate Overhead ──────────────────────────────────────────────
+
+// InvokeDebateRound runs a single lean debate turn for one role persona.
+// Unlike InvokeWithKnowledge, this method intentionally skips KB lookup and
+// steering injection — it uses only a minimal persona preamble (~150 tokens)
+// plus a compact debate instruction (~100 tokens) per turn.
+//
+// This reduces per-debate-call cost by ~51% vs full InvokeWithKnowledge
+// (~47,700 tokens saved per feature across all debate rounds).
+func (p *LLMPipe) InvokeDebateRound(operation, model, persona, artefact, priorConcerns string, maxTokens int) (string, error) {
+	if p == nil {
+		return "", nil
+	}
+	system := buildDebateSystemPrompt(persona)
+	user := buildDebateUserPrompt(artefact, priorConcerns)
+	return p.Invoke(operation, model, system, user, maxTokens)
+}
+
+// buildDebateSystemPrompt returns a minimal persona system prompt (~150 tokens).
+func buildDebateSystemPrompt(persona string) string {
+	return "You are " + persona + ". Review the artefact and raise " +
+		"concrete concerns from your area of expertise. Be specific, brief, " +
+		"and actionable. Focus only on gaps that could cause implementation risk."
+}
+
+// buildDebateUserPrompt constructs the compact debate user message.
+func buildDebateUserPrompt(artefact, priorConcerns string) string {
+	var sb strings.Builder
+	sb.WriteString("## Artefact\n")
+	sb.WriteString(artefact)
+	if priorConcerns != "" {
+		sb.WriteString("\n\n## Prior Concerns\n")
+		sb.WriteString(priorConcerns)
+	}
+	sb.WriteString("\n\n## Your review:")
+	return sb.String()
+}
+
+// ── L3: Model Tier Resolution ──────────────────────────────────────────────────
+
+// resolveModel selects the appropriate model for the given tier.
+// If requestedModel is non-empty it is returned unchanged (caller wins).
+// Otherwise the provider's capability list is used: Models[0] = most capable
+// (tier-1 / heavy), Models[last] = fastest / cheapest (tier-2 / fast).
+func (p *LLMPipe) resolveModel(requestedModel, tier string) string {
+	if requestedModel != "" {
+		return requestedModel
+	}
+	if p == nil {
+		return ""
+	}
+	caps := p.provider.Capabilities()
+	if len(caps.Models) == 0 {
+		return ""
+	}
+	switch tier {
+	case ModelTierHeavy:
+		return caps.Models[0] // most capable model
+	case ModelTierFast:
+		return caps.Models[len(caps.Models)-1] // fastest / cheapest model
+	}
+	return ""
+}
+
+// InvokeForPhase is like Invoke but resolves the model via the phase's ModelTier
+// before dispatching. Use this inside phase execution loops.
+func (p *LLMPipe) InvokeForPhase(operation, system, user string, maxTokens int, tier string) (string, error) {
+	return p.Invoke(operation, p.resolveModel("", tier), system, user, maxTokens)
+}
+
+// InvokeWithKnowledgeForPhase is like InvokeWithKnowledge but resolves the
+// model from the phase's ModelTier.
+func (p *LLMPipe) InvokeWithKnowledgeForPhase(operation, system, user string, maxTokens int, tier, checkpoint, family, tmpl string, tags []string) (string, error) {
+	return p.InvokeWithKnowledge(operation, p.resolveModel("", tier), system, user, maxTokens, checkpoint, family, tmpl, tags)
+}
+
+// ── L7: Prefix Cache Exploit ──────────────────────────────────────────────────
+
+// FrozenKBEntries holds KB entries pre-selected once at the start of a
+// checkpoint so that all sub-calls reuse the same selection and benefit from
+// provider-side prefix caching.
+type FrozenKBEntries struct {
+	entries []knowledge.Entry
+}
+
+// FreezeKBSelection pre-selects KB entries once for the given query parameters.
+// Pass the returned *FrozenKBEntries to InvokeWithFrozenKB for all sub-calls
+// within a single checkpoint.  This prevents repeated re-selection (cache miss)
+// and saves ~$0.05–0.09 per feature across 17 debate sub-calls.
+func (p *LLMPipe) FreezeKBSelection(checkpoint, family, tmpl string, tags []string) *FrozenKBEntries {
+	if p == nil {
+		return &FrozenKBEntries{}
+	}
+	idx, err := knowledge.Load()
+	if err != nil {
+		return &FrozenKBEntries{}
+	}
+	return &FrozenKBEntries{entries: knowledge.Select(idx, checkpoint, family, tmpl, tags)}
+}
+
+// InvokeWithFrozenKB is like InvokeWithKnowledge but uses pre-selected KB
+// entries.  The KB budget is computed the same way as InvokeWithKnowledge.
+func (p *LLMPipe) InvokeWithFrozenKB(operation, model, system, user string, maxTokens int, frozen *FrozenKBEntries) (string, error) {
+	if p == nil {
+		return "", nil
+	}
+	var entries []knowledge.Entry
+	if frozen != nil {
+		entries = frozen.entries
+	}
+	const minKBBudget = 200
+	caps := p.provider.Capabilities()
+	promptTokens := contextbudgeter.EstimateTokens(system) + contextbudgeter.EstimateTokens(user)
+	kbBudget := caps.MaxTokens - maxTokens - promptTokens
+	if kbBudget < minKBBudget {
+		kbBudget = 0
+	}
+	enriched := knowledge.AppendDocsBudgeted(system, entries, kbBudget)
+	return p.Invoke(operation, model, enriched, user, maxTokens)
+}
+
+// ── P1: Adaptive Token Budget ─────────────────────────────────────────────────
+
+// ScaledBudget multiplies base by the complexity-tier multiplier and returns
+// the result, clamped to a minimum of 256 tokens.
+//
+// Multipliers per tier (RFC-005 §3.2):
+//
+//	nano     → 0.7× (config change / UI tweak)
+//	micro    → 1.0× (new endpoint + CRUD)
+//	standard → 1.5× (new service / schema migration)
+//	complex  → 2.0× (cross-service epic / compliance-sensitive)
+//
+// Pass the result as maxTokens to any Invoke variant so that LLM output
+// budgets auto-scale with feature complexity rather than using hard-coded
+// per-checkpoint constants.
+func ScaledBudget(base int, tier ComplexityTier) int {
+	multipliers := map[ComplexityTier]float64{
+		ComplexityNano:     0.7,
+		ComplexityMicro:    1.0,
+		ComplexityStandard: 1.5,
+		ComplexityComplex:  2.0,
+	}
+	m, ok := multipliers[tier]
+	if !ok {
+		m = 1.0
+	}
+	result := int(float64(base) * m)
+	const minBudget = 256
+	if result < minBudget {
+		return minBudget
+	}
+	return result
 }

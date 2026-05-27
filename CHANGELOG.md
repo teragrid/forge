@@ -4,6 +4,21 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-26
+
+### Added
+
+- **Ship pipeline hooks** (`hook.go`) — lifecycle hook framework for `forge ship`. Hooks fire at `pre-checkpoint`, `post-checkpoint`, and `post-pipeline` phases. Configured via `.forge/hooks.yml`; any hook can be disabled per-repo. Ships with `defaultHooks()`: tdd-gate, lint-gate, build-gate, and security-scan-gate.
+- **`runWithOptions` hooks wiring** — `RunOptions.Hooks` (optional override) and `RunOptions.EnableLearning` fields added to `RunOptions`. When `Hooks` is nil, `defaultHooks()` is used automatically. Post-checkpoint and post-pipeline hooks are executed inside the ship pipeline.
+- **Learning loop** (`EnableLearning`) — when `RunOptions.EnableLearning` is true, `extractAndLearnFromFeature` runs after a successful pipeline and writes learned patterns to two destinations: `.forge/learned/patterns-<slug>.jsonl` (JSONL append log) and `forge-knowledge/knowledge-base/patterns/workflow/learned/<slug>-<ts>.md` (KB markdown with YAML frontmatter for `forge kb search`).
+- **Steering layer** (`steering.go`) — pipeline steering helpers that inspect checkpoint results and decide whether to continue, pause, or abort the run based on configurable policies.
+- **Sub-workflow coordinator** (`subworkflow.go`) — orchestrates nested ship sub-workflows so a parent spec can delegate sections to child pipelines and merge their results back into the parent `ShipResult`.
+
+### Changed
+
+- **`checkQAVerify` refactored** — split into three phases: (1) spec-vs-code gap audit + LLM-driven remediation loop, (2) `runQATestSuite()` (Go MCP / Python MCP / `go test` / pytest auto-detection), (3) `generateManualTestPlan()` only when tests pass. Eliminates the previous monolithic implementation.
+- **`extractAndLearnFromFeature` KB output** — learned-pattern markdown files now include a YAML frontmatter block with `id`, `category: patterns/workflow`, and a `forge_integration` map (checkpoint list, scan families, tags) for structured KB indexing.
+
 ## [1.2.0] — 2026-05-24
 
 ### Added

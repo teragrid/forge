@@ -14,8 +14,9 @@
 // Package cmdclean implements `forge clean` (DEV-M0-15).
 //
 // Walks the project root, classifies each tracked path against the
-// .forge/manifest scratch + managed pattern lists, and either reports
-// (default / --check) or deletes (--apply) the candidates.
+// .forge/manifest scratch + managed pattern lists (merged with
+// .forge/hygiene.yml when present), and either reports (default / --check)
+// or deletes (--apply) the candidates.
 package cmdclean
 
 import (
@@ -43,6 +44,59 @@ var (
 	ErrCleanFailed   = errcode.Register(errcode.Code(1301), "clean apply failed")
 	ErrSecretTracked = errcode.Register(errcode.Code(1302), "tracked secret file detected")
 )
+
+// hygieneYMLPath is the conventional path for forge hygiene's pattern file.
+const hygieneYMLPath = ".forge/hygiene.yml"
+
+// autoSkipDirs are directory names always excluded from the clean walk,
+// regardless of patterns. Prevents broad globs (e.g. **/_*) from matching
+// generated/vendor artefacts and producing thousands of false positives.
+var autoSkipDirs = map[string]bool{
+	"node_modules": true,
+	".next":        true,
+	"vendor":       true,
+	"dist":         true,
+	"build":        true,
+	".cache":       true,
+}
+
+// loadMerged loads scratch/managed patterns from both .forge/manifest and
+// .forge/hygiene.yml (if present), returning the union of both. This ensures
+// forge clean is consistent with forge hygiene's pattern set (issue #15).
+func loadMerged(root string) (manifest.File, error) {
+	mfPath := filepath.Join(root, manifest.DefaultPath)
+	mf, err := manifest.Load(mfPath)
+	if err != nil {
+		return mf, err
+	}
+	hPath := filepath.Join(root, hygieneYMLPath)
+	if _, statErr := os.Stat(hPath); os.IsNotExist(statErr) {
+		return mf, nil // no hygiene.yml — manifest only
+	}
+	hf, hErr := manifest.Load(hPath)
+	if hErr != nil {
+		return mf, nil // hygiene.yml unreadable — fall back gracefully
+	}
+	// Union: add patterns present in hygiene.yml but absent from manifest.
+	seen := make(map[string]bool, len(mf.Scratch)+len(mf.Managed))
+	for _, p := range mf.Scratch {
+		seen["s:"+p] = true
+	}
+	for _, p := range mf.Managed {
+		seen["m:"+p] = true
+	}
+	for _, p := range hf.Scratch {
+		if !seen["s:"+p] {
+			mf.Scratch = append(mf.Scratch, p)
+		}
+	}
+	for _, p := range hf.Managed {
+		if !seen["m:"+p] {
+			mf.Managed = append(mf.Managed, p)
+		}
+	}
+	return mf, nil
+}
 
 // secretPatterns are basename patterns that indicate a potentially dangerous
 // tracked file. Patterns use filepath.Match syntax.
@@ -177,8 +231,7 @@ func New() *cobra.Command {
 // Run scans root and (optionally) deletes scratch candidates. Exposed for
 // tests + future ship-checkpoint integration.
 func Run(root string, apply bool) (*Result, error) {
-	mfPath := filepath.Join(root, manifest.DefaultPath)
-	mf, err := manifest.Load(mfPath)
+	mf, err := loadMerged(root)
 	if err != nil {
 		return nil, err
 	}
@@ -196,8 +249,8 @@ func Run(root string, apply bool) (*Result, error) {
 		if p == root {
 			return nil
 		}
-		// Always skip .git for safety.
-		if d.IsDir() && d.Name() == ".git" {
+		// Skip .git and known vendor/generated directories to prevent false positives.
+		if d.IsDir() && (d.Name() == ".git" || autoSkipDirs[d.Name()]) {
 			return filepath.SkipDir
 		}
 		rel, err := filepath.Rel(root, p)
@@ -241,8 +294,7 @@ func Run(root string, apply bool) (*Result, error) {
 // RunDryRun lists candidates without deleting them. Exits 0 regardless of
 // findings (unlike --check which exits non-zero). G-061.
 func RunDryRun(root string) (*Result, error) {
-	mfPath := filepath.Join(root, manifest.DefaultPath)
-	mf, err := manifest.Load(mfPath)
+	mf, err := loadMerged(root)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +303,7 @@ func RunDryRun(root string) (*Result, error) {
 		if werr != nil || p == root {
 			return werr
 		}
-		if d.IsDir() && d.Name() == ".git" {
+		if d.IsDir() && (d.Name() == ".git" || autoSkipDirs[d.Name()]) {
 			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, p)
@@ -271,8 +323,7 @@ func RunDryRun(root string) (*Result, error) {
 // RunWithTrash moves scratch candidates to .forge/trash/<run-id>/ for
 // recoverable deletion, and records the operation. G-061.
 func RunWithTrash(root string) (*Result, error) {
-	mfPath := filepath.Join(root, manifest.DefaultPath)
-	mf, err := manifest.Load(mfPath)
+	mf, err := loadMerged(root)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +332,7 @@ func RunWithTrash(root string) (*Result, error) {
 		if werr != nil || p == root {
 			return werr
 		}
-		if d.IsDir() && d.Name() == ".git" {
+		if d.IsDir() && (d.Name() == ".git" || autoSkipDirs[d.Name()]) {
 			return filepath.SkipDir
 		}
 		rel, _ := filepath.Rel(root, p)
