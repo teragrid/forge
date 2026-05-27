@@ -584,3 +584,37 @@ func (p *LLMPipe) InvokeWithFrozenKB(operation, model, system, user string, maxT
 	enriched := knowledge.AppendDocsBudgeted(system, entries, kbBudget)
 	return p.Invoke(operation, model, enriched, user, maxTokens)
 }
+
+// ── P1: Adaptive Token Budget ─────────────────────────────────────────────────
+
+// ScaledBudget multiplies base by the complexity-tier multiplier and returns
+// the result, clamped to a minimum of 256 tokens.
+//
+// Multipliers per tier (RFC-005 §3.2):
+//
+//	nano     → 0.7× (config change / UI tweak)
+//	micro    → 1.0× (new endpoint + CRUD)
+//	standard → 1.5× (new service / schema migration)
+//	complex  → 2.0× (cross-service epic / compliance-sensitive)
+//
+// Pass the result as maxTokens to any Invoke variant so that LLM output
+// budgets auto-scale with feature complexity rather than using hard-coded
+// per-checkpoint constants.
+func ScaledBudget(base int, tier ComplexityTier) int {
+	multipliers := map[ComplexityTier]float64{
+		ComplexityNano:     0.7,
+		ComplexityMicro:    1.0,
+		ComplexityStandard: 1.5,
+		ComplexityComplex:  2.0,
+	}
+	m, ok := multipliers[tier]
+	if !ok {
+		m = 1.0
+	}
+	result := int(float64(base) * m)
+	const minBudget = 256
+	if result < minBudget {
+		return minBudget
+	}
+	return result
+}

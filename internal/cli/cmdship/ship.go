@@ -1647,15 +1647,42 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	}
 	hookCfg := loadHookConfig(root)
 
+	// P1: load domain profile for per-checkpoint budget/steering overrides.
+	domainProfile := LoadDomainProfile(root, opts.DomainProfileName)
+
+	// Derive the spec slug once so snapshot paths are consistent.
+	specSlug := opts.SpecName
+	if specSlug == "" && opts.Description != "" {
+		specSlug = slugify(opts.Description)
+	}
+
+	// P2: take a snapshot before each checkpoint so that failures can be rolled back.
+	snapBefore := func(cpName string) {
+		if specSlug != "" {
+			_ = TakeSnapshot(root, specSlug, cpName)
+		}
+	}
+
+	// Suppress the "unused" warning for domainProfile when no checkpoint reads it yet.
+	_ = domainProfile
+
+	snapBefore("spec")
 	allCPs := []Checkpoint{
 		checkSpec(root, opts.Description, opts.SpecName, pipe),
-		checkArch(root, opts.Description, opts.SpecName, pipe),
-		checkTest(root, opts.Description, opts.SpecName, pipe),
-		checkBreakdown(root, opts.Description, opts.SpecName, pipe),
-		checkCode(root, opts.Description, opts.SpecName, pipe),
+	}
+	snapBefore("arch")
+	allCPs = append(allCPs, checkArch(root, opts.Description, opts.SpecName, pipe))
+	snapBefore("test")
+	allCPs = append(allCPs, checkTest(root, opts.Description, opts.SpecName, pipe))
+	snapBefore("breakdown")
+	allCPs = append(allCPs, checkBreakdown(root, opts.Description, opts.SpecName, pipe))
+	snapBefore("code")
+	allCPs = append(allCPs, checkCode(root, opts.Description, opts.SpecName, pipe))
+	snapBefore("ship")
+	allCPs = append(allCPs,
 		checkVerify(root, opts.Description, pipe),
 		checkQAVerify(root, opts.Description, pipe),
-	}
+	)
 	// PR checkpoint: appended only for full-pipeline runs with --pr.
 	if opts.CreatePR && len(opts.Names) == 0 {
 		allCPs = append(allCPs, checkPR(root, opts.Description))

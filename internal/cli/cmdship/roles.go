@@ -344,6 +344,10 @@ type RunOptions struct {
 	// EnableLearning, when true, triggers extractAndLearnFromFeature after a
 	// successful full-pipeline run. Requires a live LLMPipe.
 	EnableLearning bool
+	// DomainProfileName selects the domain profile to use for per-checkpoint
+	// budget multipliers and steering overrides (e.g. "banking", "healthcare").
+	// "" defaults to the "default" profile.
+	DomainProfileName string
 }
 
 // ── Concern catalog ───────────────────────────────────────────────────────────
