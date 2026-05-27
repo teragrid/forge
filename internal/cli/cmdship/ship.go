@@ -158,6 +158,10 @@ type ShipResult struct {
 	// KBEntriesUsed lists the KB entry IDs injected via InvokeWithKnowledge across the run.
 	// Enables audit trails and downstream KB usage analysis.
 	KBEntriesUsed []string `json:"kb_entries_used,omitempty"`
+
+	// Complexity is the tier assigned to the feature description by the classifier.
+	// Drives adaptive token budgets (P1) and checkpoint selection (nano skips some phases).
+	Complexity ComplexityTier `json:"complexity,omitempty"`
 }
 
 func init() {
@@ -1690,6 +1694,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		DryRun:        opts.DryRun,
 		DebateEnabled: opts.DebateOpts != nil,
 		Message:       shipMessage(pipe),
+		Complexity:    classifyComplexity(opts.Description, root),
 	}
 	total := len(selected)
 
