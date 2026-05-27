@@ -37,6 +37,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -1670,10 +1671,26 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	allCPs := []Checkpoint{
 		checkSpec(root, opts.Description, opts.SpecName, pipe),
 	}
+
+	// P1 DAG: run arch and test in parallel — they are independent given spec.
+	// This is only meaningful for full-pipeline runs (len(opts.Names)==0), but we
+	// always build them in parallel to keep the allCPs index stable.
+	var archCP, testCP Checkpoint
+	var dagWG sync.WaitGroup
+	dagWG.Add(2)
 	snapBefore("arch")
-	allCPs = append(allCPs, checkArch(root, opts.Description, opts.SpecName, pipe))
+	go func() {
+		defer dagWG.Done()
+		archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+	}()
 	snapBefore("test")
-	allCPs = append(allCPs, checkTest(root, opts.Description, opts.SpecName, pipe))
+	go func() {
+		defer dagWG.Done()
+		testCP = checkTest(root, opts.Description, opts.SpecName, pipe)
+	}()
+	dagWG.Wait()
+	allCPs = append(allCPs, archCP, testCP)
+
 	snapBefore("breakdown")
 	allCPs = append(allCPs, checkBreakdown(root, opts.Description, opts.SpecName, pipe))
 	snapBefore("code")
@@ -1754,6 +1771,21 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			dig := makeDigestFromArtefact(strings.ToLower(cp.Name), cp.Detail)
 			writeCheckpointDigest(root, specSlug, dig)
 		}
+
+		// Write a completion marker <checkpoint>.md to .forge/specs/<slug>/ so that
+		// `forge ship status` can count this checkpoint as done.
+		// spec.md / arch.md / breakdown.md are already written by their check* functions;
+		// test.md, code.md, ship.md, qa-verify.md are not — write them here.
+		if cp.Status != "fail" && specSlug != "" {
+			cpLowerName := strings.ToLower(cp.Name)
+			markerPath := filepath.Join(root, ".forge", "specs", specSlug, cpLowerName+".md")
+			if _, statErr := os.Stat(markerPath); os.IsNotExist(statErr) {
+				marker := fmt.Sprintf("# %s checkpoint\n\nStatus: %s\nCompleted: %s\n\n%s\n",
+					cp.Name, cp.Status, time.Now().UTC().Format(time.RFC3339), cp.Detail)
+				_ = os.WriteFile(markerPath, []byte(marker), 0o600)
+			}
+		}
+
 		// Hard stop on failure regardless of gate.
 		if cp.Status == "fail" {
 			res.Checkpoints = append(res.Checkpoints, cp)
