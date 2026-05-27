@@ -105,8 +105,17 @@ func defaultSubWorkflows() map[string][]Phase {
 
 		// ── spec ──────────────────────────────────────────────────────────────
 		// Roles: BA (rules), PO (value), SA (architecture), CPO (compliance)
-		// Goal: requirements intake + impact analysis + completeness gate
+		// Goal: workspace context → requirements intake + impact analysis + completeness gate
 		"spec": {
+			{
+				// Phase 0 (G9): deterministic workspace scan — zero LLM tokens.
+				// Collects tech stack, top-level structure, recent git log, existing
+				// specs, and project conventions into workspace-context.md.
+				// Must run FIRST so that spec/intake and spec/impact-analysis have
+				// concrete project context in their user prompts.
+				Name:          "spec/workspace-context",
+				Deterministic: true,
+			},
 			{
 				Name:         "spec/intake",
 				KBCheckpoint: "spec",

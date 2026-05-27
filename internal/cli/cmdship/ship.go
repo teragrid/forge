@@ -470,61 +470,7 @@ func New() *cobra.Command {
 
 	// â”€â”€ Status + resume subcommands (spec §4 ship sub-verbs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-	statusCmd := &cobra.Command{
-		Use:   "status [feature]",
-		Short: "Show the current pipeline status for a feature (which checkpoints are done).",
-		Long: "Reads .forge/specs/<feature>/ and reports which checkpoints have been completed,\n" +
-			"which are in-progress, and which are pending.\n\n" +
-			"Note: full pipeline state persistence is a M1 feature; " +
-			"this command shows last-known state from the spec directory.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			feature := ""
-			if len(args) > 0 {
-				feature = args[0]
-			}
-			root, err := os.Getwd()
-			if err != nil {
-				return errcode.New(ErrShipFailed, "getwd", err)
-			}
-			specsDir := filepath.Join(root, ".forge", "specs")
-			if feature == "" {
-				// List all in-flight features
-				entries, err := os.ReadDir(specsDir)
-				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else //nolint:gocritic // ifElseChain: clearer as if/else
-					fmt.Fprintln(cmd.OutOrStdout(), "no in-flight features found (.forge/specs/ not present or empty)")
-					return nil
-				}
-				if len(entries) == 0 {
-					fmt.Fprintln(cmd.OutOrStdout(), "no in-flight features found")
-					return nil
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), "in-flight features:")
-				for _, e := range entries {
-					if e.IsDir() {
-						fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", e.Name())
-					}
-				}
-				return nil
-			}
-			featureDir := filepath.Join(specsDir, feature)
-			if _, err := os.Stat(featureDir); os.IsNotExist(err) {
-				fmt.Fprintf(cmd.OutOrStdout(), "feature %q not found in .forge/specs/\n", feature)
-				return nil
-			}
-			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
-			fmt.Fprintf(cmd.OutOrStdout(), "forge ship status: %s\n", feature)
-			for i, cp := range checkpoints {
-				marker := "○ pending"
-				cpFile := filepath.Join(featureDir, cp+".md")
-				if _, err := os.Stat(cpFile); err == nil {
-					marker = "✓ done"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  [%d/7] %s — %s\n", i+1, cp, marker)
-			}
-			return nil
-		},
-	}
+	statusCmd := newStatusCmd()
 
 	// G-002: kept as deprecated alias for --resume flag.
 	resumeCmd := &cobra.Command{
@@ -705,6 +651,15 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		specFile := filepath.Join(specsDir, slug, "spec.md")
 		yamlSpecPath := filepath.Join(specsDir, slug, "spec.yml")
 
+		// G-009 (workspace-context phase): collect deterministic project context
+		// before any LLM call so the spec reflects the actual tech stack,
+		// conventions, recent changes, and existing features.
+		wsCtx := collectWorkspaceContext(root, slug)
+		wsSection := ""
+		if wsCtx.Content != "" {
+			wsSection = "\n\n## Workspace Context\n" + wsCtx.Content
+		}
+
 		// Load a pre-generated YAML spec (from `forge test spec`) if present.
 		// Errors are silently ignored; a nil ySpec means fall back to spec.md-only logic.
 		ySpec, _ := cmdtest.ReadSpec(yamlSpecPath)
@@ -719,11 +674,11 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				if recentSpecFailures != "" {
 					specReviewSystem = recentSpecFailures + "\n" + specReviewSystem
 				}
-				userPrompt := fmt.Sprintf("Feature: %s\n\nCurrent spec:\n%s", description, string(existing))
+				userPrompt := fmt.Sprintf("Feature: %s%s\n\nCurrent spec:\n%s", description, wsSection, string(existing))
 				if ySpec != nil {
 					userPrompt = fmt.Sprintf(
-						"Feature: %s\n\nYAML test spec (%d cases, families: %s):\n%s\n\nCurrent spec.md:\n%s",
-						description, len(ySpec.Cases), specFamilyList(ySpec.Families),
+						"Feature: %s%s\n\nYAML test spec (%d cases, families: %s):\n%s\n\nCurrent spec.md:\n%s",
+						description, wsSection, len(ySpec.Cases), specFamilyList(ySpec.Families),
 						specYAMLContext(ySpec), string(existing),
 					)
 				}
@@ -795,7 +750,7 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 					generated, genErr := pipe.InvokeWithKnowledge(
 						"ship:spec:generate-from-yaml", "",
 						specGenSystem,
-						fmt.Sprintf("Generate spec.md for feature: %s\n\n%s", description, specYAMLContext(ySpec)),
+						fmt.Sprintf("Generate spec.md for feature: %s%s\n\n%s", description, wsSection, specYAMLContext(ySpec)),
 						2000,
 						"spec", "unit", "spec", []string{"test-design", "quality-gate"},
 					)
@@ -843,7 +798,7 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				generated, err := pipe.Invoke(
 					"ship:spec:generate", "",
 					specGenSystem,
-					fmt.Sprintf("Generate a complete feature specification for: %s", description),
+					fmt.Sprintf("Generate a complete feature specification for: %s%s", description, wsSection),
 					2000,
 				)
 				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else

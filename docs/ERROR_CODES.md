@@ -71,6 +71,10 @@ You can also look up any code with `forge ask error <code>`.
 | `FORGE-4303` | test generation failed; spec missing or LLM unavailable | [forge.dev/errors/4303](https://forge.dev/errors/4303) |
 | `FORGE-4304` | tests not approved; run forge test approve first | [forge.dev/errors/4304](https://forge.dev/errors/4304) |
 | `FORGE-4305` | CI/CD pipeline not configured; follow setup guidance | [forge.dev/errors/4305](https://forge.dev/errors/4305) |
+| `FORGE-4306` | manual test: target environment URL not configured | [forge.dev/errors/4306](https://forge.dev/errors/4306) |
+| `FORGE-4307` | manual test: playwright not found (run: npx playwright install) | [forge.dev/errors/4307](https://forge.dev/errors/4307) |
+| `FORGE-4308` | manual test: playwright execution failed | [forge.dev/errors/4308](https://forge.dev/errors/4308) |
+| `FORGE-4309` | manual test: feature spec not found | [forge.dev/errors/4309](https://forge.dev/errors/4309) |
 | `FORGE-4400` | fix failed | [forge.dev/errors/4400](https://forge.dev/errors/4400) |
 | `FORGE-4500` | adopt failed | [forge.dev/errors/4500](https://forge.dev/errors/4500) |
 | `FORGE-4600` | eject failed | [forge.dev/errors/4600](https://forge.dev/errors/4600) |
