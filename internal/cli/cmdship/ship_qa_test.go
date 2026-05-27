@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/teragrid/forge/internal/llmprovider"
@@ -361,7 +362,7 @@ func TestRemediateIncompleteTasks_MarksTasksDone(t *testing.T) {
 		Severity: "blocking",
 		File:     tasksPath,
 	}
-	if err := remediateIncompleteTasks(root, "mark done feature", gap, pipe); err != nil {
+	if err := remediateIncompleteTasks(root, "mark done feature", gap, pipe, nil); err != nil {
 		t.Fatalf("remediateIncompleteTasks returned error: %v", err)
 	}
 
@@ -376,5 +377,171 @@ func TestRemediateIncompleteTasks_MarksTasksDone(t *testing.T) {
 	// Positive check: no unchecked boxes remain.
 	if contains(content, "- [ ]") || contains(content, "* [ ]") {
 		t.Errorf("unchecked tasks remain in tasks.md after remediation:\n%s", content)
+	}
+}
+
+// ── P1-L4 Shrinking-context tests ───────────────────────────────────────────
+
+// TestRemediationState_Round1_UsesFullContext verifies that on round 1 the
+// full spec + breakdown context path is taken (state.PriorAttempt == "").
+func TestRemediationState_Round1_UsesFullContext(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "full-ctx-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tasksPath := filepath.Join(specDir, "tasks.md")
+	if err := os.WriteFile(tasksPath, []byte("- [ ] Task one\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte("# Spec\nDo the thing."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var capturedUser string
+	mock := &llmprovider.MockProvider{
+		Fn: func(req *llmprovider.Request) (*llmprovider.Response, error) {
+			capturedUser = req.UserPrompt
+			return &llmprovider.Response{Content: "plan v1"}, nil
+		},
+	}
+	pipe := mockPipe(root, mock)
+
+	state := &RemediationState{GapItem: "Task one", Round: 1}
+	gap := AuditGap{Type: "incomplete-tasks", Severity: "blocking", File: tasksPath}
+	if err := remediateIncompleteTasks(root, "full ctx feature", gap, pipe, state); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Round 1 → PriorAttempt now set to LLM response.
+	if state.PriorAttempt != "plan v1" {
+		t.Errorf("PriorAttempt: want %q, got %q", "plan v1", state.PriorAttempt)
+	}
+	// The user prompt must NOT contain "Prior attempt" on round 1.
+	if contains(capturedUser, "Prior attempt") {
+		t.Errorf("round 1 should not include 'Prior attempt' in prompt; got:\n%s", capturedUser)
+	}
+}
+
+// TestRemediationState_Round2_UsesShrinkingContext verifies round 2+ sends
+// only the gap + truncated prior attempt, not the full spec.
+func TestRemediationState_Round2_UsesShrinkingContext(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "shrink-ctx-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tasksPath := filepath.Join(specDir, "tasks.md")
+	if err := os.WriteFile(tasksPath, []byte("- [ ] Remaining task\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var capturedUser string
+	mock := &llmprovider.MockProvider{
+		Fn: func(req *llmprovider.Request) (*llmprovider.Response, error) {
+			capturedUser = req.UserPrompt
+			return &llmprovider.Response{Content: "plan v2"}, nil
+		},
+	}
+	pipe := mockPipe(root, mock)
+
+	state := &RemediationState{
+		GapItem:      "Remaining task",
+		PriorAttempt: "plan v1 from round 1",
+		FailureNote:  "still unchecked",
+		Round:        2,
+	}
+	gap := AuditGap{Type: "incomplete-tasks", Severity: "blocking", File: tasksPath}
+	if err := remediateIncompleteTasks(root, "shrink ctx feature", gap, pipe, state); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Round 2 → prompt must include "Prior attempt".
+	if !contains(capturedUser, "Prior attempt") {
+		t.Errorf("round 2 prompt must contain 'Prior attempt'; got:\n%s", capturedUser)
+	}
+	// The full spec.md content must NOT appear (shrinking context).
+	if contains(capturedUser, "# Spec") {
+		t.Errorf("round 2 prompt must not include full spec content; got:\n%s", capturedUser)
+	}
+	// State updated with new attempt.
+	if state.PriorAttempt != "plan v2" {
+		t.Errorf("PriorAttempt after round 2: want %q, got %q", "plan v2", state.PriorAttempt)
+	}
+}
+
+// TestRemediateGapsRound_StateMapPropagated verifies that remediateGapsRound
+// populates and threads the state map across calls (idempotency / replay).
+func TestRemediateGapsRound_StateMapPropagated(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	slug := "statemap-feature"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tasksPath := filepath.Join(specDir, "tasks.md")
+	if err := os.WriteFile(tasksPath, []byte("- [ ] Task A\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	round1Response := "plan A round 1"
+	mock := &llmprovider.MockProvider{
+		Response: &llmprovider.Response{Content: round1Response},
+	}
+	pipe := mockPipe(root, mock)
+
+	gaps := []AuditGap{{Type: "incomplete-tasks", Severity: "blocking", File: tasksPath, Description: "Task A"}}
+	stateMap := make(map[string]*RemediationState)
+
+	// Round 1 — state map is empty → creates state entry.
+	remediateGapsRound(root, "statemap feature", gaps, pipe, 1, stateMap)
+	if stateMap["Task A"] == nil {
+		t.Fatal("stateMap must contain an entry for 'Task A' after round 1")
+	}
+	if stateMap["Task A"].PriorAttempt != round1Response {
+		t.Errorf("PriorAttempt after round 1: want %q, got %q", round1Response, stateMap["Task A"].PriorAttempt)
+	}
+}
+
+// TestTruncateTokens_LongString verifies truncation occurs at 4×maxTokens chars.
+func TestTruncateTokens_LongString(t *testing.T) {
+	t.Parallel()
+	s := strings.Repeat("a", 1300)
+	result := truncateTokens(s, 300) // 300×4 = 1200 chars
+	if len(result) > 1220 {          // 1200 + len("[truncated]")
+		t.Errorf("truncated string too long: %d chars", len(result))
+	}
+	if !contains(result, "[truncated]") {
+		t.Error("truncated string must end with '[truncated]'")
+	}
+}
+
+// TestTruncateTokens_ShortString verifies short strings are returned unchanged.
+func TestTruncateTokens_ShortString(t *testing.T) {
+	t.Parallel()
+	s := "hello world"
+	if got := truncateTokens(s, 300); got != s {
+		t.Errorf("short string must be unchanged; got %q", got)
+	}
+}
+
+// TestRemediateGaps_NilPipeRoundVariant is a regression guard: nil pipe with
+// remediateGapsRound must be a no-op (returns 0, no panic).
+func TestRemediateGaps_NilPipeRoundVariant(t *testing.T) {
+	t.Parallel()
+	gaps := []AuditGap{
+		{Type: "incomplete-tasks", Severity: "blocking", Description: "task", File: "/nonexistent"},
+	}
+	n := remediateGapsRound(t.TempDir(), "feat", gaps, nil, 2, nil)
+	if n != 0 {
+		t.Errorf("nil pipe must return 0; got %d", n)
 	}
 }

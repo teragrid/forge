@@ -55,6 +55,12 @@ type Phase struct {
 	// Name uniquely identifies this phase (format: "<checkpoint>/<phase>").
 	Name string
 
+	// ModelTier selects which model tier to use for this phase's LLM calls.
+	// "tier-1" = heavy reasoning model (arch debate, security gates, qa-verify).
+	// "tier-2" = fast structured-extraction model (spec, test, breakdown, synthesis).
+	// "" = provider default.
+	ModelTier string
+
 	// KBCheckpoint is forwarded to InvokeWithKnowledge as the checkpoint param.
 	// Used by knowledge.Score to weight ship_checkpoints matches.
 	KBCheckpoint string
@@ -88,6 +94,18 @@ type Phase struct {
 	Deterministic bool
 }
 
+// Model tier constants for Phase.ModelTier (L3: Model Tier Routing).
+const (
+	// ModelTierHeavy selects the most capable / reasoning-optimised model.
+	// Use for: arch debate, code generation, security gates, qa-verify.
+	ModelTierHeavy = "tier-1"
+
+	// ModelTierFast selects the fastest / cheapest model.
+	// Use for: spec intake, test design, breakdown, debate synthesis,
+	// context digest generation.
+	ModelTierFast = "tier-2"
+)
+
 // defaultSubWorkflows returns the sub-workflow phase map for all 7 checkpoints.
 // Keys are lower-cased checkpoint names matching the pipeline index in ship.go.
 //
@@ -118,6 +136,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			},
 			{
 				Name:         "spec/intake",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "spec",
 				KBFamily:     "unit",
 				KBTags:       []string{"requirements", "test-design", "quality-gate", "acceptance-criteria"},
@@ -126,6 +145,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			},
 			{
 				Name:         "spec/impact-analysis",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "spec",
 				KBFamily:     "compliance",
 				KBTags:       []string{"gdpr", "pci-dss", "data-residency", "privacy", "pii"},
@@ -146,6 +166,7 @@ func defaultSubWorkflows() map[string][]Phase {
 		"arch": {
 			{
 				Name:         "arch/scope-scan",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "arch",
 				KBFamily:     "",
 				KBTags:       []string{"architecture", "modularity", "cloud-native", "service-decomposition"},
@@ -156,6 +177,7 @@ func defaultSubWorkflows() map[string][]Phase {
 				// Full design debate — 3 rounds covering C4, threat model, data model, API contracts.
 				// Steering switches to review-dab-light automatically when checkArch detects low-risk.
 				Name:         "arch/design",
+				ModelTier:    ModelTierHeavy,
 				KBCheckpoint: "arch",
 				KBFamily:     "security",
 				KBTags:       []string{"security", "resilience", "api-design", "data", "zero-trust", "threat-model"},
@@ -166,6 +188,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			{
 				// Targeted security architecture scan after design debate.
 				Name:         "arch/security-scan",
+				ModelTier:    ModelTierHeavy,
 				KBCheckpoint: "arch",
 				KBFamily:     "security",
 				KBTags:       []string{"owasp", "mtls", "secrets", "zero-trust", "vault", "least-privilege"},
@@ -187,6 +210,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			{
 				// QE covers ALL test types — not just unit. KB tags reflect the full pyramid.
 				Name:         "test/design",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "test",
 				KBFamily:     "",
 				KBTags: []string{
@@ -202,6 +226,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			{
 				// Security-specific test scenarios: injection, authz bypass, audit coverage.
 				Name:         "test/security-test-design",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "test",
 				KBFamily:     "security",
 				KBTags:       []string{"owasp", "authz", "audit-logging", "rls", "injection"},
@@ -218,6 +243,7 @@ func defaultSubWorkflows() map[string][]Phase {
 		"breakdown": {
 			{
 				Name:         "breakdown/planning-scan",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "breakdown",
 				KBFamily:     "",
 				KBTags:       []string{"architecture", "dependency", "delivery", "capacity-planning"},
@@ -228,6 +254,7 @@ func defaultSubWorkflows() map[string][]Phase {
 				// QE challenges: "Is every task independently testable?"
 				// SA challenges: "Does task order respect service contracts?"
 				Name:         "breakdown/testability-debate",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "breakdown",
 				KBFamily:     "",
 				KBTags:       []string{"estimation", "agile", "done-criteria", "test-pyramid"},
@@ -245,6 +272,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			{
 				// Pull resilience + observability patterns from KB for implementation guidance.
 				Name:         "code/implementation",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "code",
 				KBFamily:     "reliability",
 				KBTags:       []string{"resilience", "observability", "retry", "timeout", "circuit-breaker", "bulkhead"},
@@ -254,6 +282,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			{
 				// Dedicated security scan: OWASP + secrets + sandbox path validation.
 				Name:         "code/security-scan",
+				ModelTier:    ModelTierHeavy,
 				KBCheckpoint: "code",
 				KBFamily:     "security",
 				KBTags:       []string{"owasp", "secrets", "vault", "injection", "sandbox", "least-privilege"},
@@ -286,6 +315,7 @@ func defaultSubWorkflows() map[string][]Phase {
 			{
 				// Pull PCI-DSS, GDPR, audit-logging KB entries for compliance attestation.
 				Name:         "ship/compliance-scan",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "ship",
 				KBFamily:     "compliance",
 				KBTags:       []string{"pci-dss", "gdpr", "sox", "audit-logging", "compliance"},
@@ -297,6 +327,7 @@ func defaultSubWorkflows() map[string][]Phase {
 				// CPO challenges data handling. Steering resolves to review-dab / review-dab-light
 				// / review-tech-change at runtime based on checkpoint status.
 				Name:         "ship/cab-review",
+				ModelTier:    ModelTierHeavy,
 				KBCheckpoint: "ship",
 				KBFamily:     "security",
 				KBTags:       []string{"security", "compliance", "observability", "rollback", "deployment"},
@@ -322,6 +353,7 @@ func defaultSubWorkflows() map[string][]Phase {
 				// QE verifies automated test suite covers the full test pyramid.
 				// KB tags deliberately broad — QE is not just unit tests.
 				Name:         "qa-verify/automated-coverage",
+				ModelTier:    ModelTierFast,
 				KBCheckpoint: "qa-verify",
 				KBFamily:     "",
 				KBTags: []string{
@@ -337,6 +369,7 @@ func defaultSubWorkflows() map[string][]Phase {
 				// Round 1 — independent sections; Round 2 — cross-role gap challenge.
 				// Output: .forge/specs/<slug>/manual-test-plan.md
 				Name:         "qa-verify/manual-test-plan",
+				ModelTier:    ModelTierHeavy,
 				KBCheckpoint: "qa-verify",
 				KBFamily:     "",
 				KBTags: []string{

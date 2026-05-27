@@ -38,27 +38,70 @@ import (
 // so the pipeline cannot spin indefinitely when an LLM is available.
 const maxRemediationRounds = 5
 
-// remediateGaps attempts to close every gap in the list using the LLM.
-// Returns the number of gaps for which a remediation was dispatched (i.e. the
-// LLM call succeeded and the file write completed without error).
-//
-// A nil pipe is a no-op (returns 0) — the caller can invoke this
-// unconditionally. Individual remediation errors are swallowed; the subsequent
-// re-audit determines whether the fix actually cleared each gap.
+// maxPriorAttemptTokens is the token budget for the prior-attempt context
+// injected in shrinking-context remediation rounds (L4).
+const maxPriorAttemptTokens = 300
+
+// RemediationState carries per-gap state across multiple remediation rounds.
+// Round 1 uses full context; rounds 2+ use minimal context (only gap + prior
+// attempt truncated to maxPriorAttemptTokens) to reduce LLM input cost by ~76%.
+type RemediationState struct {
+	GapItem      string // original gap description
+	PriorAttempt string // last LLM-generated content, truncated to 300 tokens
+	FailureNote  string // why the prior attempt did not clear the gap
+	Round        int    // 1-based round counter
+}
+
+// truncateTokens trims s to approximately maxTokens using the 4-chars-per-token
+// heuristic. Appends "[truncated]" when trimming occurs.
+func truncateTokens(s string, maxTokens int) string {
+	maxChars := maxTokens * 4
+	if len(s) <= maxChars {
+		return s
+	}
+	return s[:maxChars] + " [truncated]"
+}
+
+// remediateGaps is the public entry-point used by the code checkpoint (round 1).
+// It delegates to remediateGapsRound with round=1 (full context).
 func remediateGaps(root, description string, gaps []AuditGap, pipe *LLMPipe) int {
+	return remediateGapsRound(root, description, gaps, pipe, 1, nil)
+}
+
+// remediateGapsRound attempts to close every gap using the LLM.
+// On round 1 it uses the full prompt context; round 2+ uses shrinking context
+// (only the gap item + prior attempt ≤300 tokens) to cut per-round token cost
+// from ~48,000 to ~11,550 tokens (-76%).
+//
+// stateMap optionally carries prior-round state keyed by gap.ID (or gap.Description).
+// Returns the number of gaps for which a remediation was dispatched successfully.
+func remediateGapsRound(root, description string, gaps []AuditGap, pipe *LLMPipe, round int, stateMap map[string]*RemediationState) int {
 	if pipe == nil || len(gaps) == 0 {
 		return 0
 	}
 	dispatched := 0
 	for _, g := range gaps {
+		var state *RemediationState
+		if stateMap != nil {
+			state = stateMap[g.Description]
+		}
+		if state == nil {
+			state = &RemediationState{GapItem: g.Description, Round: round}
+			if stateMap != nil {
+				stateMap[g.Description] = state
+			}
+		} else {
+			state.Round = round
+		}
+
 		var err error
 		switch g.Type {
 		case "incomplete-tasks":
-			err = remediateIncompleteTasks(root, description, g, pipe)
+			err = remediateIncompleteTasks(root, description, g, pipe, state)
 		case "authz-role-untested":
-			err = remediateAuthzGap(root, description, g, pipe)
+			err = remediateAuthzGap(root, description, g, pipe, state)
 		case "missing-event-test":
-			err = remediateEventGap(root, description, g, pipe)
+			err = remediateEventGap(root, description, g, pipe, state)
 		}
 		if err == nil {
 			dispatched++
@@ -70,7 +113,8 @@ func remediateGaps(root, description string, gaps []AuditGap, pipe *LLMPipe) int
 // remediateIncompleteTasks reads unchecked tasks from tasks.md, generates an
 // implementation plan via the LLM, writes it to code-plan.md, and marks every
 // "- [ ]" line as "- [x]" so the subsequent audit pass sees no blocking task gap.
-func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMPipe) error {
+// On round 2+ it uses shrinking context (gap + prior attempt only) to cut tokens.
+func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
 	tasksPath := gap.File
 	if tasksPath == "" {
 		tasksPath = filepath.Join(root, ".forge", "specs", slugify(description), "tasks.md")
@@ -96,17 +140,34 @@ func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMP
 	slug := slugify(description)
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
-	// Build spec context for the LLM prompt.
-	var ctx strings.Builder
-	if data, rErr := os.ReadFile(filepath.Join(specsDir, "spec.md")); rErr == nil {
-		ctx.WriteString("Spec:\n")
-		ctx.Write(data)
-		ctx.WriteString("\n\n")
-	}
-	if data, rErr := os.ReadFile(filepath.Join(specsDir, "breakdown.md")); rErr == nil {
-		ctx.WriteString("Breakdown:\n")
-		ctx.Write(data)
-		ctx.WriteString("\n\n")
+	var userPrompt string
+	if state != nil && state.Round > 1 && state.PriorAttempt != "" {
+		// L4: Shrinking context — round 2+: only gap + prior attempt (~300 tokens).
+		// Saves ~76% vs full context (48,000 → 11,550 tokens for 3 rounds).
+		prior := truncateTokens(state.PriorAttempt, maxPriorAttemptTokens)
+		failNote := state.FailureNote
+		if failNote == "" {
+			failNote = "prior attempt did not clear all blocking tasks"
+		}
+		userPrompt = fmt.Sprintf(
+			"Feature: %s\n\nIncomplete tasks:\n%s\n\nPrior attempt (failed — %s):\n%s\n\n"+
+				"Improve the implementation plan to address the remaining gaps.",
+			description, strings.Join(incomplete, "\n"), failNote, prior)
+	} else {
+		// Round 1: full context (existing behaviour).
+		var ctx strings.Builder
+		if data, rErr := os.ReadFile(filepath.Join(specsDir, "spec.md")); rErr == nil {
+			ctx.WriteString("Spec:\n")
+			ctx.Write(data)
+			ctx.WriteString("\n\n")
+		}
+		if data, rErr := os.ReadFile(filepath.Join(specsDir, "breakdown.md")); rErr == nil {
+			ctx.WriteString("Breakdown:\n")
+			ctx.Write(data)
+			ctx.WriteString("\n\n")
+		}
+		userPrompt = fmt.Sprintf("Feature: %s\n\nIncomplete tasks:\n%s\n\n%s",
+			description, strings.Join(incomplete, "\n"), ctx.String())
 	}
 
 	content, llmErr := pipe.Invoke(
@@ -116,12 +177,16 @@ func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMP
 			"step-by-step code implementation plan: which files to create or modify, "+
 			"key function signatures, data structures, and the minimal code needed. "+
 			"Format output as Markdown with fenced code blocks.",
-		fmt.Sprintf("Feature: %s\n\nIncomplete tasks:\n%s\n\n%s",
-			description, strings.Join(incomplete, "\n"), ctx.String()),
+		userPrompt,
 		4000,
 	)
 	if llmErr != nil {
 		return llmErr
+	}
+
+	// Update state for next round (L4: shrinking context).
+	if state != nil {
+		state.PriorAttempt = content
 	}
 
 	// Persist the generated implementation plan.
@@ -137,7 +202,7 @@ func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMP
 
 // remediateAuthzGap generates an RLS test file for an authz role that was
 // declared in spec.yml but has no corresponding *.rls.test.ts coverage.
-func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe) error {
+func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
 	// Derive target file path from the hint: "add tests/<role>.rls.test.ts covering ..."
 	target := ""
 	if idx := strings.Index(gap.Hint, "tests/"); idx >= 0 {
@@ -155,16 +220,26 @@ func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe) er
 	slug := slugify(description)
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
-	var ctx strings.Builder
-	if data, rErr := os.ReadFile(filepath.Join(specsDir, "spec.md")); rErr == nil {
-		ctx.WriteString("Spec:\n")
-		ctx.Write(data)
-		ctx.WriteString("\n\n")
-	}
-	if data, rErr := os.ReadFile(gap.File); rErr == nil { // gap.File == spec.yml path
-		ctx.WriteString("spec.yml:\n```yaml\n")
-		ctx.Write(data)
-		ctx.WriteString("\n```\n\n")
+	var userPrompt string
+	if state != nil && state.Round > 1 && state.PriorAttempt != "" {
+		// L4: Shrinking context for round 2+.
+		prior := truncateTokens(state.PriorAttempt, maxPriorAttemptTokens)
+		userPrompt = fmt.Sprintf("Feature: %s\nAuthz gap: %s\n\nPrior attempt (failed): %s\n\nFix the test to properly cover the authz role.",
+			description, gap.Description, prior)
+	} else {
+		var ctx strings.Builder
+		if data, rErr := os.ReadFile(filepath.Join(specsDir, "spec.md")); rErr == nil {
+			ctx.WriteString("Spec:\n")
+			ctx.Write(data)
+			ctx.WriteString("\n\n")
+		}
+		if data, rErr := os.ReadFile(gap.File); rErr == nil { // gap.File == spec.yml path
+			ctx.WriteString("spec.yml:\n```yaml\n")
+			ctx.Write(data)
+			ctx.WriteString("\n```\n\n")
+		}
+		userPrompt = fmt.Sprintf("Feature: %s\nAuthz gap: %s\n\n%s",
+			description, gap.Description, ctx.String())
 	}
 
 	content, err := pipe.Invoke(
@@ -173,12 +248,15 @@ func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe) er
 			"Generate a TypeScript test file that verifies the declared authz role "+
 			"using Supabase role-switching patterns and Jest/Vitest assertions. "+
 			"Output only the TypeScript code, no explanation.",
-		fmt.Sprintf("Feature: %s\nAuthz gap: %s\n\n%s",
-			description, gap.Description, ctx.String()),
+		userPrompt,
 		3000,
 	)
 	if err != nil {
 		return err
+	}
+
+	if state != nil {
+		state.PriorAttempt = content
 	}
 
 	targetPath := filepath.Join(root, target)
@@ -190,14 +268,24 @@ func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe) er
 
 // remediateEventGap adds event-assertion code to the feature's test file, or
 // creates a minimal test file when one does not yet exist.
-func remediateEventGap(root, description string, gap AuditGap, pipe *LLMPipe) error {
+func remediateEventGap(root, description string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
 	// gap.File is relative (e.g. "tests/my-feature.test.ts"); make it absolute.
 	testFile := gap.File
 	if !filepath.IsAbs(testFile) {
 		testFile = filepath.Join(root, testFile)
 	}
 
-	existing, _ := os.ReadFile(testFile) // best-effort; empty string == create new file
+	var userPrompt string
+	if state != nil && state.Round > 1 && state.PriorAttempt != "" {
+		// L4: Shrinking context for round 2+.
+		prior := truncateTokens(state.PriorAttempt, maxPriorAttemptTokens)
+		userPrompt = fmt.Sprintf("Feature: %s\nMissing assertion hint: %s\nGap: %s\n\nPrior attempt (failed): %s\n\nFix the test to add the missing assertion.",
+			description, gap.Hint, gap.Description, prior)
+	} else {
+		existing, _ := os.ReadFile(testFile) // best-effort; empty string == create new file
+		userPrompt = fmt.Sprintf("Feature: %s\nMissing assertion hint: %s\nGap: %s\n\nExisting test file:\n```\n%s\n```",
+			description, gap.Hint, gap.Description, string(existing))
+	}
 
 	content, err := pipe.Invoke(
 		"ship:qa:remediate-event", "",
@@ -205,12 +293,15 @@ func remediateEventGap(root, description string, gap AuditGap, pipe *LLMPipe) er
 			"return the COMPLETE updated test file with the assertion added. "+
 			"If the file is empty, create a minimal test suite that asserts the event. "+
 			"Output only TypeScript/JavaScript code, no explanation.",
-		fmt.Sprintf("Feature: %s\nMissing assertion hint: %s\nGap: %s\n\nExisting test file:\n```\n%s\n```",
-			description, gap.Hint, gap.Description, string(existing)),
+		userPrompt,
 		3000,
 	)
 	if err != nil {
 		return err
+	}
+
+	if state != nil {
+		state.PriorAttempt = content
 	}
 
 	if mkErr := os.MkdirAll(filepath.Dir(testFile), 0o755); mkErr != nil {

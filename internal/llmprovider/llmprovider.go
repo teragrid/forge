@@ -301,10 +301,13 @@ func (o *OpenAIAdapter) APIKey() string { return o.apiKey }
 // MockProvider is a deterministic Provider for use in tests. It never makes
 // network calls and returns canned responses.
 type MockProvider struct {
-	// Response is returned verbatim from Complete when Err is nil.
+	// Response is returned verbatim from Complete when Err is nil and Fn is nil.
 	Response *Response
-	// Err is returned from Complete when set.
+	// Err is returned from Complete when set (takes priority over Fn and Response).
 	Err error
+	// Fn, when set, is called instead of returning the canned Response. Useful
+	// for tests that need to inspect or record the incoming Request.
+	Fn func(*Request) (*Response, error)
 	// calls tracks the number of Complete invocations.
 	calls int
 }
@@ -327,6 +330,9 @@ func (m *MockProvider) Complete(_ context.Context, req *Request) (*Response, err
 	m.calls++
 	if m.Err != nil {
 		return nil, m.Err
+	}
+	if m.Fn != nil {
+		return m.Fn(req)
 	}
 	if m.Response != nil {
 		return m.Response, nil

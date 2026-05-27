@@ -1216,9 +1216,11 @@ func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	cp.GapAudit = &auditRes
 
 	remediationRounds := 0
+	remediationState := make(map[string]*RemediationState)
 	for auditRes.HasBlockingGaps() && pipe != nil && remediationRounds < maxRemediationRounds {
 		remediationRounds++
-		remediateGaps(root, description, auditRes.Gaps, pipe)
+		// L4: Pass round number so shrinking context is used for round 2+.
+		remediateGapsRound(root, description, auditRes.Gaps, pipe, remediationRounds, remediationState)
 		auditRes = auditSpecVsCode(root, description)
 		cp.GapAudit = &auditRes
 	}
@@ -1525,9 +1527,11 @@ func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	auditRes := auditSpecVsCode(root, description)
 	cp.GapAudit = &auditRes
 
+	remediationState := make(map[string]*RemediationState)
 	for auditRes.HasBlockingGaps() && pipe != nil && cp.RemediationRounds < maxRemediationRounds {
 		cp.RemediationRounds++
-		remediateGaps(root, description, auditRes.Gaps, pipe)
+		// L4: Pass round number so shrinking context is used for round 2+.
+		remediateGapsRound(root, description, auditRes.Gaps, pipe, cp.RemediationRounds, remediationState)
 		auditRes = auditSpecVsCode(root, description)
 		cp.GapAudit = &auditRes
 	}
