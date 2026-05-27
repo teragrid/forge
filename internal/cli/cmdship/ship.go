@@ -1749,6 +1749,11 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				}
 			}
 		}
+		// P1-L2: write checkpoint digest on success for downstream context compression.
+		if cp.Status != "fail" && specSlug != "" {
+			dig := makeDigestFromArtefact(strings.ToLower(cp.Name), cp.Detail)
+			writeCheckpointDigest(root, specSlug, dig)
+		}
 		// Hard stop on failure regardless of gate.
 		if cp.Status == "fail" {
 			res.Checkpoints = append(res.Checkpoints, cp)

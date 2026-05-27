@@ -70,6 +70,8 @@ func writeCheckpointDigest(root, slug string, d CheckpointDigest) {
 
 // readCheckpointDigest loads a single digest from disk.
 // Returns (nil, nil) when the file does not exist.
+//
+//nolint:unused // called by buildDigestContext; exported for DAG pipeline / forge undo
 func readCheckpointDigest(root, slug, checkpoint string) (*CheckpointDigest, error) {
 	path := filepath.Join(root, ".forge", "specs", slug, digestsSubDir, checkpoint+digestExt)
 	data, err := os.ReadFile(path)
@@ -96,6 +98,8 @@ func readCheckpointDigest(root, slug, checkpoint string) (*CheckpointDigest, err
 // Strategy:
 //   - Last entry in upstreamCheckpoints → full text (≤ maxFullTokens)
 //   - All earlier entries → stored digest (≤ maxDigestTokens each)
+//
+//nolint:unused // used by DAG pipeline and forge undo; not yet wired into linear path
 func buildDigestContext(root, slug string, upstreamCheckpoints []string, artefacts map[string]string) string {
 	if len(upstreamCheckpoints) == 0 {
 		return ""
