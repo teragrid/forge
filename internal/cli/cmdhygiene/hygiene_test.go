@@ -16,8 +16,11 @@
 package cmdhygiene_test
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/teragrid/forge/internal/cli/cmdhygiene"
@@ -95,5 +98,122 @@ func TestHygieneDriftDetection_EmptyManifest(t *testing.T) {
 	}
 	if !res.Passed {
 		t.Error("Passed should be true for empty manifest")
+	}
+}
+
+// ── Issue #15: forge hygiene manifest sync ────────────────────────────────────
+
+// writeHygieneINI writes a minimal INI-format manifest file used by forge hygiene.
+func writeHygieneINI(t *testing.T, path string, scratch, managed []string) {
+	t.Helper()
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	var b strings.Builder
+	b.WriteString("[scratch]\n")
+	for _, p := range scratch {
+		b.WriteString(p + "\n")
+	}
+	b.WriteString("[managed]\n")
+	for _, p := range managed {
+		b.WriteString(p + "\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TC-H15-01: hygiene manifest sync reports when hygiene.yml has patterns
+// not present in .forge/manifest (exits non-zero).
+func TestManifestSync_OutOfSync(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeHygieneINI(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, nil)
+	writeHygieneINI(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"_scratch_*", "fix_*"}, nil)
+
+	cmd := cmdhygiene.New()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"manifest", "sync", "--root", root})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected non-zero exit when files are out of sync")
+	}
+	if !strings.Contains(out.String(), "fix_*") {
+		t.Errorf("expected 'fix_*' mentioned in output, got: %s", out.String())
+	}
+}
+
+// TC-H15-02: hygiene manifest sync exits 0 when files are in sync.
+func TestManifestSync_InSync(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	patterns := []string{"_scratch_*", "tmp_*"}
+	writeHygieneINI(t, filepath.Join(root, ".forge", "manifest"), patterns, nil)
+	writeHygieneINI(t, filepath.Join(root, ".forge", "hygiene.yml"), patterns, nil)
+
+	cmd := cmdhygiene.New()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"manifest", "sync", "--root", root})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected no error when in sync, got: %v\noutput: %s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "in sync") {
+		t.Errorf("expected 'in sync' in output, got: %s", out.String())
+	}
+}
+
+// TC-H15-03 (JSON mode): --json flag emits valid JSON with in_sync field.
+func TestManifestSync_JSONOutput(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeHygieneINI(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, nil)
+	writeHygieneINI(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"_scratch_*", "extra_*"}, nil)
+
+	cmd := cmdhygiene.New()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"manifest", "sync", "--root", root, "--json"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected non-zero exit when patterns differ")
+	}
+
+	var result struct {
+		InHygieneOnly  []string `json:"in_hygiene_only"`
+		InManifestOnly []string `json:"in_manifest_only"`
+		InSync         bool     `json:"in_sync"`
+	}
+	// Extract JSON from output (may have trailing newline from error)
+	body := strings.TrimSpace(out.String())
+	if err := json.Unmarshal([]byte(body), &result); err != nil {
+		t.Fatalf("--json output is not valid JSON: %v\noutput: %s", err, out.String())
+	}
+	if result.InSync {
+		t.Error("in_sync should be false when patterns differ")
+	}
+}
+
+// TC-H15-04 (false-positive guard): manifest has extra pattern not in hygiene.yml.
+func TestManifestSync_ManifestOnlyPattern(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeHygieneINI(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*", "only_in_manifest"}, nil)
+	writeHygieneINI(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"_scratch_*"}, nil)
+
+	cmd := cmdhygiene.New()
+	var out strings.Builder
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"manifest", "sync", "--root", root})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when manifest has extra patterns")
+	}
+	if !strings.Contains(out.String(), "only_in_manifest") {
+		t.Errorf("expected 'only_in_manifest' in output, got: %s", out.String())
 	}
 }

@@ -420,3 +420,170 @@ func TestNew_JSONOutput(t *testing.T) {
 		t.Error("expected non-empty Mode in JSON output")
 	}
 }
+
+// ── Issue #15: loadMerged + autoSkipDirs ──────────────────────────────────────
+
+// writeManifest writes a minimal .forge/manifest or hygiene.yml to dir.
+func writeManifestFile(t *testing.T, path string, scratch, managed []string) {
+	t.Helper()
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	var b strings.Builder
+	b.WriteString("[scratch]\n")
+	for _, p := range scratch {
+		b.WriteString(p + "\n")
+	}
+	b.WriteString("[managed]\n")
+	for _, p := range managed {
+		b.WriteString(p + "\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TC-15-01 (regression): hygiene.yml pattern **/fix_* matches fix_test.py
+// at project root. Before the fix this was NOT detected; after it IS.
+func TestLoadMerged_HygienePatternPickedUp(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Only hygiene.yml has "fix_*" pattern; the main manifest does not.
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, []string{"README.md"})
+	writeManifestFile(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"fix_*"}, nil)
+	// Create a file that matches only the hygiene.yml pattern.
+	_ = os.WriteFile(filepath.Join(root, "fix_broken.py"), []byte("# fix"), 0o600)
+	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("readme"), 0o600)
+
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// fix_broken.py MUST appear (regression guard: pre-fix code would miss it).
+	expectIncludes(t, res.Candidates, "fix_broken.py")
+	// README must NOT appear.
+	expectExcludes(t, res.Candidates, "README.md")
+}
+
+// TC-15-02 (happy path): patterns from both files are unioned; candidates
+// from both sources are found in a single Run.
+func TestLoadMerged_UnionsBothFiles(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, nil)
+	writeManifestFile(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"patch_*"}, nil)
+	_ = os.WriteFile(filepath.Join(root, "_scratch_note"), []byte("x"), 0o600)
+	_ = os.WriteFile(filepath.Join(root, "patch_hack.go"), []byte("x"), 0o600)
+	_ = os.WriteFile(filepath.Join(root, "main.go"), []byte("x"), 0o600)
+
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	expectIncludes(t, res.Candidates, "_scratch_note", "patch_hack.go")
+	expectExcludes(t, res.Candidates, "main.go")
+}
+
+// TC-15-03 (boundary): only hygiene.yml exists (no .forge/manifest) — hygiene
+// patterns are used and manifest.Default() gracefully applies.
+func TestLoadMerged_OnlyHygieneYML(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"tmp_*"}, nil)
+	_ = os.WriteFile(filepath.Join(root, "tmp_debug.log"), []byte("x"), 0o600)
+
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// tmp_debug.log should appear via hygiene.yml pattern.
+	expectIncludes(t, res.Candidates, "tmp_debug.log")
+}
+
+// TC-15-04 (boundary): only .forge/manifest exists, no hygiene.yml — same
+// behaviour as before the fix.
+func TestLoadMerged_OnlyManifest(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, nil)
+	_ = os.WriteFile(filepath.Join(root, "_scratch_old"), []byte("x"), 0o600)
+	_ = os.WriteFile(filepath.Join(root, "keep.go"), []byte("x"), 0o600)
+
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	expectIncludes(t, res.Candidates, "_scratch_old")
+	expectExcludes(t, res.Candidates, "keep.go")
+}
+
+// TC-15-05 (false-positive guard): file inside node_modules/ must NOT be
+// reported even when a broad pattern like _* matches its basename.
+func TestAutoSkipDirs_NodeModules(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_*"}, nil)
+	_ = os.MkdirAll(filepath.Join(root, "node_modules", "@swc", "helpers", "cjs"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "node_modules", "@swc", "helpers", "cjs", "_async.cjs"), []byte("x"), 0o600)
+	// A real scratch file at project root should still appear.
+	_ = os.WriteFile(filepath.Join(root, "_scratch_note"), []byte("x"), 0o600)
+
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, c := range res.Candidates {
+		if strings.HasPrefix(c, "node_modules") {
+			t.Errorf("node_modules file must not appear: %s", c)
+		}
+	}
+	expectIncludes(t, res.Candidates, "_scratch_note")
+}
+
+// TC-15-06 (false-positive guard): file inside dist/ must NOT be reported.
+func TestAutoSkipDirs_Dist(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_*"}, nil)
+	_ = os.MkdirAll(filepath.Join(root, "dist"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "dist", "_bundle.js"), []byte("x"), 0o600)
+
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, c := range res.Candidates {
+		if strings.HasPrefix(c, "dist") {
+			t.Errorf("dist file must not appear: %s", c)
+		}
+	}
+}
+
+// TC-15-07 (idempotency): run loadMerged twice on same dir → same result.
+func TestLoadMerged_Idempotent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, nil)
+	writeManifestFile(t, filepath.Join(root, ".forge", "hygiene.yml"), []string{"fix_*"}, nil)
+
+	mf1, err1 := loadMerged(root)
+	mf2, err2 := loadMerged(root)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("loadMerged errors: %v / %v", err1, err2)
+	}
+	if len(mf1.Scratch) != len(mf2.Scratch) || len(mf1.Managed) != len(mf2.Managed) {
+		t.Errorf("loadMerged not idempotent: first=%+v, second=%+v", mf1, mf2)
+	}
+}
+
+// TC-15-08 (boundary): neither file exists → loadMerged returns manifest.Default()
+// without error, and Run succeeds on an empty tree.
+func TestLoadMerged_NeitherFileExists(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	res, err := Run(root, false)
+	if err != nil {
+		t.Fatalf("Run on empty tree without manifests: %v", err)
+	}
+	if len(res.Candidates) != 0 {
+		t.Errorf("expected 0 candidates on empty tree, got %v", res.Candidates)
+	}
+}
