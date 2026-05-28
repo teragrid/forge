@@ -123,10 +123,11 @@ Flags:
 Global Flags:
 {{.InheritedFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableSubCommands}}
 
-{{range .Groups}}{{.Title}}{{range $.Commands}}{{if (and (eq .GroupID $.Groups) (or .IsAvailableCommand (eq .Name "help")))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
-{{end}}{{if not .HasParent}}{{range .Commands}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{if .HasHelpSubCommands}}
+{{range .Groups}}{{.Title}}
+{{$gid := .ID}}{{range $.Commands}}{{if (and (eq .GroupID $gid) (or .IsAvailableCommand (eq .Name "help")))}}  {{rpad .Name .NamePadding }} {{.Short}}
+{{end}}{{end}}
+{{end}}{{range .Commands}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}  {{rpad .Name .NamePadding }} {{.Short}}
+{{end}}{{end}}{{end}}{{if .HasHelpSubCommands}}
 
 Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
   {{rpad .Name .NamePadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
