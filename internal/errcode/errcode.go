@@ -108,6 +108,10 @@ var reservedRanges = []struct {
 	{6700, 6799, "cli/skill"},
 	// forge mcp: Model Context Protocol server for AI chat integrations.
 	{6800, 6899, "cli/mcp"},
+	// forge metrics: Prometheus token-usage export.
+	{6600, 6649, "cli/metrics"},
+	// forge companion: zero-setup AI pairing.
+	{6650, 6699, "cli/companion"},
 	{9000, 9099, "internal/test"},
 }
 

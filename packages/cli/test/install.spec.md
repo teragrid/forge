@@ -1,5 +1,21 @@
 # Spec — `@forgeone/cli` install regression suite
 
+## Status Summary
+
+- Lifecycle: In Progress
+- Version Scope: PATCH (install regression checks only; do not bump faster unless the package contract changes)
+- Owner: release
+- Last Updated: 2026-05-28
+- Checkpoint Progress: 0/5
+
+### Completed Tasks
+
+- [ ] S1 — Global install
+- [ ] S2 — Local install
+- [ ] S3 — npx (no prior install)
+- [ ] S4 — Optional-dependency skipped
+- [ ] S5 — postinstall hook
+
 > Version: 1.0.0 · Owner: release · Lives in CI: `.github/workflows/install-test.yml`
 
 This spec defines the contract the npm package must satisfy on every

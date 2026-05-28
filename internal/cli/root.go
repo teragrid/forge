@@ -35,6 +35,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdcheck"
 	"github.com/teragrid/forge/internal/cli/cmdci"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
+	"github.com/teragrid/forge/internal/cli/cmdcompanion"
 	"github.com/teragrid/forge/internal/cli/cmdconfig"
 	"github.com/teragrid/forge/internal/cli/cmdcontext"
 	"github.com/teragrid/forge/internal/cli/cmddeploy"
@@ -53,6 +54,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdlearn"
 	"github.com/teragrid/forge/internal/cli/cmdlint"
 	"github.com/teragrid/forge/internal/cli/cmdmcp"
+	"github.com/teragrid/forge/internal/cli/cmdmetrics"
 	"github.com/teragrid/forge/internal/cli/cmdmigrate"
 	"github.com/teragrid/forge/internal/cli/cmdnew"
 	"github.com/teragrid/forge/internal/cli/cmdoptimize"
@@ -121,8 +123,10 @@ Flags:
 Global Flags:
 {{.InheritedFlags.FlagUsages | trimRightSpace}}{{end}}{{if .HasAvailableSubCommands}}
 
-Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if .HasHelpSubCommands}}
+{{range .Groups}}{{.Title}}{{range $.Commands}}{{if (and (eq .GroupID $.Groups) (or .IsAvailableCommand (eq .Name "help")))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+{{end}}{{if not .HasParent}}{{range .Commands}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{if .HasHelpSubCommands}}
 
 Additional help topics:{{range .Commands}}{{if .IsAdditionalHelpTopicCommand}}
   {{rpad .Name .NamePadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
@@ -177,65 +181,99 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		return nil
 	}
 
+	// ── Command groups (cobra 1.8+) — organise the help output into labelled
+	// sections so the 50-command list is navigable at a glance.
+	// GroupIDs must be registered before any command references them.
+	const (
+		groupCore     = "core"
+		groupBuild    = "build"
+		groupAnalysis = "analysis"
+		groupOps      = "ops"
+		groupAI       = "ai"
+		groupConfig   = "config"
+		groupAdvanced = "advanced"
+	)
+	root.AddGroup(
+		&cobra.Group{ID: groupCore, Title: "Core Workflow:"},
+		&cobra.Group{ID: groupBuild, Title: "Build & Generate:"},
+		&cobra.Group{ID: groupAnalysis, Title: "Analysis & Insights:"},
+		&cobra.Group{ID: groupOps, Title: "Deploy & Operations:"},
+		&cobra.Group{ID: groupAI, Title: "AI & Automation:"},
+		&cobra.Group{ID: groupConfig, Title: "Project & Configuration:"},
+		&cobra.Group{ID: groupAdvanced, Title: "Advanced:"},
+	)
+
+	// Helper to assign a GroupID after construction (cobra Group field is not
+	// settable via the factory, so we set it on the returned command pointer).
+	inGroup := func(cmd *cobra.Command, id string) *cobra.Command {
+		cmd.GroupID = id
+		return cmd
+	}
+
 	root.AddCommand(
-		cmdversion.New(version),
-		cmdnew.New(version),
-		cmddoctor.New(),
-		cmdclean.New(),
-		cmdexplain.New(),
-		cmdscan.New(),
-		cmdlint.New(),
-		cmdship.New(),
-		cmdtest.New(),
-		cmdupgrade.New(),
-		cmdaudit.New(),
-		cmdplugin.New(),
-		cmdeval.New(),
-		cmdpostmortem.New(),
-		cmdinsights.New(),
-		cmdspend.New(),
-		cmdincident.New(),
-		cmdtelemetry.New(),
-		// New verbs: spec §4 gap fill
-		cmdhygiene.New(),
-		cmdgenerate.New(),
-		cmdmigrate.New(),
-		cmdcheck.New(),
-		cmdfix.New(),
-		cmdadopt.New(),
-		cmdeject.New(),
-		cmdreview.New(),
-		cmdcontext.New(),
-		cmdask.New(),
-		cmddocs.New(),
-		cmdinit.New(version),
-		cmdconfig.New(),
-		// M2 verbs
-		cmdlearn.New(),
-		cmddeploy.New(),
-		cmddeploy.NewRollback(),
-		cmdagents.New(),
-		// M3 verbs
-		cmdundo.New(),
-		cmdoptimize.New(),
-		cmdadd.New(),
-		cmdreport.New(),
-		cmdsla.New(),
-		// spec §4 gap-fill: fixtures + backup
-		cmdfixtures.New(),
-		cmdbackup.New(),
-		// post-delivery bug fix workflow
-		cmdbugfix.New(),
-		// DEV-M3-31: post-push CI monitor
-		cmdci.New(),
-		// Template enhancement: TSD subcommand group
-		cmdtsd.New(),
-		// Template enhancement: community template browser
-		cmdtemplates.New(),
-		// Forge expert skill installer for VS Code Copilot, Claude, Cursor, Windsurf
-		cmdskill.New(),
-		// Forge MCP server — expose forge capabilities to AI chat tools
-		cmdmcp.New(),
+		// ── Core Workflow ─────────────────────────────────────────────────────
+		inGroup(cmdship.New(), groupCore),
+		inGroup(cmdscan.New(), groupCore),
+		inGroup(cmdbugfix.New(), groupCore),
+		inGroup(cmdtest.New(), groupCore),
+		inGroup(cmdreview.New(), groupCore),
+
+		// ── Build & Generate ──────────────────────────────────────────────────
+		inGroup(cmdnew.New(version), groupBuild),
+		inGroup(cmdgenerate.New(), groupBuild),
+		inGroup(cmdadd.New(), groupBuild),
+		inGroup(cmdupgrade.New(), groupBuild),
+		inGroup(cmdfix.New(), groupBuild),
+		inGroup(cmdmigrate.New(), groupBuild),
+
+		// ── Analysis & Insights ───────────────────────────────────────────────
+		inGroup(cmdinsights.New(), groupAnalysis),
+		inGroup(cmdmetrics.New(), groupAnalysis),
+		inGroup(cmdspend.New(), groupAnalysis),
+		inGroup(cmdaudit.New(), groupAnalysis),
+		inGroup(cmdeval.New(), groupAnalysis),
+		inGroup(cmdreport.New(), groupAnalysis),
+		inGroup(cmdsla.New(), groupAnalysis),
+		inGroup(cmdlint.New(), groupAnalysis),
+
+		// ── Deploy & Operations ───────────────────────────────────────────────
+		inGroup(cmddeploy.New(), groupOps),
+		inGroup(cmddeploy.NewRollback(), groupOps),
+		inGroup(cmdci.New(), groupOps),
+		inGroup(cmdundo.New(), groupOps),
+		inGroup(cmdincident.New(), groupOps),
+		inGroup(cmdpostmortem.New(), groupOps),
+		inGroup(cmdbackup.New(), groupOps),
+		inGroup(cmdoptimize.New(), groupOps),
+
+		// ── AI & Automation ───────────────────────────────────────────────────
+		inGroup(cmdcompanion.New(), groupAI),
+		inGroup(cmdskill.New(), groupAI),
+		inGroup(cmdagents.New(), groupAI),
+		inGroup(cmdmcp.New(), groupAI),
+		inGroup(cmdlearn.New(), groupAI),
+
+		// ── Project & Configuration ───────────────────────────────────────────
+		inGroup(cmdinit.New(version), groupConfig),
+		inGroup(cmdconfig.New(), groupConfig),
+		inGroup(cmdcontext.New(), groupConfig),
+		inGroup(cmdask.New(), groupConfig),
+		inGroup(cmddocs.New(), groupConfig),
+		inGroup(cmdcheck.New(), groupConfig),
+		inGroup(cmdhygiene.New(), groupConfig),
+		inGroup(cmdtelemetry.New(), groupConfig),
+		inGroup(cmdclean.New(), groupConfig),
+		inGroup(cmddoctor.New(), groupConfig),
+
+		// ── Advanced ──────────────────────────────────────────────────────────
+		inGroup(cmdplugin.New(), groupAdvanced),
+		inGroup(cmdtsd.New(), groupAdvanced),
+		inGroup(cmdtemplates.New(), groupAdvanced),
+		inGroup(cmdfixtures.New(), groupAdvanced),
+		inGroup(cmdadopt.New(), groupAdvanced),
+		inGroup(cmdeject.New(), groupAdvanced),
+		inGroup(cmdexplain.New(), groupAdvanced),
+		inGroup(cmdversion.New(version), groupAdvanced),
 	)
 
 	// Universal flags (G-080): every verb inherits these via PersistentFlags.

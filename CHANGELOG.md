@@ -4,6 +4,28 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-05-28
+
+### Added
+
+- **P1: Model tier routing** — `LLMPipe` now uses `tierrouter` for complexity-driven model selection. `nano`/`micro` → T0 (cheap), `standard` → T1 (balanced), `complex` → T2 (powerful). Controlled via `SetComplexityTier`.
+- **P1: 3-layer knowledge base** (`internal/knowledge/layered.go`) — KB loader merges embedded global KB, user-scoped `~/.forge/kb/`, and project-scoped `.forge/kb/` in priority order. Project KB entries override global ones.
+- **P2: OpenTelemetry checkpoint spans** — `telemetry.StartPipelineSpan` and `telemetry.EmitCheckpointSpan` emit per-checkpoint OTEL spans to `.forge/telemetry.jsonl`. Wired into the `forge ship` pipeline.
+- **P2: Prometheus metrics export** — `forge metrics` command reads `.forge/token-ledger.jsonl` and outputs `forge_tokens_total` and `forge_cost_usd_total` counter series in Prometheus text format, labelled by model.
+- **P2: forge undo integration** — `writeShipTrashManifest` records every ship run to `.forge/trash/<runID>/manifest.json`; `snapOnFail` takes a best-effort snapshot on checkpoint failure. Both wired into `forge ship`.
+- **`forge companion`** — zero-setup AI pairing command with four subcommands: `install` (writes expert persona files for VS Code Copilot / Claude / Cursor / Windsurf), `update` (force-refreshes skill files), `status` (shows per-platform install state), `guide` (prints the vibe-coding quick-start cheatsheet with the top-10 daily prompts).
+- **`forge init` companion hint** — after scaffolding completes, `forge init` prints a `forge companion install` hint so new projects are prompted to set up AI pairing immediately.
+- **Command groups in `forge --help`** — 50 commands now displayed in 7 named groups: Core, Build & Ship, Analysis & Quality, Operations, AI & Automation, Config & Tools, Advanced.
+- **Vibe-coding workflows in skill templates** — all platform templates (Copilot, Claude, Cursor, Windsurf) now include a "Daily Vibe-Coding Patterns" section with feature/bugfix/security/standup/review workflow examples.
+- **Error code ranges** — `FORGE-6600..6649` reserved for `cli/metrics`; `FORGE-6650..6699` reserved for `cli/companion`.
+
+### Fixed
+
+- `companion.go` raw-string backtick syntax error — guide string switched to concatenation to allow embedded backtick characters.
+- Duplicate `FORGE-6800` registration — `cmdmetrics` moved from 6800 to 6600; `cmdcompanion` moved from 6900 (unregistered) to 6650.
+- `captureProvider` in `llmpipe_tier_test.go` — added missing `Capabilities()` method to satisfy `llmprovider.Provider` interface.
+- `TestInvoke_FallbackToDirectWhenRouterNil` — test now uses `newLLMPipeWithProvider` (initialises `rewriter`) and then nils the router, avoiding the nil-pointer dereference.
+
 ## [1.3.0] — 2026-05-26
 
 ### Added

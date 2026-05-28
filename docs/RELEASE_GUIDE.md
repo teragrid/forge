@@ -49,6 +49,29 @@ git commit -m "chore: prepare release vX.Y.Z"
 git push
 ```
 
+### 1.1 — Version scope gate (required before tagging)
+
+Do not bump to the next minor/major by default. Pick the **smallest valid** semver scope:
+
+| If the release contains | Bump |
+|---|---|
+| Bug fixes, hardening, docs, internal refactors, non-breaking behavior corrections | `PATCH` |
+| Backward-compatible additive capability (new verb/flag/output field that does not break existing usage) | `MINOR` |
+| Intentional breaking contract change | `MAJOR` |
+
+Required evidence before tagging:
+
+1. Write a short "Version Scope Decision" in the release PR/body:
+  - `Chosen bump`: PATCH/MINOR/MAJOR
+  - `Why not smaller`: one line
+  - `Breaking impact`: none / described
+2. Confirm the relevant feature spec(s) have a top `Status Summary` block with:
+  - `Lifecycle`
+  - `Version Scope` (+ rationale)
+  - `Last Updated`
+  - `Checkpoint Progress`
+3. If uncertain between `PATCH` and `MINOR`, ship `PATCH` first (or cut `-rc.N`).
+
 ### 2 — Tag and push
 
 ```sh
@@ -174,6 +197,8 @@ Forge follows **Semantic Versioning** (`MAJOR.MINOR.PATCH`):
 | New command or template | MINOR |
 | Bug fix, security patch | PATCH |
 | Pre-release candidate | `x.y.z-rc.N` |
+
+Default release behavior: **prefer PATCH unless a larger scope is clearly justified**.
 
 All six npm packages (`@forge/cli` + 5 platform packages) are always published at the same version and kept in lockstep.
 

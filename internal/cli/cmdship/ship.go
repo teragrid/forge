@@ -50,6 +50,7 @@ import (
 	"github.com/teragrid/forge/internal/gitservice"
 	"github.com/teragrid/forge/internal/manifest"
 	"github.com/teragrid/forge/internal/procspawn"
+	"github.com/teragrid/forge/internal/telemetry"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -1658,11 +1659,31 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	}
 
 	// P2: take a snapshot before each checkpoint so that failures can be rolled back.
+	// Errors are warnings only — a snapshot failure must never block the pipeline.
 	snapBefore := func(cpName string) {
 		if specSlug != "" {
-			_ = TakeSnapshot(root, specSlug, cpName)
+			if err := TakeSnapshot(root, specSlug, cpName); err != nil {
+				// Non-fatal: log to stderr and continue. The snapshot is best-effort.
+				_, _ = fmt.Fprintf(os.Stderr, "forge ship: snapshot warning (cp=%s): %v\n", cpName, err)
+			}
 		}
 	}
+	// P2: restore the pre-checkpoint snapshot when a checkpoint fails.
+	// Provides all-or-nothing semantics for the spec artefacts directory.
+	snapOnFail := func(cpName string) {
+		if specSlug != "" {
+			if err := RestoreSnapshot(root, specSlug, cpName); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "forge ship: restore-snapshot warning (cp=%s): %v\n", cpName, err)
+			}
+		}
+	}
+
+	// P2: write a TrashManifest so `forge undo` can locate this ship run.
+	shipRunID := fmt.Sprintf("ship-%s-%d", specSlug, time.Now().UnixMilli())
+	writeShipTrashManifest(root, shipRunID, specSlug)
+
+	// P2: start a pipeline-level telemetry span for OTEL-compatible tracing.
+	pipeTraceID, pipeSpanID := telemetry.StartPipelineSpan(root, "ship")
 
 	// Suppress the "unused" warning for domainProfile when no checkpoint reads it yet.
 	_ = domainProfile
@@ -1740,6 +1761,10 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		Message:       shipMessage(pipe),
 		Complexity:    classifyComplexity(opts.Description, root),
 	}
+	// P1: wire the complexity tier into the LLM pipe so that the tier router
+	// selects the right model (T0/T1/T2) based on task complexity.
+	pipe.SetComplexityTier(res.Complexity)
+
 	total := len(selected)
 
 	for i, cp := range selected {
@@ -1791,6 +1816,11 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			res.Checkpoints = append(res.Checkpoints, cp)
 			res.Ready = false
 			res.Message = fmt.Sprintf("checkpoint %s failed; pipeline stopped", cp.Name)
+			// P2: restore the pre-checkpoint snapshot so the spec artefacts
+			// directory is rolled back to the state before this checkpoint ran.
+			snapOnFail(strings.ToLower(cp.Name))
+			// P2: emit an ERROR checkpoint span for OTEL-compatible tracing.
+			_ = telemetry.EmitCheckpointSpan(root, pipeTraceID, pipeSpanID, strings.ToLower(cp.Name), "ERROR", 0)
 			// TG-40: emit gap.detected events (for ship/verify) before ship.failed.
 			if opts.EventWriter != nil {
 				cpLower := strings.ToLower(cp.Name)
@@ -1812,6 +1842,8 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			}
 			return res
 		}
+		// P2: emit an OK checkpoint span for OTEL-compatible tracing.
+		_ = telemetry.EmitCheckpointSpan(root, pipeTraceID, pipeSpanID, strings.ToLower(cp.Name), "OK", 0)
 
 		// Run self-debate for this checkpoint when DebateOpts is set.
 		if opts.DebateOpts != nil {

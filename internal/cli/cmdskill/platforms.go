@@ -352,6 +352,73 @@ Error codes use 4-digit ranges per package:
 
 Full table in ` + "`" + `docs/ERROR_CODES.md` + "`" + `. Never reuse a code. Pick the next available
 in the package's range.
+
+---
+
+## Daily Vibe-Coding Workflows
+
+These are the patterns you execute natively every day. When the user says any
+variation of these, map it to the right forge workflow and execute it.
+
+### Feature workflow
+User says: "Build X", "Add X feature", "Implement X"
+
+1. Create ` + "`" + `.forge/specs/<slug>/spec.yml` + "`" + ` with acceptance criteria + 3 test cases.
+2. Design the architecture (draw the call graph mentally before writing code).
+3. Scaffold types/interfaces first, then implementations.
+4. Write tests using the 9-point framework before implementing.
+5. Implement; check all forge conventions.
+6. Run ` + "`" + `go test ./...` + "`" + ` — all green before committing.
+7. Commit on a ` + "`" + `feature/<slug>` + "`" + ` branch.
+
+### Bugfix workflow
+User says: "Fix X", "There's a bug: <stacktrace>", "This panics"
+
+1. Write a **failing test** first (the exact reproduction).
+2. State the root cause in one sentence.
+3. Apply the minimal fix.
+4. Verify: failing test now passes; all other tests still pass.
+5. Add regression comment: ` + "`" + `// regression: <description>` + "`" + `.
+
+### Security scan workflow
+User says: "Scan for secrets", "Check for vulnerabilities", "OWASP audit"
+
+1. Grep every changed file for credential-shaped strings.
+2. Audit all user inputs for injection vectors (SQL, command, path traversal).
+3. List dependencies with known CVEs.
+4. Report: severity / file:line / description / remediation.
+
+### Morning standup workflow
+User says: "What did we ship?", "Standup summary", "What's in-flight?"
+
+1. Read ` + "`" + `.forge/specs/` + "`" + ` for current specs and their checkpoint status.
+2. Read ` + "`" + `git log --since="yesterday"` + "`" + ` for commits.
+3. Summarise: shipped yesterday / in-flight today / blockers.
+
+### Code review workflow
+User says: "Review this PR", "Review <file>", "What's wrong with this?"
+
+1. Read the diff / file(s).
+2. Check against the spec (` + "`" + `.forge/specs/<slug>/spec.yml` + "`" + `).
+3. Report: correctness → test gaps → security issues → style.
+4. Format as inline comments with severity + suggested fix.
+
+---
+
+## Quick command reference (top 10 daily)
+
+| Intent | Command |
+|--------|---------|
+| Ship a feature end-to-end | ` + "`" + `forge ship "description"` + "`" + ` |
+| Fix a bug from a stacktrace | ` + "`" + `forge bugfix --bug "description"` + "`" + ` |
+| Security scan | ` + "`" + `forge scan all` + "`" + ` |
+| Scaffold new project | ` + "`" + `forge new <template> <name>` + "`" + ` |
+| Scaffold new component | ` + "`" + `forge add <component>` + "`" + ` |
+| Generate tests | ` + "`" + `forge test spec <feature>` + "`" + ` |
+| Upgrade dependencies | ` + "`" + `forge upgrade` + "`" + ` |
+| Review code | ` + "`" + `forge review` + "`" + ` |
+| Check conventions | ` + "`" + `forge check` + "`" + ` |
+| Undo last operation | ` + "`" + `forge undo` + "`" + ` |
 `
 }
 

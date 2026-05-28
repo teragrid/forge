@@ -27,7 +27,8 @@
 //
 // Default steerings (mapped to all 7 forge ship checkpoints):
 //
-//	prompt-guide              — ALL: behavioral standards (no placeholders, no hedging)
+//	prompt-guide              — ALL: behavioral standards (no placeholders, no hedging, Status Summary check)
+//	spec-status-maintenance   — ALL: enforce Status Summary at top of spec; version bump velocity guard
 //	requirements-quality-scan — spec: Given/When/Then AC, measurable NFRs, impact analysis
 //	tdd-standards             — test: TDD gate, no always-passing assertions, coverage targets
 //	task-decomposition        — breakdown: atomic tasks, done criteria, effort sizing
@@ -63,11 +64,39 @@ const promptGuideSteering = `Behavioral standards (always enforced):
 2. No hedging language ("might", "could perhaps", "possibly", "maybe").
 3. No scope creep — address only what was asked; flag extras as open questions.
 4. All file references use relative paths from the project root.
-5. When uncertain, flag as a gap with a hint; do not invent content.`
+5. When uncertain, flag as a gap with a hint; do not invent content.
+6. Spec Status Summary — always check and update: if you read or write any spec.md,
+   the "## Status Summary" block at the top MUST reflect the current Lifecycle,
+   Checkpoint Progress, and Last Updated date before you finish.`
+
+// ── spec-status-maintenance (always-on) ─────────────────────────────────────
+
+const specStatusMaintenanceSteering = `Spec Status Summary maintenance (enforced at every checkpoint):
+1. Every spec.md must have a "## Status Summary" block as the FIRST section (before "## What").
+2. Update the block whenever state changes:
+   - Lifecycle: Draft → In Progress → Implemented → Released
+   - Checkpoint Progress: increment (e.g. 3/7) to reflect the checkpoint just completed
+   - Last Updated: set to today
+   - Version Scope: confirm PATCH | MINOR | MAJOR with a one-line rationale
+3. Version bump velocity guard — before recording Version Scope:
+   - PATCH (default): bug fixes, hardening, docs, non-visible internal refactors
+   - MINOR: additive user-visible capability — only when genuinely new; do not use MINOR
+     just because a few commits accumulated; batch small additions into the same MINOR
+   - MAJOR: intentional breaking contract changes only; requires explicit ADR
+   - Do NOT advance to the next MINOR version more than once per deliberate milestone.
+     If the previous MINOR was released fewer than 5 business days ago, default to PATCH
+     unless a significant new user-facing capability is present.
+4. Record the rationale in the Version Scope line (e.g. "MINOR — DAG pipeline + domain profiles").`
 
 // ── spec ─────────────────────────────────────────────────────────────────────
 
 const requirementsQualitySteering = `Requirements quality scan (spec checkpoint):
+0. The top of spec.md must start with a "## Status Summary" section (before "## What") containing at minimum:
+	- Lifecycle: Draft | In Progress | Implemented | Released
+	- Version Scope: PATCH | MINOR | MAJOR (+ one-line rationale)
+	- Owner: team/person responsible
+	- Last Updated: YYYY-MM-DD
+	- Checkpoint Progress: X/7
 1. Every acceptance criterion must use Given/When/Then format.
 2. NFRs must include measurable thresholds (e.g. "p95 latency < 200 ms", "error rate < 0.1%").
 3. Perform impact analysis: list upstream/downstream services affected by this change.
@@ -100,7 +129,12 @@ const implementationStandardsSteering = `Implementation standards (code checkpoi
 2. All filesystem paths validated via the project sandbox (no path traversal).
 3. All subprocess execution goes through the allow-listed spawn utility; no shell=true.
 4. OWASP Top 10: verify injection (A03), broken auth (A07), and insecure design (A04) are addressed.
-5. New public APIs must have input validation at the boundary; internal callers may trust.`
+5. New public APIs must have input validation at the boundary; internal callers may trust.
+6. When implementation reaches done-state, update the spec.md "Status Summary" at the top:
+   - Lifecycle -> Implemented
+   - Checkpoint Progress -> 7/7 (or actual)
+   - Last Updated -> today
+   - Version Scope rationale confirmed before release.`
 
 // ── arch ─────────────────────────────────────────────────────────────────────
 
@@ -110,14 +144,19 @@ const reviewDABSteering = `Design Approval Board — Full DAB checklist (arch ch
 3. Security threat model: identify top-3 OWASP risks; document mitigations.
 4. Data residency and privacy impact assessed; PII handling and retention documented.
 5. Rollback / undo procedure documented and reversible within one deploy cycle.
-6. Integration contracts (API, event schemas) versioned and backward-compatible.`
+6. Integration contracts (API, event schemas) versioned and backward-compatible.
+7. Version bump discipline: choose the smallest valid semver scope for the upcoming release.
+   - PATCH: fixes, hardening, non-breaking behavior corrections (default when unsure)
+   - MINOR: additive, backward-compatible capabilities
+   - MAJOR: explicit breaking contract changes only.`
 
 const reviewDABLightSteering = `Design Approval Board Light checklist (lower-risk / single-service change):
 1. Change is bounded to a single service or module; no cross-service contract changes.
 2. No new external dependencies introduced without an ADR.
 3. Rollback is possible by reverting a single deployment unit.
 4. Existing tests cover the change path; no coverage regression.
-5. Sequence diagram required only if a new inter-service call is introduced.`
+5. Sequence diagram required only if a new inter-service call is introduced.
+6. Version bump discipline: default to PATCH unless an additive feature clearly requires MINOR.`
 
 // ── ship ─────────────────────────────────────────────────────────────────────
 
@@ -125,7 +164,11 @@ const reviewTechChangeSteering = `Technical Change review (ship checkpoint — s
 1. Confirm change is isolated: no schema migrations, no new service dependencies.
 2. CAB Shift-Left checklist: rollback tested, feature-flagged if risky, changelog updated.
 3. Observability: new code paths emit logs / metrics / traces at appropriate levels.
-4. No breaking changes to public interfaces without a deprecation notice.`
+4. No breaking changes to public interfaces without a deprecation notice.
+5. Release scope guard (before tagging):
+   - Record semver decision in the spec.md Status Summary (Version Scope + rationale)
+   - Prefer PATCH by default; use MINOR only for real additive capability
+   - Use MAJOR only for intentional, documented breaking changes.`
 
 // ── arch: scope-scan phase (runs before DAB type decision) ──────────────────
 
@@ -188,6 +231,13 @@ func DefaultSteerings() []Steering {
 			Name:    "prompt-guide",
 			Applies: func(_ string, _ *Checkpoint) bool { return true },
 			Prompt:  promptGuideSteering,
+		},
+		// spec-status-maintenance fires on every checkpoint so that the Status
+		// Summary block is always updated as work progresses, not only at spec time.
+		{
+			Name:    "spec-status-maintenance",
+			Applies: func(_ string, _ *Checkpoint) bool { return true },
+			Prompt:  specStatusMaintenanceSteering,
 		},
 		// ── spec ─────────────────────────────────────────────────────────────
 		{
