@@ -53,6 +53,8 @@ var (
 	ErrBugfixFailed      = errcode.Register(errcode.Code(6550), "bugfix failed")
 	ErrNoSourceSpecified = errcode.Register(errcode.Code(6551), "no bug source specified — provide --bug, --finding, or --test")
 	ErrFindingNotFound   = errcode.Register(errcode.Code(6552), "finding not found in review results")
+	ErrLLMCallFailed     = errcode.Register(errcode.Code(6553), "LLM call failed — forge bugfix cannot proceed without a working LLM")
+	ErrNoLLMProvider     = errcode.Register(errcode.Code(6554), "no LLM provider configured")
 )
 
 // Source constants identify where the bug came from.
@@ -83,7 +85,15 @@ type RunContext struct {
 	Files    []string // source file paths to include in the LLM context
 	ExtraCtx string   // free-form additional context supplied by the caller
 	Model    string   // LLM model override (e.g. "gpt-4o", "claude-sonnet-4-5")
+	// testProvider may be set by tests in this package to inject a fake LLM
+	// provider without real network calls. It is always nil for callers outside
+	// package cmdbugfix (unexported field — zero value is nil).
+	testProvider llmprovider.Provider
 }
+
+// testProviderHook may be set by package-internal tests to inject a fake
+// provider into the cobra command handler. It must remain nil in production.
+var testProviderHook llmprovider.Provider
 
 // BugfixResult is the full output of one bugfix run.
 type BugfixResult struct {
@@ -122,7 +132,7 @@ func init() {
 			"with --apply: writes patch to source files + regression test; appends to .forge/audit.log",
 		},
 		GatesTouched: []string{"§4 bugfix", "DEV-M1-48"},
-		ErrorCodes:   []errcode.Code{ErrBugfixFailed, ErrNoSourceSpecified, ErrFindingNotFound},
+		ErrorCodes:   []errcode.Code{ErrBugfixFailed, ErrNoSourceSpecified, ErrFindingNotFound, ErrLLMCallFailed, ErrNoLLMProvider},
 	})
 }
 
@@ -193,10 +203,11 @@ func New() *cobra.Command {
 			}
 
 			rc := RunContext{
-				Stack:    stack,
-				Files:    files,
-				ExtraCtx: extraCtx,
-				Model:    model,
+				Stack:        stack,
+				Files:        files,
+				ExtraCtx:     extraCtx,
+				Model:        model,
+				testProvider: testProviderHook,
 			}
 			result, err := Run(root, mode, bug, finding, test, rc)
 			if err != nil {
@@ -258,15 +269,18 @@ func Run(root, mode, bug, finding, test string, rcs ...RunContext) (BugfixResult
 	ctx := loadContext(root)
 
 	// Try LLM-backed diagnosis.
-	provider, err := llmprovider.Detect()
-	if err != nil {
-		// No LLM — return a structured placeholder so callers get a valid result.
-		result.RootCause = "LLM provider not configured. Options: set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or GH_TOKEN (GitHub Copilot — if you have a Copilot subscription, run: gh auth login)."
-		result.Summary = fmt.Sprintf("no LLM provider detected — cannot diagnose %s %q", result.Source, result.Input)
-		return result, nil
+	p := rc.testProvider
+	if p == nil {
+		var detectErr error
+		p, detectErr = llmprovider.Detect()
+		if detectErr != nil {
+			return result, errcode.New(ErrNoLLMProvider,
+				"set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or GH_TOKEN (GitHub Copilot — run: gh auth login)",
+				detectErr)
+		}
 	}
 
-	return llmBugfix(result, provider, ctx, rc)
+	return llmBugfix(result, p, ctx, rc)
 }
 
 // llmBugfix calls the LLM to diagnose root cause, produce a patch, and write
@@ -346,9 +360,9 @@ Respond with a JSON object:
 
 	resp, err := provider.Complete(context.Background(), req)
 	if err != nil {
-		result.RootCause = fmt.Sprintf("LLM call failed: %v", err)
-		result.Summary = "LLM call failed — cannot produce fix"
-		return result, nil
+		return result, errcode.New(ErrLLMCallFailed,
+			fmt.Sprintf("provider error: %v — check model name, quota, and credentials", err),
+			err)
 	}
 
 	// Parse LLM JSON response, stripping any markdown fences.
@@ -372,10 +386,9 @@ Respond with a JSON object:
 	}
 
 	if err := json.Unmarshal([]byte(cleaned), &parsed); err != nil {
-		// LLM returned non-JSON — surface the raw content as root cause.
-		result.RootCause = cleaned
-		result.Summary = "LLM response could not be parsed as JSON; raw output shown above"
-		return result, nil
+		return result, errcode.New(ErrLLMCallFailed,
+			"LLM response is not valid JSON — cannot produce a structured fix (raw response logged below)",
+			fmt.Errorf("parse error: %w; raw: %.300s", err, cleaned))
 	}
 
 	result.RootCause = parsed.RootCause
