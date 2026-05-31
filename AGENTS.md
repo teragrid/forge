@@ -133,4 +133,11 @@ Full list in `docs/adr/`.
 
 ---
 
+## Language policy
+
+- **Chat / conversation**: English or Vietnamese — both are accepted.
+- **All documents** (specs, ADRs, RFCs, code comments, commit messages, PR descriptions): **English only**.
+
+---
+
 *See also: CONTRIBUTING.md · CODE_OF_CONDUCT.md · SECURITY.md · docs/ARCHITECTURE.md*

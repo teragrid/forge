@@ -30,6 +30,8 @@ Thumbs.db
 **/.forge/scan-history/
 **/.forge/context/
 **/.forge/specs/
+# Un-ignore the top-level project specs dir so spec.md files are tracked
+!.forge/specs/
 **/.forge/audit.log
 
 # ── Private / development-phase files (kept local, never pushed) ──────────────
@@ -43,6 +45,9 @@ internal/knowledge/zdata_private.go
 # Plain-text JSON index (intermediate artifact, contains unencrypted KB content).
 internal/knowledge/data/
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Playwright MCP browser session files (development-only cache)
+.playwright-mcp/
 
 # forge:gitignore:start
 # Managed by forge — do not edit manually. Run "forge upgrade gitignore-marker" to refresh.

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "feature": "llm-driven automation testing mcp integration",
+  "slug": "llm-driven-automation-testing-mcp-integration",
+  "families": [
+    "secrets",
+    "sca",
+    "sast",
+    "license",
+    "iac",
+    "container",
+    "api",
+    "supply-chain"
+  ],
+  "allowlist": [],
+  "generated_at": ""
+}
