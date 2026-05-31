@@ -197,6 +197,9 @@ func New(forgeVersion string) *cobra.Command {
 			default:
 				fmt.Fprintln(cmd.OutOrStdout(), "  forge doctor")
 			}
+			// Nudge: auto-pairing with AI tools.
+			fmt.Fprintln(cmd.OutOrStdout(), "\n→ Pair AI with this project (VS Code, Claude, Cursor, Windsurf):")
+			fmt.Fprintln(cmd.OutOrStdout(), "    forge companion")
 			return nil
 		},
 	}
@@ -264,6 +267,9 @@ func runMinimal(cmd *cobra.Command, target, name, forgeVersion string, asJSON, f
 	fmt.Fprintln(cmd.OutOrStdout(), "  forge doctor              # validate forge.config.yml")
 	fmt.Fprintln(cmd.OutOrStdout(), "  forge ship \"<feature>\"   # start the 6-checkpoint pipeline")
 	fmt.Fprintln(cmd.OutOrStdout(), "  forge lint                # check conventions")
+	// Nudge: auto-pairing with AI tools.
+	fmt.Fprintln(cmd.OutOrStdout(), "\n→ Pair AI with this project (VS Code, Claude, Cursor, Windsurf):")
+	fmt.Fprintln(cmd.OutOrStdout(), "    forge companion")
 	return nil
 }
 

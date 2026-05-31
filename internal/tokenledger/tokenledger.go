@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -251,4 +252,55 @@ func (l *Ledger) DailyBudgetAlert(t time.Time, limitUSD float64) error {
 		return fmt.Errorf("tokenledger: daily spend USD%.4f meets/exceeds limit USD%.4f", spent, limitUSD)
 	}
 	return nil
+}
+
+// ExportPrometheus returns a Prometheus text-format exposition of the ledger.
+//
+// Metrics exported:
+//   - forge_tokens_total{model,operation,type}  — cumulative token counter
+//   - forge_cost_usd_total{model,operation}      — cumulative cost in USD
+//
+// The output is suitable for scraping by a Prometheus pull gateway or for
+// piping to a Push Gateway via `forge metrics | curl --data-binary @- ...`.
+func (l *Ledger) ExportPrometheus() (string, error) {
+	entries, err := l.ReadAll()
+	if err != nil {
+		return "", err
+	}
+
+	type key struct{ model, operation string }
+	type counter struct {
+		inputTokens  int
+		outputTokens int
+		costUSD      float64
+	}
+	byKey := make(map[key]*counter)
+	for _, e := range entries {
+		k := key{model: e.Model, operation: e.Operation}
+		c, ok := byKey[k]
+		if !ok {
+			c = &counter{}
+			byKey[k] = c
+		}
+		c.inputTokens += e.InputTokens
+		c.outputTokens += e.OutputTokens
+		c.costUSD += e.CostUSD
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# HELP forge_tokens_total Total tokens consumed by Forge LLM calls.\n")
+	sb.WriteString("# TYPE forge_tokens_total counter\n")
+	for k, c := range byKey {
+		fmt.Fprintf(&sb, `forge_tokens_total{model=%q,operation=%q,type="input"} %d`+"\n",
+			k.model, k.operation, c.inputTokens)
+		fmt.Fprintf(&sb, `forge_tokens_total{model=%q,operation=%q,type="output"} %d`+"\n",
+			k.model, k.operation, c.outputTokens)
+	}
+	sb.WriteString("# HELP forge_cost_usd_total Total cost in USD for Forge LLM calls.\n")
+	sb.WriteString("# TYPE forge_cost_usd_total counter\n")
+	for k, c := range byKey {
+		fmt.Fprintf(&sb, `forge_cost_usd_total{model=%q,operation=%q} %.6f`+"\n",
+			k.model, k.operation, c.costUSD)
+	}
+	return sb.String(), nil
 }

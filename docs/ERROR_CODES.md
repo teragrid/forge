@@ -103,4 +103,8 @@ You can also look up any code with `forge ask error <code>`.
 | `FORGE-6550` | bugfix failed | [forge.dev/errors/6550](https://forge.dev/errors/6550) |
 | `FORGE-6551` | no bug source specified — provide --bug, --finding, or --test | [forge.dev/errors/6551](https://forge.dev/errors/6551) |
 | `FORGE-6552` | finding not found in review results | [forge.dev/errors/6552](https://forge.dev/errors/6552) |
+| `FORGE-6553` | LLM call failed — forge bugfix cannot proceed without a working LLM | [forge.dev/errors/6553](https://forge.dev/errors/6553) |
+| `FORGE-6554` | no LLM provider configured | [forge.dev/errors/6554](https://forge.dev/errors/6554) |
 | `FORGE-6700` | skill operation failed (forge skill install/list/remove) | [forge.dev/errors/6700](https://forge.dev/errors/6700) |
+| `FORGE-6600` | metrics export failed | [forge.dev/errors/6600](https://forge.dev/errors/6600) |
+| `FORGE-6650` | companion setup failed | [forge.dev/errors/6650](https://forge.dev/errors/6650) |

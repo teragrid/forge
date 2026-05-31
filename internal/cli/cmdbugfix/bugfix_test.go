@@ -16,12 +16,50 @@ package cmdbugfix
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/teragrid/forge/internal/llmprovider"
 )
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+// mockProvider is a fake LLM provider for unit tests. It captures the request
+// so tests can assert on what was sent to the LLM.
+type mockProvider struct {
+	capturedReq *llmprovider.Request
+	resp        *llmprovider.Response
+	err         error
+}
+
+func (m *mockProvider) Name() string { return "mock" }
+
+func (m *mockProvider) Complete(_ context.Context, req *llmprovider.Request) (*llmprovider.Response, error) {
+	m.capturedReq = req
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.resp, nil
+}
+
+func (m *mockProvider) Capabilities() llmprovider.Capabilities {
+	return llmprovider.Capabilities{}
+}
+
+// goodLLMResponse returns a well-formed LLM JSON response for use in tests.
+func goodLLMResponse() *llmprovider.Response {
+	return &llmprovider.Response{Content: `{
+		"root_cause": "nil pointer dereference in the payment handler",
+		"fix": {"file": "payment.go", "patch": "- if p == nil {\n+ if p == nil { return }", "confidence": "high"},
+		"regression_test": {"file": "payment_test.go", "code": "func TestPaymentNilGuard(t *testing.T) {}"},
+		"summary": "added nil guard to payment handler"
+	}`}
+}
 
 // ── Source constants ──────────────────────────────────────────────────────────
 
@@ -40,20 +78,28 @@ func TestSourceConstants(t *testing.T) {
 
 // ── Run: no-LLM fallback ──────────────────────────────────────────────────────
 
-// TestRun_Bug_NoLLM verifies that --bug succeeds without an LLM provider,
-// returning a structured result with a helpful placeholder message.
-func TestRun_Bug_NoLLM(t *testing.T) {
+// TestRun_NoLLMProvider_ReturnsError verifies that Run returns a non-nil error
+// when no LLM provider is configured. The partial result still has Source,
+// Input, Mode, and Root set (they are resolved before the LLM call).
+func TestRun_NoLLMProvider_ReturnsError(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	// No testProvider set — llmprovider.Detect() will fail in test environments
+	// that have no real API keys configured (the normal case).
 	result, err := Run(root, "dry-run", "login fails when email has a +", "", "")
-	if err != nil {
-		t.Fatalf("Run returned unexpected error: %v", err)
+	if err == nil {
+		// A real LLM is present in this environment; verify the happy path.
+		if result.Source != SourceBug {
+			t.Errorf("Source: got %q want %q", result.Source, SourceBug)
+		}
+		return
 	}
+	// No LLM — partial result still has Source, Input, Mode and Root set.
 	if result.Source != SourceBug {
 		t.Errorf("Source: got %q want %q", result.Source, SourceBug)
 	}
-	if result.Input == "" {
-		t.Error("Input must not be empty")
+	if result.Input != "login fails when email has a +" {
+		t.Errorf("Input: got %q", result.Input)
 	}
 	if result.Mode != "dry-run" {
 		t.Errorf("Mode: got %q want %q", result.Mode, "dry-run")
@@ -61,22 +107,16 @@ func TestRun_Bug_NoLLM(t *testing.T) {
 	if result.Root != root {
 		t.Errorf("Root: got %q want %q", result.Root, root)
 	}
-	// Without an LLM, we expect the RootCause to explain the missing provider.
-	if !strings.Contains(result.RootCause, "LLM provider not configured") &&
-		!strings.Contains(result.RootCause, "LLM call failed") &&
-		result.RootCause == "" {
-		t.Errorf("unexpected empty RootCause without LLM")
-	}
 }
 
-// TestRun_Test_NoLLM verifies that --test also succeeds without an LLM provider.
-func TestRun_Test_NoLLM(t *testing.T) {
+// TestRun_Test_NoLLMProvider verifies that Source and Input are populated even
+// when Run fails with ErrNoLLMProvider (the partial result is always set before
+// the LLM call).
+func TestRun_Test_NoLLMProvider(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	result, err := Run(root, "dry-run", "", "", "TestLoginHandler_PlusSign")
-	if err != nil {
-		t.Fatalf("Run returned unexpected error: %v", err)
-	}
+	result, _ := Run(root, "dry-run", "", "", "TestLoginHandler_PlusSign")
+	// Source and Input are resolved before the LLM call.
 	if result.Source != SourceTest {
 		t.Errorf("Source: got %q want %q", result.Source, SourceTest)
 	}
@@ -116,7 +156,9 @@ func TestRun_Finding_Found(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Run(root, "dry-run", "", "SEC-001", "")
+	result, err := Run(root, "dry-run", "", "SEC-001", "", RunContext{
+		testProvider: &mockProvider{resp: goodLLMResponse()},
+	})
 	if err != nil {
 		t.Fatalf("Run returned unexpected error for existing finding: %v", err)
 	}
@@ -149,15 +191,21 @@ func TestNew_NoFlags_ReturnsError(t *testing.T) {
 
 // TestNew_JSONOutput_Bug verifies that --json emits valid JSON with the correct
 // Source and Mode fields when --bug is provided.
+// Uses testProviderHook to inject a mock LLM so no real API calls are made.
 func TestNew_JSONOutput_Bug(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel() — uses package-level testProviderHook.
+	testProviderHook = &mockProvider{resp: goodLLMResponse()}
+	defer func() { testProviderHook = nil }()
+
 	root := t.TempDir()
 	cmd := New()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs([]string{"--root", root, "--bug", "button click does nothing", "--json"})
-	_ = cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
 
 	var result BugfixResult
 	if err := json.NewDecoder(&out).Decode(&result); err != nil {
@@ -175,15 +223,21 @@ func TestNew_JSONOutput_Bug(t *testing.T) {
 }
 
 // TestNew_JSONOutput_Test verifies JSON output when --test is provided.
+// Uses testProviderHook to inject a mock LLM so no real API calls are made.
 func TestNew_JSONOutput_Test(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel() — uses package-level testProviderHook.
+	testProviderHook = &mockProvider{resp: goodLLMResponse()}
+	defer func() { testProviderHook = nil }()
+
 	root := t.TempDir()
 	cmd := New()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs([]string{"--root", root, "--test", "TestCheckout_NilCart", "--json"})
-	_ = cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
 
 	var result BugfixResult
 	if err := json.NewDecoder(&out).Decode(&result); err != nil {
@@ -202,11 +256,13 @@ func TestRun_Idempotent(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	bugDesc := "panic on nil pointer in payment handler"
-	r1, err := Run(root, "dry-run", bugDesc, "", "")
+	mock := &mockProvider{resp: goodLLMResponse()}
+	rc := RunContext{testProvider: mock}
+	r1, err := Run(root, "dry-run", bugDesc, "", "", rc)
 	if err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	r2, err := Run(root, "dry-run", bugDesc, "", "")
+	r2, err := Run(root, "dry-run", bugDesc, "", "", rc)
 	if err != nil {
 		t.Fatalf("second run: %v", err)
 	}
@@ -221,16 +277,21 @@ func TestRun_Idempotent(t *testing.T) {
 
 // ── Apply mode: dry-run guard ─────────────────────────────────────────────────
 
-// TestNew_ApplyFlag_Sets mode verifies that --apply changes the mode to "apply".
+// TestNew_ApplyFlag_SetsMode verifies that --apply changes the mode to "apply".
 func TestNew_ApplyFlag_SetsMode(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel() — uses package-level testProviderHook.
+	testProviderHook = &mockProvider{resp: goodLLMResponse()}
+	defer func() { testProviderHook = nil }()
+
 	root := t.TempDir()
 	cmd := New()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs([]string{"--root", root, "--bug", "search returns wrong results", "--apply", "--json"})
-	_ = cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute with --apply: %v", err)
+	}
 
 	var result BugfixResult
 	if err := json.NewDecoder(&out).Decode(&result); err != nil {
@@ -261,28 +322,28 @@ func TestRun_Bug_NoBugTextNoInput(t *testing.T) {
 // ── RunContext / new real-world flags ─────────────────────────────────────────
 
 // TestRun_BackwardCompat verifies the 5-arg Run signature still compiles and
-// works (no RunContext supplied). This is the regression guard for the variadic
-// change.
+// that Source is set in the partial result even when Run fails with
+// ErrNoLLMProvider (regression guard for the variadic-arg change).
 func TestRun_BackwardCompat(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	// Must compile and not panic; no LLM → placeholder result.
-	result, err := Run(root, "dry-run", "crash on startup", "", "")
-	if err != nil {
-		t.Fatalf("5-arg Run: %v", err)
-	}
+	// 5-arg form: RunContext is optional. Source is resolved before the LLM
+	// call, so result.Source is populated regardless of whether err is nil.
+	result, _ := Run(root, "dry-run", "crash on startup", "", "")
 	if result.Source != SourceBug {
 		t.Errorf("Source: got %q want %q", result.Source, SourceBug)
 	}
 }
 
 // TestRun_RunContext_Stack passes a RunContext with a stack trace and verifies
-// the call does not error out (no LLM in test env).
+// the stack trace is included in the LLM prompt.
 func TestRun_RunContext_Stack(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	mock := &mockProvider{resp: goodLLMResponse()}
 	rc := RunContext{
-		Stack: "goroutine 1 [running]:\nmain.main()\n\t/main.go:42 +0x80",
+		Stack:        "goroutine 1 [running]:\nmain.main()\n\t/main.go:42 +0x80",
+		testProvider: mock,
 	}
 	result, err := Run(root, "dry-run", "nil pointer dereference", "", "", rc)
 	if err != nil {
@@ -291,6 +352,13 @@ func TestRun_RunContext_Stack(t *testing.T) {
 	if result.Input != "nil pointer dereference" {
 		t.Errorf("Input: got %q", result.Input)
 	}
+	// The stack trace must be included in the LLM prompt.
+	if mock.capturedReq == nil {
+		t.Fatal("LLM was not called")
+	}
+	if !strings.Contains(mock.capturedReq.UserPrompt, "goroutine 1 [running]") {
+		t.Errorf("stack trace not found in LLM prompt:\n%s", mock.capturedReq.UserPrompt)
+	}
 }
 
 // TestRun_RunContext_Files includes a source file that doesn't exist — Run must
@@ -298,8 +366,10 @@ func TestRun_RunContext_Stack(t *testing.T) {
 func TestRun_RunContext_Files(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	mock := &mockProvider{resp: goodLLMResponse()}
 	rc := RunContext{
-		Files: []string{filepath.Join(root, "nonexistent.go")},
+		Files:        []string{filepath.Join(root, "nonexistent.go")},
+		testProvider: mock,
 	}
 	result, err := Run(root, "dry-run", "timeout on checkout", "", "", rc)
 	if err != nil {
@@ -308,13 +378,22 @@ func TestRun_RunContext_Files(t *testing.T) {
 	if result.Source != SourceBug {
 		t.Errorf("Source: got %q want %q", result.Source, SourceBug)
 	}
+	// The (missing) file must still be mentioned in the LLM prompt (graceful fallback).
+	if mock.capturedReq != nil && !strings.Contains(mock.capturedReq.UserPrompt, "nonexistent.go") {
+		t.Errorf("missing file not mentioned in LLM prompt:\n%s", mock.capturedReq.UserPrompt)
+	}
 }
 
-// TestRun_RunContext_ExtraCtx passes free-form context; verifies no error.
+// TestRun_RunContext_ExtraCtx passes free-form context; verifies no error and
+// that the extra context is included in the LLM prompt.
 func TestRun_RunContext_ExtraCtx(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	rc := RunContext{ExtraCtx: "This only happens on the EU cluster, not US."}
+	mock := &mockProvider{resp: goodLLMResponse()}
+	rc := RunContext{
+		ExtraCtx:     "This only happens on the EU cluster, not US.",
+		testProvider: mock,
+	}
 	result, err := Run(root, "dry-run", "payment gateway timeout", "", "", rc)
 	if err != nil {
 		t.Fatalf("Run with extra context: %v", err)
@@ -322,11 +401,20 @@ func TestRun_RunContext_ExtraCtx(t *testing.T) {
 	if result.Mode != "dry-run" {
 		t.Errorf("Mode: got %q want dry-run", result.Mode)
 	}
+	// Extra context must appear in the LLM prompt.
+	if mock.capturedReq != nil && !strings.Contains(mock.capturedReq.UserPrompt, "EU cluster") {
+		t.Errorf("extra context not found in LLM prompt:\n%s", mock.capturedReq.UserPrompt)
+	}
 }
 
-// TestNew_StackFlag verifies the --stack CLI flag is accepted.
+// TestNew_StackFlag verifies the --stack CLI flag is accepted and forwarded
+// to the LLM request.
 func TestNew_StackFlag(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel() — uses package-level testProviderHook.
+	mock := &mockProvider{resp: goodLLMResponse()}
+	testProviderHook = mock
+	defer func() { testProviderHook = nil }()
+
 	root := t.TempDir()
 	cmd := New()
 	var out bytes.Buffer
@@ -348,11 +436,23 @@ func TestNew_StackFlag(t *testing.T) {
 	if result.Source != SourceBug {
 		t.Errorf("Source: got %q", result.Source)
 	}
+	// Verify the stack trace was forwarded to the LLM.
+	if mock.capturedReq == nil {
+		t.Fatal("LLM was not called")
+	}
+	if !strings.Contains(mock.capturedReq.UserPrompt, "goroutine 1 [running]") {
+		t.Errorf("--stack value not found in LLM prompt")
+	}
 }
 
-// TestNew_FileFlag verifies the --file CLI flag is accepted (repeatable).
+// TestNew_FileFlag verifies the --file CLI flag is accepted and the file
+// content is included in the LLM prompt.
 func TestNew_FileFlag(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel() — uses package-level testProviderHook.
+	mock := &mockProvider{resp: goodLLMResponse()}
+	testProviderHook = mock
+	defer func() { testProviderHook = nil }()
+
 	root := t.TempDir()
 	// Write a real file to include.
 	srcFile := filepath.Join(root, "auth.go")
@@ -372,11 +472,23 @@ func TestNew_FileFlag(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute with --file: %v", err)
 	}
+	// Verify the file content was forwarded to the LLM.
+	if mock.capturedReq == nil {
+		t.Fatal("LLM was not called")
+	}
+	if !strings.Contains(mock.capturedReq.UserPrompt, "auth.go") {
+		t.Errorf("--file path not found in LLM prompt")
+	}
 }
 
-// TestNew_ModelFlag verifies the --model CLI flag is accepted.
+// TestNew_ModelFlag verifies the --model CLI flag is accepted and forwarded
+// to the LLM request.
 func TestNew_ModelFlag(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel() — uses package-level testProviderHook.
+	mock := &mockProvider{resp: goodLLMResponse()}
+	testProviderHook = mock
+	defer func() { testProviderHook = nil }()
+
 	root := t.TempDir()
 	cmd := New()
 	var out bytes.Buffer
@@ -390,6 +502,78 @@ func TestNew_ModelFlag(t *testing.T) {
 	})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute with --model: %v", err)
+	}
+	// Verify the model override was forwarded to the LLM request.
+	if mock.capturedReq == nil {
+		t.Fatal("LLM was not called")
+	}
+	if mock.capturedReq.Model != "gpt-4o" {
+		t.Errorf("Model in LLM request: got %q want %q", mock.capturedReq.Model, "gpt-4o")
+	}
+}
+
+// ── Regression tests for issue #18 ───────────────────────────────────────────
+
+// TestRun_LLMCallFailed_ExitsNonZero is the primary regression guard for
+// issue #18. Before the fix, a failing provider.Complete returned (result, nil),
+// giving forge bugfix a silent exit-0 and bypassing all quality gates.
+// The fix must return a non-nil error on ANY LLM failure.
+func TestRun_LLMCallFailed_ExitsNonZero(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mock := &mockProvider{err: fmt.Errorf("429 Too Many Requests — retry after 30s")}
+	_, err := Run(root, "dry-run", "login panic", "", "", RunContext{testProvider: mock})
+	if err == nil {
+		t.Fatal("LLM call failure must return a non-nil error (regression guard for issue #18): " +
+			"before the fix, Run returned (result, nil) silently, causing exit-0 and bypassed quality gates")
+	}
+}
+
+// TestRun_LLMResponse_ValidJSON_HappyPath verifies the happy path: when the LLM
+// returns valid JSON, Run succeeds and the result contains RootCause, Fix, Summary.
+func TestRun_LLMResponse_ValidJSON_HappyPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mock := &mockProvider{resp: goodLLMResponse()}
+	result, err := Run(root, "dry-run", "nil pointer dereference in payment handler", "", "",
+		RunContext{testProvider: mock})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.RootCause == "" {
+		t.Error("RootCause must be populated on success")
+	}
+	if result.Fix == nil {
+		t.Error("Fix must be populated on success")
+	}
+	if result.Summary == "" {
+		t.Error("Summary must be populated on success")
+	}
+}
+
+// TestRun_LLMResponse_InvalidJSON_ExitsNonZero verifies that a non-JSON LLM
+// response returns a non-nil error (boundary: corrupted or non-JSON LLM output).
+func TestRun_LLMResponse_InvalidJSON_ExitsNonZero(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mock := &mockProvider{resp: &llmprovider.Response{
+		Content: "I cannot help with that request.",
+	}}
+	_, err := Run(root, "dry-run", "login panic", "", "", RunContext{testProvider: mock})
+	if err == nil {
+		t.Fatal("non-JSON LLM response must return a non-nil error")
+	}
+}
+
+// TestRun_LLMCallFailed_FalsePositiveGuard is a false-positive guard: when the
+// LLM succeeds with valid JSON, Run must NOT return an error.
+func TestRun_LLMCallFailed_FalsePositiveGuard(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mock := &mockProvider{resp: goodLLMResponse()}
+	_, err := Run(root, "dry-run", "button does nothing", "", "", RunContext{testProvider: mock})
+	if err != nil {
+		t.Errorf("valid LLM response must not produce an error, got: %v", err)
 	}
 }
 

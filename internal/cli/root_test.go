@@ -101,6 +101,58 @@ func TestRootCommand_VerbsRegistered(t *testing.T) {
 	}
 }
 
+// TestHelpCommandGroups is a regression test for the empty-group bug where
+// SetUsageTemplate used `eq .GroupID $.Groups` (comparing a string to the full
+// groups slice), so group headers printed but no commands appeared under them.
+// The fix captures the current group's ID with `$gid := .ID` before entering
+// the inner {{range $.Commands}} loop.
+func TestHelpCommandGroups(t *testing.T) {
+	t.Parallel()
+
+	root := NewRootCommand("0.0.0-dev")
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute() --help returned error: %v", err)
+	}
+	help := out.String()
+
+	// Each group header must appear AND have at least one command listed
+	// immediately after it (regression: headers were present but bodies empty).
+	groups := []struct {
+		header  string
+		command string // a known command in that group
+	}{
+		{"Core Workflow:", "ship"},
+		{"Build & Generate:", "new"},
+		{"Analysis & Insights:", "insights"},
+		{"Deploy & Operations:", "deploy"},
+		{"AI & Automation:", "agents"},
+		{"Project & Configuration:", "init"},
+		{"Advanced:", "explain"},
+	}
+	for _, g := range groups {
+		if !strings.Contains(help, g.header) {
+			t.Errorf("group header %q missing from --help output", g.header)
+		}
+		if !strings.Contains(help, g.command) {
+			t.Errorf("command %q not found in --help output (group %q appears empty)", g.command, g.header)
+		}
+		// Verify the command appears AFTER its group header in the output.
+		hIdx := strings.Index(help, g.header)
+		cIdx := strings.Index(help, "\n  "+g.command)
+		if cIdx == -1 {
+			// try without leading newline (first command in output)
+			cIdx = strings.Index(help, "  "+g.command)
+		}
+		if cIdx < hIdx {
+			t.Errorf("command %q appears before its group header %q — grouping template is broken", g.command, g.header)
+		}
+	}
+}
+
 // TestUniversalFlags_AllVerbs verifies that every subcommand registered on the
 // root inherits the universal persistent flags defined by NewRootCommand.
 // G-080: --json, --yes, --dry-run, --explain, --workspace, --no-color, --quiet.

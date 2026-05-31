@@ -36,6 +36,8 @@ const DefaultSpanPath = ".forge/telemetry.jsonl"
 const DefaultConfigPath = ".forge/telemetry.json"
 
 // Span holds one verb execution span (no PII).
+// Fields marked "OTLP-compatible" align with the OpenTelemetry Trace data
+// model so spans can be forwarded to any OTLP-capable backend.
 type Span struct {
 	TraceID    string `json:"trace_id"`
 	SpanID     string `json:"span_id"`
@@ -48,6 +50,17 @@ type Span struct {
 	OS         string `json:"os"`
 	Arch       string `json:"arch"`
 	Timestamp  string `json:"timestamp"`
+
+	// P2: OTLP-compatible pipeline / checkpoint fields.
+	// ParentSpanID links a checkpoint span to its pipeline root span.
+	ParentSpanID string `json:"parent_span_id,omitempty"`
+	// Checkpoint is the checkpoint name (e.g. "plan", "code", "test").
+	Checkpoint string `json:"checkpoint,omitempty"`
+	// SpanKind distinguishes pipeline root spans ("pipeline") from
+	// per-checkpoint child spans ("checkpoint").
+	SpanKind string `json:"span_kind,omitempty"`
+	// StatusCode is "OK" or "ERROR" (mirrors OTLP StatusCode enum).
+	StatusCode string `json:"status_code,omitempty"`
 }
 
 // Config is the persisted telemetry configuration.
@@ -174,4 +187,50 @@ func ReadSpans(spanPath string) ([]Span, error) {
 		spans = append(spans, s)
 	}
 	return spans, nil
+}
+
+// StartPipelineSpan emits a root span for a pipeline run and returns the
+// traceID and spanID to be forwarded to child checkpoint spans.
+// The span is written to root/.forge/telemetry.jsonl if telemetry is enabled.
+// Errors are non-fatal: callers always receive a valid traceID/spanID.
+func StartPipelineSpan(root, verb string) (traceID, spanID string) {
+	traceID = newID()
+	spanID = newID()[:16] // 8-byte span ID per OTLP convention
+	cfg, err := LoadConfigDefault(root)
+	if err != nil || !cfg.Enabled {
+		return traceID, spanID
+	}
+	spanPath := filepath.Join(root, DefaultSpanPath)
+	_ = Emit(spanPath, cfg, Span{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		Verb:       verb,
+		SpanKind:   "pipeline",
+		StatusCode: "OK",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+	})
+	return traceID, spanID
+}
+
+// EmitCheckpointSpan records a child span for one checkpoint in a pipeline run.
+// parentSpanID must be the spanID returned by StartPipelineSpan.
+// status should be "OK" or "ERROR".
+// dur is the wall-clock duration of the checkpoint.
+func EmitCheckpointSpan(root, traceID, parentSpanID, cpName, status string, dur time.Duration) error {
+	cfg, err := LoadConfigDefault(root)
+	if err != nil || !cfg.Enabled {
+		return nil // telemetry off — silently skip
+	}
+	spanPath := filepath.Join(root, DefaultSpanPath)
+	return Emit(spanPath, cfg, Span{
+		TraceID:      traceID,
+		SpanID:       newID()[:16],
+		ParentSpanID: parentSpanID,
+		Verb:         "ship",
+		Checkpoint:   cpName,
+		SpanKind:     "checkpoint",
+		StatusCode:   status,
+		DurationMS:   dur.Milliseconds(),
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+	})
 }

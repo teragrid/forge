@@ -46,14 +46,24 @@ import (
 	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/llmprovider"
 	"github.com/teragrid/forge/internal/secretrewriter"
+	"github.com/teragrid/forge/internal/tierrouter"
 	"github.com/teragrid/forge/internal/tokenledger"
 )
 
-// LLMPipe bundles an LLM Provider, a secret Rewriter, and a token Ledger.
+// LLMPipe bundles an LLM Provider, a secret Rewriter, a token Ledger, and
+// an optional tier router for complexity-driven model selection.
 type LLMPipe struct {
 	provider llmprovider.Provider
 	rewriter *secretrewriter.Rewriter
 	ledger   *tokenledger.Ledger
+	// router is used for complexity-based tier routing (T0→T1→T2 escalation).
+	// A nil router falls back to direct provider calls.
+	router *tierrouter.Router
+	// minTier is the minimum tier forced by complexity classification.
+	// Empty string means use T0 (cheapest available tier).
+	minTier string
+	// root is the project root used for layered knowledge-base loading.
+	root string
 }
 
 // newLLMPipe detects the active LLM provider from the environment and returns
@@ -75,6 +85,25 @@ func newLLMPipeWithProvider(p llmprovider.Provider, root string) *LLMPipe {
 		provider: p,
 		rewriter: secretrewriter.New(),
 		ledger:   tokenledger.New(filepath.Join(root, tokenledger.DefaultPath)),
+		router:   tierrouter.New(p, nil), // P1: cheap-first tier escalation
+		root:     root,
+	}
+}
+
+// SetComplexityTier maps a ComplexityTier to the minimum tier for LLM routing.
+// nano/micro → T0 (cheap), standard → T1 (balanced), complex → T2 (powerful).
+// Call this once per pipeline run after classifyComplexity is known.
+func (p *LLMPipe) SetComplexityTier(ct ComplexityTier) {
+	if p == nil {
+		return
+	}
+	switch ct {
+	case ComplexityComplex:
+		p.minTier = tierrouter.TierPowerful
+	case ComplexityStandard:
+		p.minTier = tierrouter.TierBalanced
+	default: // nano, micro
+		p.minTier = tierrouter.TierCheap
 	}
 }
 
@@ -99,19 +128,44 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 		UserPrompt:   usr,
 		MaxTokens:    maxTokens,
 	}
-	resp, err := p.provider.Complete(ctx, req)
-	if err != nil {
-		return "", err
+
+	// P1: use the tier router when available to select the right model tier
+	// based on complexity (SetComplexityTier must be called before Invoke).
+	var (
+		content      string
+		respModel    string
+		inputTokens  int
+		outputTokens int
+	)
+	if p.router != nil {
+		result, err := p.router.Route(ctx, *req, p.minTier)
+		if err != nil {
+			return "", err
+		}
+		content = result.Response
+		respModel = result.ModelUsed
+		inputTokens = result.TokensIn
+		outputTokens = result.TokensOut
+	} else {
+		resp, err := p.provider.Complete(ctx, req)
+		if err != nil {
+			return "", err
+		}
+		content = resp.Content
+		respModel = resp.Model
+		inputTokens = resp.InputTokens
+		outputTokens = resp.OutputTokens
 	}
+
 	// Best-effort ledger append — a write failure never blocks the pipeline.
 	_ = p.ledger.Append(tokenledger.Entry{
-		Model:        resp.Model,
-		InputTokens:  resp.InputTokens,
-		OutputTokens: resp.OutputTokens,
-		CostUSD:      estimateCost(resp.Model, resp.InputTokens, resp.OutputTokens),
+		Model:        respModel,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		CostUSD:      estimateCost(respModel, inputTokens, outputTokens),
 		Operation:    operation,
 	})
-	return resp.Content, nil
+	return content, nil
 }
 
 // InvokeWithKnowledge enriches the system prompt with relevant knowledge-base
@@ -126,7 +180,14 @@ func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, max
 	if p == nil {
 		return "", nil
 	}
-	idx, err := knowledge.Load()
+	// P1: use layered KB (project > user > embedded) when root is known.
+	var idx *knowledge.Index
+	var err error
+	if p.root != "" {
+		idx, err = knowledge.LoadLayered(p.root)
+	} else {
+		idx, err = knowledge.Load()
+	}
 	if err != nil {
 		// Graceful degradation: log nothing (no PII risk), proceed without KB.
 		return p.Invoke(operation, model, system, user, maxTokens)
@@ -210,6 +271,12 @@ func estimateCost(model string, inputTokens, outputTokens int) float64 {
 func specStub(description string) string {
 	return fmt.Sprintf(
 		"# Spec: %s\n\n"+
+			"## Status Summary\n"+
+			"- Lifecycle: Draft\n"+
+			"- Version Scope: PATCH (default; confirm before release)\n"+
+			"- Owner: <!-- team/person -->\n"+
+			"- Last Updated: <!-- YYYY-MM-DD -->\n"+
+			"- Checkpoint Progress: 1/7\n\n"+
 			"## What\n%s\n\n"+
 			"## Why\n<!-- fill in business rationale -->\n\n"+
 			"## Acceptance Criteria\n- [ ] <!-- add at least one criterion (Given/When/Then) -->\n\n"+

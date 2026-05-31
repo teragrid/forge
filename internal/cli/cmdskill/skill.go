@@ -297,6 +297,12 @@ func newRemoveCmd() *cobra.Command {
 
 // ── core logic ────────────────────────────────────────────────────────────────
 
+// RunInstall is the exported entry point used by `forge companion` and any
+// other verb that needs to trigger a skill install programmatically.
+func RunInstall(root, name, platform string, force, dryRun bool) (*InstallResult, error) {
+	return runInstall(root, name, platform, force, dryRun)
+}
+
 func runInstall(root, name, platform string, force, dryRun bool) (*InstallResult, error) {
 	res := &InstallResult{Root: root}
 	for _, sf := range buildFilesForPlatform(root, name, platform) {
@@ -484,6 +490,21 @@ If ` + q + `.github/chatmodes/` + name + `.chatmode.md` + q + ` does not exist, 
 [5/6] code      — implementation
 [6/6] ship      — quality gate: format + vet + lint + test + vuln + forge scan
 ` + "```" + `
+
+## Daily vibe-coding workflows
+
+Describe your intent in plain English — the assistant maps it to the right
+forge workflow and executes it from start to finish.
+
+| You say | What runs |
+|---------|-----------|
+| "Build a rate-limiter for the API" | full ship workflow (spec → code → tests → scan) |
+| "Fix this panic: <stacktrace>" | bugfix workflow (reproduce → root-cause → fix → guard) |
+| "Scan for OWASP issues and secrets" | comprehensive security scan |
+| "Review this PR focusing on correctness" | AI code review with inline suggestions |
+| "What shipped yesterday? Standup summary" | git log + specs → standup report |
+
+> Run ` + q + `forge companion guide` + q + ` for the full vibe-coding quick-start cheatsheet.
 `
 	return skillFileInternal{
 		SkillFile: SkillFile{

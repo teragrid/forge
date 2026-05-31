@@ -33,6 +33,7 @@
 package cmdship
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -145,4 +146,54 @@ func snapshotCopyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// writeShipTrashManifest writes a TrashManifest for a `forge ship` run so that
+// `forge undo` can locate and reverse it.
+//
+// The manifest is written to .forge/trash/<runID>/manifest.json.
+// This satisfies ADR-024 (§17.1 #5 reversibility contract) for the ship verb.
+// Errors are silently swallowed — a missing manifest is recoverable by the user.
+func writeShipTrashManifest(root, runID, specSlug string) {
+	dir := filepath.Join(root, ".forge", "trash", runID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+
+	// Record the spec artefacts directory as the primary tracked path.
+	specDir := filepath.Join(root, ".forge", "specs", specSlug)
+	type trashFile struct {
+		OrigPath string `json:"orig_path"`
+		SavePath string `json:"save_path"`
+		Mode     uint32 `json:"mode"`
+	}
+	type trashManifest struct {
+		RunID     string      `json:"run_id"`
+		Timestamp string      `json:"ts"`
+		Verb      string      `json:"verb"`
+		Files     []trashFile `json:"files"`
+	}
+	m := trashManifest{
+		RunID:     runID,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Verb:      "ship",
+		Files: []trashFile{
+			{
+				OrigPath: specDir,
+				SavePath: filepath.Join(root, ".forge", snapshotsBaseDir, specSlug),
+				Mode:     0o755,
+			},
+		},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o600)
+}
+
+// snapOnFail is a best-effort snapshot helper called on checkpoint failure.
+// It calls TakeSnapshot and silently discards any error (snapshot is advisory).
+func snapOnFail(root, slug, checkpoint string) {
+	_ = TakeSnapshot(root, slug, checkpoint)
 }
