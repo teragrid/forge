@@ -33,7 +33,6 @@ package cmdship
 import (
 	"net"
 	"regexp"
-	"strings"
 
 	"github.com/teragrid/forge/internal/errcode"
 )
@@ -209,9 +208,4 @@ func (f *PIIFilter) Categories(text string) []string {
 		}
 	}
 	return out
-}
-
-// piiPlaceholder returns the redaction token for a category.
-func piiPlaceholder(category string) string {
-	return "[PII:" + strings.ToLower(category) + "]"
 }

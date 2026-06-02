@@ -59,11 +59,11 @@ type DriftSignal struct {
 
 // DriftReport is the full output of DetectDrift.
 type DriftReport struct {
-	Slug        string        `json:"slug"`
-	CheckedAt   time.Time     `json:"checked_at"`
-	Signals     []DriftSignal `json:"signals"`
-	BlockCount  int           `json:"block_count"`
-	WarnCount   int           `json:"warn_count"`
+	Slug       string        `json:"slug"`
+	CheckedAt  time.Time     `json:"checked_at"`
+	Signals    []DriftSignal `json:"signals"`
+	BlockCount int           `json:"block_count"`
+	WarnCount  int           `json:"warn_count"`
 	// Clean is true when no signals were found.
 	Clean bool `json:"clean"`
 }
@@ -170,8 +170,8 @@ func DetectDrift(root, slug string, failOnBlock bool) (*DriftReport, error) {
 	}
 	report.Clean = len(report.Signals) == 0
 
-	// Write report to disk (best-effort).
-	writeJSON(filepath.Join(specDir, "drift-report.json"), report)
+	// Write report to disk (best-effort; ignore error — non-critical).
+	_ = writeJSON(filepath.Join(specDir, "drift-report.json"), report)
 
 	if failOnBlock && report.BlockCount > 0 {
 		return report, ErrDriftDetected
@@ -321,5 +321,5 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }

@@ -215,7 +215,7 @@ func TestRunABExperiment_NilPipe_Inconclusive(t *testing.T) {
 	root := t.TempDir()
 	def := ABExperimentDef{Name: "nil-test", Checkpoint: "arch", VariantA: "A", VariantB: "B"}
 	winner, err := RunABExperiment(root, def, nil, "base", "prompt", 100,
-		func(r string) float64 { return 5.0 })
+		func(_ string) float64 { return 5.0 })
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -720,5 +720,3 @@ func TestCheckpointNeedsRerun_NoBaseline(t *testing.T) {
 		t.Error("expected needs re-run when no baseline")
 	}
 }
-
-
