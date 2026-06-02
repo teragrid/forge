@@ -26,10 +26,15 @@ Thumbs.db
 .forge/cache/
 .forge/scratch/
 .forge/scan-history/
+.forge/trash/
+.forge/snapshots/
+.forge/learned/
 # Runtime .forge dirs that tools write inside source packages (any depth)
 **/.forge/scan-history/
 **/.forge/context/
 **/.forge/specs/
+**/.forge/trash/
+**/.forge/snapshots/
 # Un-ignore the top-level project specs dir so spec.md files are tracked
 !.forge/specs/
 **/.forge/audit.log

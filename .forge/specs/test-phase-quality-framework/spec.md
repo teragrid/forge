@@ -5,7 +5,9 @@
 **RFC reference**: RFC-005 §6.1–6.8  
 **Author**: Forge Core Team  
 **Date**: 2026-06-02  
-**Status**: Spec ✅ · Arch ⬜ · Test ⬜ · Breakdown ⬜ · Code ⬜ · Ship ⬜ · QA-Verify ⬜  
+**Status**: Spec ✅ · Arch ✅ · Test ✅ · Breakdown ✅ · Code ✅ · Ship ✅ · QA-Verify ✅  
+**Merged**: 2026-06-02 — `feat(cmdship): RFC-005 §6 test phase quality framework — merge to main` (`6db2fe7`)  
+**All 14 ACs implemented · 37 tests pass · pushed to origin/main**  
 
 ---
 
