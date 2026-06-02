@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/teragrid/forge/internal/errcode"
 )
@@ -40,78 +41,47 @@ import (
 var ErrTestsGreenAtStubStage = errcode.Register(errcode.Code(3202),
 	"test stubs already passing — tests must be failing (red) at stub stage (TDD requirement)")
 
-// TestArtifactPaths holds the paths of the four G-006 test artifacts for a slug.
+// RFC-005 §6 error codes.
+var (
+	// ErrFrameworkDetectFailed is returned when test framework detection fails.
+	ErrFrameworkDetectFailed = errcode.Register(errcode.Code(3210),
+		"test framework detection failed")
+	// ErrTraceabilityWriteFailed is returned when traceability.yaml cannot be written.
+	ErrTraceabilityWriteFailed = errcode.Register(errcode.Code(3211),
+		"traceability.yaml write failed")
+	// ErrTestGateBLOCK is returned when the test phase gate rejects the pipeline.
+	ErrTestGateBLOCK = errcode.Register(errcode.Code(3212),
+		"test phase gate: BLOCK — composite score below threshold")
+)
+
+// TestArtifactPaths holds the paths of the test artifacts for a slug.
+// Language-specific fields are set based on the detected stack (RFC-005 §6).
+// TypeScript fields (UnitTest, IntegrationTest, RLSTest) are populated only
+// for TypeScript/JavaScript projects. Go/Python/Java fields are populated only
+// for their respective languages. ScanBaseline is always populated.
 type TestArtifactPaths struct {
+	// TypeScript / JavaScript (original G-006)
 	UnitTest        string // tests/<slug>.test.ts
 	IntegrationTest string // tests/<slug>.integration.test.ts
-	RLSTest         string // tests/<slug>.rls.test.ts
-	ScanBaseline    string // tests/<slug>.scan.baseline.json
+	RLSTest         string // tests/<slug>.rls.test.ts (Supabase only)
+	// Go
+	GoTest     string // tests/<slug>_test.go
+	GoFuzzTest string // tests/<slug>_fuzz_test.go (go 1.18+)
+	// Python
+	PyTest string // tests/test_<slug>.py
+	// Java
+	JavaTest string // tests/<slug>Test.java
+	// Language-agnostic
+	ScanBaseline string // tests/<slug>.scan.baseline.json
+	Traceability string // .forge/specs/<slug>/traceability.yaml (set by WriteTraceability caller)
 }
 
-// writeTestArtifacts generates the four named test artifacts for G-006.
-//
-// It creates the files in <root>/tests/<slug>/ and returns the paths.
-// An LLMPipe may be nil — in that case deterministic stubs are written.
-// The function never returns an error for file-write failures; a missing
-// test artifact is surfaced as a warning in checkTest.
+// writeTestArtifacts is the original G-006 entry point, now a shim that calls
+// writeTestArtifactsWithContext using the auto-detected test framework. This
+// preserves backward-compatibility while fixing G10 (hardcoded TypeScript).
 func writeTestArtifacts(root, slug, feature, specMarkdown string, pipe *LLMPipe) TestArtifactPaths {
-	testsDir := filepath.Join(root, "tests")
-	if err := os.MkdirAll(testsDir, 0o755); err != nil {
-		return TestArtifactPaths{}
-	}
-
-	paths := TestArtifactPaths{
-		UnitTest:        filepath.Join(testsDir, slug+".test.ts"),
-		IntegrationTest: filepath.Join(testsDir, slug+".integration.test.ts"),
-		RLSTest:         filepath.Join(testsDir, slug+".rls.test.ts"),
-		ScanBaseline:    filepath.Join(testsDir, slug+".scan.baseline.json"),
-	}
-
-	// Generate via LLM when available; fall back to static stubs.
-	unitContent := unitTestStub(slug, feature)
-	integContent := integrationTestStub(slug, feature)
-	rlsContent := rlsTestStub(slug, feature)
-
-	if pipe != nil {
-		ctx := ""
-		if specMarkdown != "" {
-			ctx = "Feature spec:\n" + specMarkdown + "\n\n"
-		}
-
-		if gen, err := pipe.Invoke("ship:test:unit", "",
-			"You are a senior TypeScript QA engineer writing failing unit test stubs for TDD. "+
-				"Tests MUST compile but MUST fail at runtime (use t.fail() or expect(false).toBe(true)). "+
-				"Use Jest + supertest. Each test covers exactly one acceptance criterion.",
-			ctx+"Generate failing unit test stubs for feature: "+feature, 2000); err == nil && gen != "" {
-			unitContent = gen
-		}
-
-		if gen, err := pipe.Invoke("ship:test:integration", "",
-			"You are writing failing integration test stubs (Jest + supertest) for TDD. "+
-				"Tests MUST fail. Cover: happy path, auth, and error scenarios.",
-			ctx+"Generate failing integration test stubs for feature: "+feature, 2000); err == nil && gen != "" {
-			integContent = gen
-		}
-
-		if gen, err := pipe.Invoke("ship:test:rls", "",
-			"You are writing Row-Level Security test stubs for Supabase/PostgreSQL. "+
-				"Tests MUST fail. Verify that: (1) tenant-A cannot read tenant-B rows, "+
-				"(2) service role can read all rows, (3) anon role is denied.",
-			ctx+"Generate failing RLS test stubs for feature: "+feature, 1500); err == nil && gen != "" {
-			rlsContent = gen
-		}
-	}
-
-	_ = os.WriteFile(paths.UnitTest, []byte(unitContent), 0o600)
-	_ = os.WriteFile(paths.IntegrationTest, []byte(integContent), 0o600)
-	_ = os.WriteFile(paths.RLSTest, []byte(rlsContent), 0o600)
-
-	baseline := scanBaseline(slug, feature)
-	if data, err := json.MarshalIndent(baseline, "", "  "); err == nil {
-		_ = os.WriteFile(paths.ScanBaseline, data, 0o600)
-	}
-
-	return paths
+	fw := detectTestFramework(root)
+	return writeTestArtifactsWithContext(root, slug, feature, specMarkdown, fw, pipe)
 }
 
 // allTestArtifactsExist returns true when all four G-006 artifacts are present.
@@ -277,4 +247,312 @@ func scanBaseline(slug, feature string) ScanBaseline {
 		Allowlist:     []ScanAllowEntry{},
 		GeneratedAt:   "",
 	}
+}
+
+// ── RFC-005 §6: framework-aware test generation (G10 fix) ─────────────────────
+
+// bugFixSignals are substrings in a feature description that indicate a bug-fix.
+// When any signal is present, D7 (Regression Guard) is mandatory at score ≥8.
+// RFC-005 §6.6.
+var bugFixSignals = []string{
+	"fix", "bug", "issue", "regression", "broken", "crash",
+	"nil pointer", "panic", "incorrect", "wrong output",
+	"not working", "doesn't work", "race condition",
+}
+
+// IsBugFix reports whether the feature description contains a bug-fix signal.
+func IsBugFix(feature string) bool {
+	lower := strings.ToLower(feature)
+	for _, sig := range bugFixSignals {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckTestFilesResult holds the result of a file-presence check.
+type CheckTestFilesResult struct {
+	AllPresent bool
+	Missing    []string
+}
+
+// CheckTestFilesExist checks whether each file in the list exists on disk.
+func CheckTestFilesExist(files []string) CheckTestFilesResult {
+	var missing []string
+	for _, f := range files {
+		if _, err := os.Stat(f); err != nil {
+			missing = append(missing, f)
+		}
+	}
+	return CheckTestFilesResult{
+		AllPresent: len(missing) == 0,
+		Missing:    missing,
+	}
+}
+
+// writeTestArtifactsWithContext generates framework-appropriate test stubs.
+// It dispatches to language-specific generators based on fw.Language, writing
+// only the correct stub type for the detected stack (G10 fix: no cross-language
+// injection). An LLMPipe may be nil — static stubs are always written as a
+// fallback. RFC-005 §6.3.
+func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFrameworkContext, pipe *LLMPipe) TestArtifactPaths {
+	testsDir := filepath.Join(root, "tests")
+	if err := os.MkdirAll(testsDir, 0o755); err != nil {
+		return TestArtifactPaths{}
+	}
+
+	isFix := IsBugFix(feature)
+	paths := TestArtifactPaths{}
+
+	switch fw.Language {
+	case "go":
+		paths.GoTest = filepath.Join(testsDir, slug+"_test.go")
+		content := goTestStub(slug, feature, isFix)
+		if pipe != nil {
+			if gen := llmGoStub(pipe, slug, feature, specMD, isFix); gen != "" {
+				content = gen
+			}
+		}
+		_ = os.WriteFile(paths.GoTest, []byte(content), 0o600)
+
+		if fw.FuzzSupport {
+			paths.GoFuzzTest = filepath.Join(testsDir, slug+"_fuzz_test.go")
+			_ = os.WriteFile(paths.GoFuzzTest, []byte(goFuzzTestStub(slug, feature)), 0o600)
+		}
+
+	case "python":
+		paths.PyTest = filepath.Join(testsDir, "test_"+slug+".py")
+		content := pyTestStub(slug, feature, isFix)
+		_ = os.WriteFile(paths.PyTest, []byte(content), 0o600)
+
+	case "java":
+		paths.JavaTest = filepath.Join(testsDir, slug+"Test.java")
+		content := javaTestStub(slug, feature, isFix)
+		_ = os.WriteFile(paths.JavaTest, []byte(content), 0o600)
+
+	default:
+		// TypeScript / unknown — fall through to the original G-006 generators.
+		paths.UnitTest = filepath.Join(testsDir, slug+".test.ts")
+		paths.IntegrationTest = filepath.Join(testsDir, slug+".integration.test.ts")
+		paths.RLSTest = filepath.Join(testsDir, slug+".rls.test.ts")
+
+		unitContent := unitTestStub(slug, feature)
+		integContent := integrationTestStub(slug, feature)
+		rlsContent := rlsTestStub(slug, feature)
+
+		if pipe != nil {
+			ctx := ""
+			if specMD != "" {
+				ctx = "Feature spec:\n" + specMD + "\n\n"
+			}
+			if gen, err := pipe.Invoke("ship:test:unit", "",
+				"You are a senior TypeScript QA engineer writing failing unit test stubs for TDD. "+
+					"Tests MUST compile but MUST fail at runtime. Use Jest.",
+				ctx+"Generate failing unit test stubs for feature: "+feature, 2000); err == nil && gen != "" {
+				unitContent = gen
+			}
+			if gen, err := pipe.Invoke("ship:test:integration", "",
+				"You are writing failing integration test stubs (Jest + supertest) for TDD. Tests MUST fail.",
+				ctx+"Generate failing integration test stubs for feature: "+feature, 2000); err == nil && gen != "" {
+				integContent = gen
+			}
+			if gen, err := pipe.Invoke("ship:test:rls", "",
+				"You are writing Row-Level Security test stubs for Supabase. Tests MUST fail.",
+				ctx+"Generate failing RLS test stubs for feature: "+feature, 1500); err == nil && gen != "" {
+				rlsContent = gen
+			}
+		}
+
+		_ = os.WriteFile(paths.UnitTest, []byte(unitContent), 0o600)
+		_ = os.WriteFile(paths.IntegrationTest, []byte(integContent), 0o600)
+		_ = os.WriteFile(paths.RLSTest, []byte(rlsContent), 0o600)
+	}
+
+	// ScanBaseline is language-agnostic — always written.
+	paths.ScanBaseline = filepath.Join(testsDir, slug+".scan.baseline.json")
+	baseline := scanBaseline(slug, feature)
+	if data, err := json.MarshalIndent(baseline, "", "  "); err == nil {
+		_ = os.WriteFile(paths.ScanBaseline, data, 0o600)
+	}
+
+	return paths
+}
+
+// ── Go stub generators ─────────────────────────────────────────────────────────
+
+func goTestStub(_ string, feature string, isBugFix bool) string {
+	title := featureTitle(feature)
+	regression := ""
+	if isBugFix {
+		regression = fmt.Sprintf(`
+// Regression: %s — must fail on pre-fix code, pass on post-fix code.
+func Test%sRegression_FailsPreFix(t *testing.T) {
+	t.Skip("TODO: fill in reproduction of original bug")
+}
+
+// Regression: %s — idempotency guard.
+func Test%sRegression_Idempotent(t *testing.T) {
+	t.Skip("TODO: call fixed function twice, assert same result")
+}
+`, feature, title, feature, title)
+	}
+	return fmt.Sprintf(`// AUTO-GENERATED by forge ship test — RFC-005 §6 Go test stubs
+// Feature: %s
+// Status: RED (intentionally incomplete — fill in at forge ship code)
+
+package cmdship
+
+import "testing"
+
+func Test%s_HappyPath(t *testing.T) {
+	t.Skip("TODO: implement happy-path test")
+}
+
+func Test%s_ErrorPath(t *testing.T) {
+	t.Skip("TODO: implement error-path test")
+}
+%s`, feature, title, title, regression)
+}
+
+func goFuzzTestStub(_ string, feature string) string {
+	title := featureTitle(feature)
+	return fmt.Sprintf(`// AUTO-GENERATED by forge ship test — RFC-005 §6 Go fuzz test stubs
+// Feature: %s
+// Status: RED
+
+package cmdship
+
+import "testing"
+
+func Fuzz%s(f *testing.F) {
+	f.Add("seed input") // TODO: add representative seed corpus
+	f.Fuzz(func(t *testing.T, in string) {
+		_ = in // TODO: call function under test; must not panic
+	})
+}
+`, feature, title)
+}
+
+// ── Python stub generator ───────────────────────────────────────────────────
+
+func pyTestStub(slug, feature string, isBugFix bool) string {
+	title := featureTitle(feature)
+	regression := ""
+	if isBugFix {
+		regression = fmt.Sprintf(`
+    def test_%s_regression_fails_pre_fix(self):
+        """Regression: must fail on pre-fix code, pass on post-fix."""
+        pytest.skip("TODO: reproduce original bug")
+
+    def test_%s_regression_idempotent(self):
+        """Regression: calling function twice must yield same result."""
+        pytest.skip("TODO: implement idempotency assertion")
+`, slug, slug)
+	}
+	return fmt.Sprintf(`# AUTO-GENERATED by forge ship test — RFC-005 §6 Python test stubs
+# Feature: %s
+# Status: RED (intentionally incomplete)
+
+import pytest
+
+
+class Test%s:
+    def test_happy_path(self):
+        """Happy path: TODO implement."""
+        pytest.skip("TODO: implement happy-path test")
+
+    def test_error_path(self):
+        """Error path: TODO implement."""
+        pytest.skip("TODO: implement error-path test")
+%s`, feature, title, regression)
+}
+
+// ── Java stub generator ─────────────────────────────────────────────────────
+
+func javaTestStub(_ string, feature string, isBugFix bool) string {
+	title := featureTitle(feature)
+	regression := ""
+	if isBugFix {
+		regression = fmt.Sprintf(`
+    @Test
+    @Disabled("TODO: regression — reproduce original bug, must fail on pre-fix code")
+    void test%sRegression_failsPreFix() {}
+
+    @Test
+    @Disabled("TODO: regression — idempotency guard")
+    void test%sRegression_idempotent() {}
+`, title, title)
+	}
+	return fmt.Sprintf(`// AUTO-GENERATED by forge ship test — RFC-005 §6 Java test stubs
+// Feature: %s
+// Status: RED (intentionally incomplete)
+
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
+
+class %sTest {
+
+    @Test
+    @Disabled("TODO: implement happy-path test")
+    void testHappyPath() {}
+
+    @Test
+    @Disabled("TODO: implement error-path test")
+    void testErrorPath() {}
+%s}
+`, feature, title, regression)
+}
+
+// ── LLM generator for Go (optional enrichment) ─────────────────────────────
+
+func llmGoStub(pipe *LLMPipe, _ string, feature, specMD string, isBugFix bool) string {
+	ctx := ""
+	if specMD != "" {
+		ctx = "Feature spec:\n" + specMD + "\n\n"
+	}
+	bugFixHint := ""
+	if isBugFix {
+		bugFixHint = " Include two //Regression: labeled test stubs that FAIL on pre-fix code and PASS after the fix."
+	}
+	gen, err := pipe.Invoke("ship:test:go", "",
+		"You are a senior Go QA engineer writing failing test stubs for TDD. "+
+			"Tests MUST compile but must call t.Skip(). Use standard library testing only."+bugFixHint,
+		ctx+"Generate failing Go test stubs for feature: "+feature, 2000)
+	if err != nil || gen == "" {
+		return ""
+	}
+	return gen
+}
+
+// featureTitle converts a feature string to a CamelCase identifier suitable
+// for Go/Python/Java test function names.
+func featureTitle(feature string) string {
+	if feature == "" {
+		return "Feature"
+	}
+	words := strings.Fields(strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' {
+			return r
+		}
+		return ' '
+	}, feature))
+	if len(words) == 0 {
+		return "Feature"
+	}
+	var sb strings.Builder
+	for _, w := range words {
+		if len(w) == 0 {
+			continue
+		}
+		sb.WriteByte(w[0] &^ 32) // uppercase first byte
+		if len(w) > 1 {
+			sb.WriteString(strings.ToLower(w[1:]))
+		}
+	}
+	result := sb.String()
+	if result == "" {
+		return "Feature"
+	}
+	return result
 }

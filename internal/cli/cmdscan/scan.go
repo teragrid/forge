@@ -937,7 +937,7 @@ func scanFilesExt(root string, exts []string, fn func(rel string, line int, text
 				".next", ".nuxt", ".svelte-kit",
 				"dist", "build", "out", "output",
 				"coverage", ".nyc_output", ".cache", "tmp", ".tmp",
-				"fixtures", "testdata":
+				"fixtures", "testdata", ".playwright-mcp":
 				return filepath.SkipDir
 			}
 			return nil

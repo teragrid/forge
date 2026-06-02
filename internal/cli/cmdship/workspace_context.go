@@ -26,14 +26,31 @@
 package cmdship
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// TestFrameworkContext holds the detected test environment for the workspace.
+// All fields are populated by deterministic filesystem inspection — zero LLM calls.
+// RFC-005 §6.3.
+type TestFrameworkContext struct {
+	Language       string   // "go" | "python" | "typescript" | "java" | ""
+	TestRunner     string   // "go test" | "pytest" | "jest" | "junit" | ""
+	AssertionStyle string   // "testify" | "assert" | "chai" | "hamcrest" | ""
+	MockLibrary    string   // "gomock" | "unittest.mock" | "jest.mock" | "mockito" | ""
+	CoverageCmd    string   // "go test -cover ./..." | "pytest --cov" | "jest --coverage" | ""
+	FuzzSupport    bool     // true if go 1.18+ or hypothesis/atheris detected
+	IntegTestDir   string   // "tests/integration/" | "" if absent
+	FixtureDir     string   // "tests/fixtures/" | "testdata/" | "" if absent
+	ExistingTests  []string // sample of up to 5 existing test file names
+}
 
 // WorkspaceContextResult holds the collected snapshot.
 type WorkspaceContextResult struct {
@@ -50,6 +67,9 @@ type WorkspaceContextResult struct {
 
 	// HasGit is true when a git repository was detected and log was retrieved.
 	HasGit bool
+
+	// TestFW is the detected test framework context (RFC-005 §6.3).
+	TestFW TestFrameworkContext
 }
 
 // techStackIndicator maps a filename (relative to root) to a human-readable label.
@@ -124,6 +144,14 @@ func collectWorkspaceContext(root, slug string) WorkspaceContextResult {
 		sb.WriteString("## Project Conventions\n")
 		sb.WriteString(conv)
 		sb.WriteString("\n")
+	}
+
+	// 6. Test framework context (RFC-005 §6.3) — deterministic, zero LLM.
+	fw := detectTestFramework(root)
+	res.TestFW = fw
+	if fw.Language != "" {
+		sb.WriteString("## Test Framework\n")
+		sb.WriteString(fmt.Sprintf("- Language: %s  Runner: %s  Fuzz: %v\n\n", fw.Language, fw.TestRunner, fw.FuzzSupport))
 	}
 
 	res.Content = sb.String()
@@ -232,9 +260,232 @@ func listExistingSpecs(root string) []string {
 	return specs
 }
 
-// loadConventionSummary reads the most relevant conventions file and returns
-// a summary capped at 500 characters so it doesn't overwhelm the spec prompt.
-// Files tried in order: AGENTS.md, .github/copilot-instructions.md, CONTRIBUTING.md.
+// detectTestFramework scans root for known test-framework markers and returns
+// a populated TestFrameworkContext. Deterministic, zero LLM calls. RFC-005 §6.3.
+func detectTestFramework(root string) TestFrameworkContext {
+	var fw TestFrameworkContext
+
+	// ── Go ────────────────────────────────────────────────────────────────────
+	if goVer, ok := readGoVersion(root); ok {
+		fw.Language = "go"
+		fw.TestRunner = "go test"
+		fw.CoverageCmd = "go test -cover ./..."
+		// Fuzz testing was introduced in Go 1.18.
+		if goVersionAtLeast(goVer, 1, 18) {
+			fw.FuzzSupport = true
+		}
+		// Assertion and mock library presence in go.sum / go.mod.
+		if fileContainsAny(filepath.Join(root, "go.mod"), "github.com/stretchr/testify") {
+			fw.AssertionStyle = "testify"
+		}
+		if fileContainsAny(filepath.Join(root, "go.mod"), "github.com/golang/mock", "go.uber.org/mock") {
+			fw.MockLibrary = "gomock"
+		}
+	}
+
+	// ── Python ────────────────────────────────────────────────────────────────
+	if fw.Language == "" {
+		if fileExists(filepath.Join(root, "requirements.txt")) ||
+			fileExists(filepath.Join(root, "pyproject.toml")) ||
+			fileExists(filepath.Join(root, "setup.py")) {
+			fw.Language = "python"
+			fw.TestRunner = "pytest"
+			fw.CoverageCmd = "pytest --cov"
+			fw.AssertionStyle = "assert"
+			fw.MockLibrary = "unittest.mock"
+			// Hypothesis or atheris → fuzz support.
+			if fileContainsAny(filepath.Join(root, "requirements.txt"), "hypothesis", "atheris") ||
+				fileContainsAny(filepath.Join(root, "pyproject.toml"), "hypothesis", "atheris") {
+				fw.FuzzSupport = true
+			}
+		}
+	}
+
+	// ── TypeScript / JavaScript ───────────────────────────────────────────────
+	if fw.Language == "" {
+		if fileExists(filepath.Join(root, "package.json")) {
+			pkg := readJSONStringField(filepath.Join(root, "package.json"))
+			if strings.Contains(pkg, "jest") {
+				fw.Language = "typescript"
+				fw.TestRunner = "jest"
+				fw.CoverageCmd = "jest --coverage"
+				fw.AssertionStyle = "chai"
+				fw.MockLibrary = "jest.mock"
+			} else if strings.Contains(pkg, "vitest") {
+				fw.Language = "typescript"
+				fw.TestRunner = "vitest"
+				fw.CoverageCmd = "vitest run --coverage"
+				fw.AssertionStyle = "chai"
+				fw.MockLibrary = "vi.mock"
+			}
+		}
+	}
+
+	// ── Java ──────────────────────────────────────────────────────────────────
+	if fw.Language == "" {
+		if fileExists(filepath.Join(root, "pom.xml")) || fileExists(filepath.Join(root, "build.gradle")) {
+			fw.Language = "java"
+			fw.TestRunner = "junit"
+			fw.CoverageCmd = "mvn test"
+			fw.AssertionStyle = "hamcrest"
+			fw.MockLibrary = "mockito"
+		}
+	}
+
+	if fw.Language == "" {
+		// Unknown stack — return zero value.
+		return fw
+	}
+
+	// ── Integration test dir ──────────────────────────────────────────────────
+	for _, dir := range []string{
+		filepath.Join(root, "tests", "integration"),
+		filepath.Join(root, "test", "integration"),
+		filepath.Join(root, "integration"),
+	} {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			rel, _ := filepath.Rel(root, dir)
+			fw.IntegTestDir = rel + "/"
+			break
+		}
+	}
+
+	// ── Fixture dir ───────────────────────────────────────────────────────────
+	for _, dir := range []string{
+		filepath.Join(root, "tests", "fixtures"),
+		filepath.Join(root, "testdata"),
+		filepath.Join(root, "test", "fixtures"),
+	} {
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			rel, _ := filepath.Rel(root, dir)
+			fw.FixtureDir = rel + "/"
+			break
+		}
+	}
+
+	// ── Existing test file sample (up to 5) ───────────────────────────────────
+	fw.ExistingTests = collectTestFileSample(root, fw.Language, 5)
+
+	return fw
+}
+
+// readGoVersion parses the `go X.YY` directive from go.mod.
+// Returns ("", false) when go.mod is absent or malformed.
+func readGoVersion(root string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "go ") {
+			ver := strings.TrimPrefix(line, "go ")
+			ver = strings.TrimSpace(ver)
+			if ver != "" {
+				return ver, true
+			}
+		}
+	}
+	return "", false
+}
+
+// goVersionAtLeast reports whether versionStr (e.g. "1.22") >= major.minor.
+func goVersionAtLeast(versionStr string, major, minor int) bool {
+	parts := strings.SplitN(versionStr, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, err1 := strconv.Atoi(parts[0])
+	minorVer, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	if maj != major {
+		return maj > major
+	}
+	return minorVer >= minor
+}
+
+// fileContainsAny reports whether the file at path contains any of the given substrings.
+func fileContainsAny(path string, substrs ...string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+	for _, s := range substrs {
+		if strings.Contains(content, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// fileExists returns true when path exists (any type).
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// readJSONStringField returns the raw JSON text of package.json (devDependencies only)
+// so we can do a quick substring scan for jest/vitest without full JSON parse failures.
+func readJSONStringField(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var v map[string]json.RawMessage
+	if err := json.Unmarshal(data, &v); err != nil {
+		// Best-effort: return raw text for substring scan.
+		return string(data)
+	}
+	out := ""
+	if dd, ok := v["devDependencies"]; ok {
+		out += string(dd)
+	}
+	if d, ok := v["dependencies"]; ok {
+		out += string(d)
+	}
+	return out
+}
+
+// collectTestFileSample walks root looking for test files matching language conventions.
+// Returns at most max file base-names.
+func collectTestFileSample(root, lang string, maxFiles int) []string {
+	var pattern func(name string) bool
+	switch lang {
+	case "go":
+		pattern = func(name string) bool { return strings.HasSuffix(name, "_test.go") }
+	case "python":
+		pattern = func(name string) bool {
+			return strings.HasPrefix(name, "test_") && strings.HasSuffix(name, ".py")
+		}
+	case "typescript":
+		pattern = func(name string) bool {
+			return strings.Contains(name, ".test.") || strings.Contains(name, ".spec.")
+		}
+	case "java":
+		pattern = func(name string) bool { return strings.HasSuffix(name, "Test.java") }
+	default:
+		return nil
+	}
+
+	var found []string
+	_ = filepath.Walk(root, func(_ string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return nil
+		}
+		if len(found) >= maxFiles {
+			return filepath.SkipAll
+		}
+		if pattern(fi.Name()) {
+			found = append(found, fi.Name())
+		}
+		return nil
+	})
+	return found
+}
+
 func loadConventionSummary(root string) string {
 	candidates := []struct {
 		path  string
