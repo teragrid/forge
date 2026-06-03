@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "feature": "rearchitect forge framework for ai-agent-first workflows",
+  "slug": "agent-first-rearchitect",
+  "families": [
+    "secrets",
+    "sca",
+    "sast",
+    "license",
+    "iac",
+    "container",
+    "api",
+    "supply-chain"
+  ],
+  "allowlist": [],
+  "generated_at": ""
+}
