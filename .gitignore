@@ -35,8 +35,7 @@ Thumbs.db
 **/.forge/specs/
 **/.forge/trash/
 **/.forge/snapshots/
-# Un-ignore the top-level project specs dir so spec.md files are tracked
-!.forge/specs/
+.forge/specs/
 **/.forge/audit.log
 
 # ── Private / development-phase files (kept local, never pushed) ──────────────
