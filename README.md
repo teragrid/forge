@@ -58,7 +58,8 @@ forge audit show                 # enterprise-grade change log, always ready
 
 Forge is fully agent-friendly:
 
-- **MCP server built-in** — `forge mcp serve` exposes 4 tools over JSON-RPC 2.0 stdio, compatible with VS Code Copilot, Claude Desktop, Cursor, and Windsurf.
+- **MCP server built-in** — `forge mcp serve` exposes **10 tools** over JSON-RPC 2.0 stdio, compatible with VS Code Copilot, Claude Desktop, Cursor, and Windsurf.
+- **LLM-first mode** — set `FORGE_LLM_MODE=1` once; every `forge ship` checkpoint emits a structured JSON envelope (`ok`, `checkpoint`, `status`, `context_summary`, `next_actions`, `cost_usd`, error with `code`+`remedy`) so an LLM can read, reason, and continue the pipeline without human input.
 - **`--json` flag everywhere** — every scanner, linter, and verb supports `--json` for machine-parsable output.
 - **Deterministic exit codes** — `0` = success/no findings, `1` = findings/failure, `2` = fatal. Safe to use in CI pipelines.
 - **Non-interactive install** — `npm install -g @forgeone/cli` (no prompts, no TTY required).
@@ -85,6 +86,12 @@ The repo already ships `.vscode/settings.json` — open it in VS Code and Forge 
 | `forge_get_workflow` | Get step-by-step workflow for any verb | *"Get the forge ship workflow"* |
 | `forge_get_standards` | Read project coding standards from `.forge/instructions/` | *"What are this project's coding standards?"* |
 | `forge_run` | Execute any Forge verb and return its output | *"Run forge scan all"* |
+| `forge_ship_checkpoint` | Run a single `forge ship` checkpoint | *"Run the forge ship code checkpoint"* |
+| `forge_get_errors` | Get last error list with structured code + remedy | *"What errors did the last ship run produce?"* |
+| `forge_set_budget` | Set the per-invocation LLM spend cap | *"Set forge budget to $0.50"* |
+| `forge_list_specs` | List all specs with status and progress | *"List all forge specs in this project"* |
+| `forge_get_spec` | Read any spec file by slug | *"Show me the rate-limiter spec"* |
+| `forge_check_health` | Run forge doctor and return structured results | *"Check forge health"* |
 
 ### Skill files — inject Forge knowledge into your AI tool
 
@@ -401,6 +408,9 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | `forge config show` | Show the current resolved config |
 | `forge <any-command> --model <model>` | Override the LLM model for one invocation |
 | `forge <any-command> --budget-usd <n>` | Hard cap LLM spend for one invocation in USD (e.g. `--budget-usd 0.50`); sets `FORGE_BUDGET_USD` |
+| `forge <any-command> --json` | Emit machine-readable JSON envelope (auto-enabled when stdout is not a TTY) |
+| `forge <any-command> --human` | Force human-readable output even when piped or in LLM mode |
+| `FORGE_LLM_MODE=1 forge <cmd>` | Enable full LLM-first mode: JSON envelopes + auto-approve all `forge ship` gates (new in v1.7.0) |
 
 ### Money & limits
 
@@ -478,7 +488,7 @@ forge mcp info
 }
 ```
 
-**MCP tools available to your AI**
+**MCP tools available to your AI (v1.7.0 — 10 tools)**
 
 | Tool | What it does |
 |---|---|
@@ -486,6 +496,12 @@ forge mcp info
 | `forge_get_workflow` | Get the step-by-step workflow for any Forge verb |
 | `forge_get_standards` | Read project coding standards from `.forge/instructions/` and `AGENTS.md` |
 | `forge_run` | Execute any Forge verb (scan, ship, bugfix, etc.) and return its output |
+| `forge_ship_checkpoint` | Run a single `forge ship` checkpoint and get a structured JSON result |
+| `forge_get_errors` | Retrieve the last forge error list with code + remedy |
+| `forge_set_budget` | Set the `FORGE_BUDGET_USD` per-invocation LLM spend cap |
+| `forge_list_specs` | List all specs under `.forge/specs/` with status and progress |
+| `forge_get_spec` | Read the full content of any spec file by slug |
+| `forge_check_health` | Run `forge doctor` and return structured health results |
 
 Once configured, you can ask your AI: *"Run forge scan all"* or *"What does forge ship do?"* and it calls Forge directly.
 

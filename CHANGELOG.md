@@ -4,7 +4,7 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
-## [1.7.0] — 2026-06-04 — LLM-first rearchitecture
+## [1.7.0] — 2026-06-08 — LLM-first rearchitecture
 
 ### Added
 
