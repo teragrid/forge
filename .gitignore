@@ -6,6 +6,10 @@
 *.out
 coverage.out
 coverage.html
+forge-help-out.txt
+/build_errors.txt
+/results.txt
+/test_results.txt
 
 # Go workspace files
 go.work
@@ -44,6 +48,8 @@ Thumbs.db
 **/.forge/.snapshots/
 .forge/specs/
 **/.forge/audit.log
+# spec.md files must be trackable so M1-26 spec-presence gate passes
+!.forge/specs/**/spec.md
 
 # ── Private / development-phase files (kept local, never pushed) ──────────────
 /private/
