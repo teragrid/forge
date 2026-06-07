@@ -1,2 +1,0 @@
-checkpoint: ship
-taken_at: 2026-05-28T16:58:00Z

@@ -28,13 +28,20 @@ Thumbs.db
 .forge/scan-history/
 .forge/trash/
 .forge/snapshots/
+.forge/.snapshots/
 .forge/learned/
+.forge/instructions/
+.forge/eval/
+.forge/context/
+.forge/audit.log
+.forge/conventions.json
 # Runtime .forge dirs that tools write inside source packages (any depth)
 **/.forge/scan-history/
 **/.forge/context/
 **/.forge/specs/
 **/.forge/trash/
 **/.forge/snapshots/
+**/.forge/.snapshots/
 .forge/specs/
 **/.forge/audit.log
 

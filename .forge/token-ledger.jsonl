@@ -1,9 +1,0 @@
-{"time":"2026-05-27T16:25:45.5291284Z","model":"gpt-4o-2024-11-20","input_tokens":77,"output_tokens":1159,"cost_usd":0.017616,"operation":"ship:spec:generate"}
-{"time":"2026-05-27T16:26:01.4517355Z","model":"gpt-4o-2024-11-20","input_tokens":1477,"output_tokens":1147,"cost_usd":0.021636,"operation":"ship:arch:generate"}
-{"time":"2026-05-27T16:26:15.5264056Z","model":"gpt-4o-2024-11-20","input_tokens":1254,"output_tokens":1014,"cost_usd":0.018972,"operation":"ship:test:unit"}
-{"time":"2026-05-27T16:26:33.2248519Z","model":"gpt-4o-2024-11-20","input_tokens":1235,"output_tokens":1409,"cost_usd":0.02484,"operation":"ship:test:integration"}
-{"time":"2026-05-27T16:26:45.9520273Z","model":"gpt-4o-2024-11-20","input_tokens":1254,"output_tokens":940,"cost_usd":0.017862,"operation":"ship:test:rls"}
-{"time":"2026-05-27T16:27:01.9975997Z","model":"gpt-4o-2024-11-20","input_tokens":1606,"output_tokens":1218,"cost_usd":0.023088,"operation":"ship:test:generate"}
-{"time":"2026-05-27T16:27:20.3336615Z","model":"gpt-4o-2024-11-20","input_tokens":1602,"output_tokens":1477,"cost_usd":0.026961,"operation":"ship:breakdown:generate"}
-{"time":"2026-05-27T16:27:46.5085317Z","model":"gpt-4o-2024-11-20","input_tokens":3033,"output_tokens":1524,"cost_usd":0.031959,"operation":"ship:code:generate"}
-{"time":"2026-05-27T16:28:09.2822161Z","model":"gpt-4o-2024-11-20","input_tokens":2935,"output_tokens":1616,"cost_usd":0.033045,"operation":"ship:qa:remediate-tasks"}
