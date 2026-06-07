@@ -1,4 +1,4 @@
-# Architecture: Forge Framework — AI-Agent-First Rearchitecture
+# Architecture: Forge Framework — LLM-First Rearchitecture
 
 > **Status**: Draft — awaiting review before `forge ship code`
 > **Spec**: `.forge/specs/agent-first-rearchitect/spec.md`
@@ -6,272 +6,292 @@
 
 ---
 
-## 1. Component Topology
+## 1. Mental Model
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Agent Consumers (LangGraph / AutoGen / Forge-native / curl)    │
-│  FORGE_AGENT_ID + FORGE_AGENT_TOKEN in env                      │
-└────────────────────────┬────────────────────────────────────────┘
-                         │  JSON over stdin/stdout or HTTP/SSE
-┌────────────────────────▼────────────────────────────────────────┐
-│  forge CLI entrypoint  (cmd/forge/main.go)                      │
-│  • Detects FORGE_AGENT_MODE=1 or NO_COLOR=1 → JSON mode        │
-│  • Detects TTY + no flag → human mode (backwards compat)        │
-└──┬──────────────┬──────────────┬──────────────┬─────────────────┘
-   │              │              │              │
-   ▼              ▼              ▼              ▼
-[cmdship]    [cmdagent]    [cmdaudit]    [cmdpolicy]
-Ship pipeline  Task graph    Audit trail   Approval gates
-checkpoints    orchestrator  & agent IDs   & webhooks
-   │              │
-   ▼              ▼
-[internal/agentidentity]   new package — agent token validation,
-                           per-agent spend caps, audit tagging
-   │
+Developer
+   │  "Claude, add rate limiting to the API"
    ▼
-[internal/taskgraph]       new package — agent-tasks.yml parser,
-                           DAG scheduler, parallelism + retry
-   │
+LLM (Claude / GPT-4o / Gemini / …)
+   │  tool_use: forge_ship_spec { description: "add rate limiting" }
+   │  — or —
+   │  subprocess: forge ship spec "add rate limiting"
    ▼
-[internal/approvalgate]    new package — policy-file auto-approve,
-                           webhook async gate, SSE callback
+forge CLI  ──────────────────────────────────────────────────────────┐
+   │  JSON response:                                                  │
+   │  { ok, status, path, context_summary, next_actions, cost_usd }  │
+   ▼                                                                  │
+LLM reads response, reasons, issues next command ◄───────────────────┘
+```
+
+The LLM is the orchestrator. Forge is a deterministic tool the LLM calls. No agent runtime, no DAG scheduler, no orchestration framework needed — the LLM conversation loop **is** the pipeline.
+
+---
+
+## 2. Component Topology
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  LLM Caller  (Claude / GPT-4o / local model via Ollama / …)     │
+│  — subprocess call  OR  MCP tool-use call                        │
+└───────────────────────────┬──────────────────────────────────────┘
+                            │  stdin: args + env  |  stdout: JSON
+┌───────────────────────────▼──────────────────────────────────────┐
+│  forge CLI entrypoint  (cmd/forge/main.go)                       │
+│  • TTY absent OR FORGE_LLM_MODE=1 OR NO_COLOR=1 → LLM mode      │
+│  • TTY present, no flag → human mode (backwards compat)          │
+└──┬─────────────┬──────────────┬──────────────┬───────────────────┘
+   │             │              │              │
+   ▼             ▼              ▼              ▼
+[cmdship]   [cmdmcp]       [cmdaudit]    existing verbs
+Ship pipeline  MCP server     Audit trail   scan, lint, test, …
+checkpoints    (extended)     & cost log
+   │             │
+   ▼             ▼
+[internal/llmresponse]    NEW — builds the JSON envelope:
+                          ok, status, path, context_summary,
+                          next_actions, remedy, cost_usd, tokens_used
    │
-   ├──► [internal/llmbudget]    (existing) — per-agent budget caps
-   ├──► [internal/tokenledger]  (existing) — per-agent token accounting
-   ├──► [internal/audit]        (existing) — extended with agent_id field
-   ├──► [internal/fssandbox]    (existing) — per-task fs isolation
-   ├──► [internal/outbox]       (existing) — webhook delivery transport
-   └──► [internal/telemetry]    (existing) — OTel events + agent spans
+   ├──► [internal/llmbudget]      (existing) — enforces FORGE_BUDGET_USD
+   ├──► [internal/tokenledger]    (existing) — tracks tokens per call
+   ├──► [internal/audit]          (existing) — records cost + model used
+   ├──► [internal/prompttemplates](existing) — system prompts per verb
+   └──► [internal/telemetry]      (existing) — OTel spans
 ```
 
 **New packages** (all under `internal/`):
 
 | Package | Responsibility |
 |---|---|
-| `agentidentity` | Validate `FORGE_AGENT_TOKEN`, resolve `FORGE_AGENT_ID`, attach to context |
-| `taskgraph` | Parse `agent-tasks.yml`, build DAG, schedule with goroutine pool (max 10) |
-| `approvalgate` | Policy-file auto-approve, webhook gate with configurable timeout |
-| `agentapi` | JSON schema types for all machine-readable command responses |
+| `llmresponse` | Build the standard JSON envelope; generate `context_summary` (deterministic, no LLM call); compute `next_actions` from checkpoint state; enforce `remedy` presence on errors |
 
 **Modified packages**:
 
 | Package | Change |
 |---|---|
-| `internal/audit` | Add `agent_id`, `agent_mode` fields to every log entry |
-| `internal/llmbudget` | Accept per-agent spend cap from `agentidentity.Context` |
-| `internal/cli/cmdship` | Wrap all output in `agentapi.Response` when in agent mode |
-| `cmd/forge/main.go` | Inject agent identity into context before dispatch |
+| `internal/cli/cmdship` | Wrap all output through `llmresponse.Wrap()` when in LLM mode |
+| `internal/cli/cmdmcp` | Add remaining `forge ship` subcommands as MCP tools; align MCP response schema with `llmresponse` envelope |
+| `cmd/forge/main.go` | Detect LLM mode (TTY absent / `FORGE_LLM_MODE` / `NO_COLOR`); inject into context |
+| `internal/audit` | Add `cost_usd`, `model`, `tokens_used` fields to every log entry |
 
 ---
 
-## 2. Agent-Mode I/O Contract
+## 3. LLM-Mode JSON Envelope
 
-All commands emit the following JSON envelope when `FORGE_AGENT_MODE=1`, `--json` flag, or `NO_COLOR=1`:
+Activated by: no TTY on stdout, `FORGE_LLM_MODE=1`, `NO_COLOR=1`, or `--json` flag.
+
+### Success response
 
 ```jsonc
 {
-  "ok": true,                  // false on any error
-  "checkpoint": "spec",        // current pipeline checkpoint name
-  "status": "completed",       // pending | running | completed | failed
-  "path": ".forge/specs/...",  // primary artifact path (if any)
-  "agent_id": "agent-1",       // from FORGE_AGENT_ID env (empty if human)
-  "duration_ms": 142,
-  "error": null,               // FORGE-XXXX error code + message on failure
-  "next": ["forge ship arch …"] // suggested next actions
+  "ok": true,
+  "checkpoint": "spec",           // which forge ship checkpoint ran
+  "status": "completed",          // completed | skipped | pending | running
+  "path": ".forge/specs/add-rate-limiting/spec.md",
+  "context_summary": "Spec 'add-rate-limiting' created. 3 ACs defined. Next: arch.", // ≤500 tokens
+  "next_actions": [
+    "forge ship arch \"add rate limiting\"",
+    "forge ship spec \"add rate limiting\" --dry-run  # re-inspect without changes"
+  ],
+  "llm_tokens_used": 1240,
+  "cost_usd": 0.0037,
+  "duration_ms": 1840
 }
 ```
 
-Error envelope (`ok: false`):
+### Error response
+
 ```jsonc
 {
   "ok": false,
-  "error": { "code": "FORGE-2001", "message": "budget cap exceeded", "details": {} },
   "checkpoint": "code",
-  "agent_id": "agent-1"
+  "status": "failed",
+  "error": {
+    "code": "FORGE-2001",
+    "message": "LLM spend cap exceeded ($2.00 limit, $2.03 used)",
+    "remedy": "export FORGE_BUDGET_USD=5.00 && forge ship code \"add rate limiting\""
+  },
+  "context_summary": "Pipeline stalled at 'code' checkpoint. Spec and arch are complete.",
+  "next_actions": [
+    "export FORGE_BUDGET_USD=5.00 && forge ship code \"add rate limiting\"",
+    "forge ship status"
+  ],
+  "llm_tokens_used": 0,
+  "cost_usd": 0.0
 }
 ```
 
-Schema source of truth: `internal/agentapi/response.go` (generated; do not hand-edit).
+### Idempotency / skip response
 
----
-
-## 3. Task Graph (`agent-tasks.yml`)
-
-```yaml
-# .forge/agent-tasks.yml
-version: "1"
-tasks:
-  spec:
-    command: forge ship spec "{{.description}}"
-    outputs: [".forge/specs/{{.name}}/spec.md"]
-
-  arch:
-    depends_on: [spec]
-    command: forge ship arch "{{.description}}"
-    outputs: [".forge/specs/{{.name}}/arch.md"]
-
-  code:
-    depends_on: [arch]
-    command: forge ship code "{{.description}}"
-    approval: auto          # or: webhook, human
-
-  test:
-    depends_on: [code]
-    command: forge ship test "{{.description}}"
-
-  breakdown:
-    depends_on: [test]
-    command: forge ship breakdown "{{.description}}"
-
-  verify:
-    depends_on: [breakdown]
-    command: forge ship verify "{{.description}}"
-    approval: human         # always require human sign-off before ship
-```
-
-`forge agent run --graph .forge/agent-tasks.yml --var description="..." --var name="..."` drives the full pipeline. Independent tasks (e.g. parallel test shards) execute concurrently up to `--concurrency 10`.
-
----
-
-## 4. Agent Identity & Authorisation
-
-```
-FORGE_AGENT_ID    = "my-coding-agent"      # logical name, free-form
-FORGE_AGENT_TOKEN = "fgt_..."              # HMAC-signed opaque token
-FORGE_BUDGET_USD  = "2.00"                 # per-invocation cap (optional)
-```
-
-- Tokens are validated by `internal/agentidentity.Validate()` on every invocation — no caching, no restart needed.
-- Token format: `fgt_<base64url(claims)>.<base64url(hmac-sha256)>` — self-contained, no network call.
-- Claims include: `agent_id`, `allowed_commands` (glob list), `budget_usd`, `expires_at`.
-- Missing/invalid token: `FORGE-4001` — operation proceeds in **anonymous agent mode** (no spend cap, audit entry has `agent_id: ""`).
-- Human users are unaffected; token env vars are ignored when TTY is detected and `--json` is absent.
-
----
-
-## 5. Approval Gate Architecture
-
-```
-checkpoint gate reached
-        │
-        ▼
-read .forge/config.yml → approval_policy
-        │
-   ┌────┴────────────────┐
-   │ auto                │ webhook              │ human (default)
-   ▼                     ▼                      ▼
-pass immediately    POST JSON to URL        interactive y/n
-                    wait for {"approved":true}  (TTY only)
-                    timeout → FORGE-4010
-```
-
-Config example (`.forge/config.yml`):
-```yaml
-approval:
-  policy: webhook
-  webhook_url: https://my-approver.example.com/forge/approve
-  timeout_seconds: 300
-  # policy: auto   — no gate
-  # policy: human  — always interactive
-```
-
-Webhook payload (POST):
 ```jsonc
 {
-  "event": "approval_requested",
-  "checkpoint": "code",
-  "spec": "agent-first-rearchitect",
-  "agent_id": "my-coding-agent",
-  "artifacts": [".forge/specs/agent-first-rearchitect/arch.md"],
-  "callback_token": "…"   // HMAC nonce; must be echoed back to confirm
+  "ok": true,
+  "checkpoint": "spec",
+  "status": "skipped",
+  "path": ".forge/specs/add-rate-limiting/spec.md",
+  "context_summary": "Spec already completed. No changes made.",
+  "next_actions": ["forge ship arch \"add rate limiting\""]
 }
+```
+
+Schema source of truth: `internal/llmresponse/envelope.go`. All fields except `path` and `checkpoint` are always present.
+
+---
+
+## 4. MCP Tool Surface
+
+`forge mcp serve` (existing) is extended to expose the full `forge ship` pipeline as MCP tools. This lets Claude / GPT-4o use native tool-use instead of subprocess calls.
+
+### Tool inventory (new/extended)
+
+| MCP Tool | Maps to | Input schema |
+|---|---|---|
+| `forge_ship_spec` | `forge ship spec` | `{ description: string, name?: string, dry_run?: bool }` |
+| `forge_ship_arch` | `forge ship arch` | `{ description: string, name?: string, dry_run?: bool }` |
+| `forge_ship_code` | `forge ship code` | `{ description: string, name?: string, dry_run?: bool }` |
+| `forge_ship_test` | `forge ship test` | `{ description: string, name?: string }` |
+| `forge_ship_breakdown` | `forge ship breakdown` | `{ description: string, name?: string }` |
+| `forge_ship_verify` | `forge ship verify` | `{ description: string, name?: string }` |
+| `forge_ship_status` | `forge ship status` | `{ name?: string }` |
+| `forge_scan_secrets` | `forge scan secrets` | `{ path?: string }` |
+| `forge_audit_show` | `forge audit show` | `{ limit?: int }` |
+| `forge_spend_status` | `forge spend status` | `{}` |
+
+All tools return the same `llmresponse` JSON envelope. Static schemas published under `docs/mcp/tools.json`.
+
+### LLM interaction flow (Claude example)
+
+```
+User:    "Add rate limiting to the API"
+Claude:  [tool_use] forge_ship_spec { description: "add rate limiting to the API" }
+Forge:   { ok: true, status: "completed", context_summary: "...", next_actions: [...] }
+Claude:  [tool_use] forge_ship_arch { description: "add rate limiting to the API" }
+Forge:   { ok: true, status: "completed", ... }
+Claude:  "I've created the spec and architecture. Here's what was planned: ..."
+User:    "Looks good, implement it"
+Claude:  [tool_use] forge_ship_code { description: "add rate limiting to the API" }
+...
 ```
 
 ---
 
-## 6. Observability
+## 5. `context_summary` Generation
 
-Every agent action emits an OpenTelemetry span on the `forge.agent` tracer:
+`context_summary` is computed **deterministically** (no LLM call, no extra cost):
 
-| Signal | Name | Labels |
-|---|---|---|
-| Span | `forge.ship.checkpoint` | `checkpoint`, `agent_id`, `status` |
-| Counter | `forge_agent_runs_total` | `agent_id`, `checkpoint`, `result` |
-| Histogram | `forge_checkpoint_duration_ms` | `checkpoint` |
-| Counter | `forge_budget_exceeded_total` | `agent_id` |
-| Counter | `forge_approval_gate_total` | `policy`, `outcome` |
+```
+context_summary = checkpoint_name + " '" + spec_slug + "' " + status_sentence
+                + " ACs: " + ac_count + "/" + ac_total
+                + " Next: " + next_checkpoint
+```
 
-Export via `OTEL_EXPORTER_OTLP_ENDPOINT` (existing `internal/telemetry` wiring) — no new config needed.
+Example: `"spec 'add-rate-limiting' completed. 4 ACs defined (0 checked). Next: arch."`
+
+Rules:
+- Max 500 `cl100k_base` tokens, measured at write time; truncated with `…` if over.
+- Never includes file paths longer than the basename.
+- Never includes raw diff or code — those belong in artifact files the LLM can read separately via `read_file`.
 
 ---
 
-## 7. Non-Functional Requirements
+## 6. LLM Mode Detection
+
+```
+Priority (highest to lowest):
+1. --json flag                   → LLM mode
+2. FORGE_LLM_MODE=1 env          → LLM mode
+3. NO_COLOR=1 env                → LLM mode (JSON, no ANSI)
+4. stdout is not a TTY (pipe)    → LLM mode
+5. --human flag                  → human mode (overrides all above)
+6. stdout is a TTY               → human mode
+```
+
+This ensures:
+- Subprocess calls from LLMs (no TTY) are always in LLM mode automatically.
+- MCP tool calls always in LLM mode (MCP server pipes stdout).
+- Existing human developer sessions are unchanged.
+- `--human` is an explicit escape hatch for scripts that want human output.
+
+---
+
+## 7. `remedy` Field Contract
+
+Every non-zero exit code **must** include a `remedy`. CI gate (`go test ./internal/llmresponse/...`) asserts this via `TestAllErrorsHaveRemedy`. Remedy content rules:
+
+- Must be a complete, copy-pasteable shell command or a specific file edit instruction.
+- Must not say "contact support" or "see documentation" alone — actionable always.
+- Should be ≤ 120 characters when possible.
+- For budget errors: include the exact `export` + retry command.
+- For lint/format errors: include the exact fix command (`gofmt -w`, `goimports -w`, etc.).
+- For missing dependency errors: include the exact `go get` command.
+
+---
+
+## 8. Non-Functional Requirements
 
 | NFR | Target | Measurement |
 |---|---|---|
 | CLI cold start (no LLM) | < 50 ms | `time forge --version` |
 | Checkpoint dispatch overhead | < 200 ms (excl. LLM) | `--dry-run --json` benchmark |
-| Task graph scheduling | < 10 ms for 100-node DAG | unit benchmark |
-| Concurrent sub-tasks | 10 goroutines, zero races | `go test -race ./internal/taskgraph/...` |
-| Agent token validation | < 1 ms | unit benchmark |
-| Webhook gate timeout | configurable 1–3600 s | integration test |
+| `context_summary` token count | ≤ 500 tokens | unit test, `cl100k_base` |
+| MCP tool response schema match | 100% field parity | contract test on every PR |
+| `remedy` coverage | 100% of error codes | `TestAllErrorsHaveRemedy` |
+| No ANSI in LLM mode | zero bytes matching `\x1b[` | stdout capture test |
 
 ---
 
-## 8. Security Threat Model
+## 9. Security Threat Model
 
 | Threat | STRIDE | Mitigation |
 |---|---|---|
-| Rogue agent escalates privileges | Elevation | Token `allowed_commands` claim; explicit glob allowlist |
-| Token replay after expiry | Spoofing | `expires_at` checked on every invocation; short TTLs recommended (1 h) |
-| Agent exceeds budget | DoS (cost) | `FORGE_BUDGET_USD` hard cap via `llmbudget`; `FORGE-2001` on breach |
-| Webhook URL SSRF | Tampering | Allowlist in `.forge/config.yml`; reject private IP ranges |
-| Task graph cycle hangs process | DoS | Cycle detection in `taskgraph.Build()` → `FORGE-5001` at load time |
-| Prompt injection via spec content | Tampering | PIIFilter + existing guardrails applied before LLM calls |
-| Concurrent checkpoint write conflict | Tampering | Optimistic lock (file mtime check) → `FORGE-5002` |
+| Prompt injection via spec/arch content | Tampering | `secretrewriter` + `guardrails` applied before LLM calls; `context_summary` is deterministic (no LLM-generated text in control path) |
+| LLM-driven path traversal via description arg | Elevation | `fssandbox` validates all paths derived from user input |
+| Budget exhaustion by runaway LLM loop | DoS (cost) | `FORGE_BUDGET_USD` hard cap via `llmbudget`; `FORGE-2001` halts cleanly |
+| Forged `remedy` commands (if LLM-generated) | Tampering | `remedy` is template-generated from error code registry, not LLM-generated |
+| MCP tool schema drift breaks LLM tool-use | Tampering | Static schema published + contract test; schema is the source of truth |
+| LLM reads sensitive data via `context_summary` | Info Disclosure | `context_summary` is path-basename only; no file content, no secrets |
 
 ---
 
-## 9. Migration & Backwards Compatibility
+## 10. Migration & Backwards Compatibility
 
 | Scenario | Behaviour |
 |---|---|
-| No `FORGE_AGENT_MODE`, has TTY | Existing human UX unchanged |
-| No `FORGE_AGENT_MODE`, no TTY | Automatically switches to JSON mode (safe for scripts) |
-| `FORGE_AGENT_MODE=1` | Full agent mode, JSON output, no prompts |
-| `--human` flag | Forces human mode even in CI/agent contexts |
-| Old `forge ship spec …` invocation | Works identically; new JSON envelope only added when agent mode active |
-| Existing `.forge/specs/` directories | Not touched; task graph is opt-in |
+| TTY present, no flags | Existing human UX — zero change |
+| Pipe / subprocess (no TTY) | **New**: auto-switches to LLM mode JSON |
+| `FORGE_LLM_MODE=1` | LLM mode JSON, no prompts |
+| `NO_COLOR=1` | LLM mode JSON, no ANSI |
+| `--json` flag | LLM mode JSON |
+| `--human` flag | Forces human mode regardless |
+| MCP tool-use | LLM mode JSON (MCP server owns stdout) |
+| Existing scripts using `grep` on output | May break if they depended on human text from piped output — `--human` flag is the fix |
 
-No breaking changes. All new flags are additive. `--human` provides full rollback to current behaviour.
+One breaking-change note: piped output (e.g. `forge ship spec "x" | grep "✓"`) switches to JSON in LLM mode. Scripts using text-grep on piped output should add `--human`. This is called out in `BREAKING.md` and `CHANGELOG.md`.
 
 ---
 
-## 10. Phased Delivery
+## 11. Phased Delivery
 
 | Phase | Scope | Target |
 |---|---|---|
-| P1 | `agentapi` JSON envelope, `NO_COLOR`/`FORGE_AGENT_MODE` detection | v1.7.0-alpha |
-| P2 | `agentidentity` token validation, per-agent audit entries | v1.7.0-beta |
-| P3 | `taskgraph` DAG scheduler, `forge agent run` command | v1.7.0-rc |
-| P4 | `approvalgate` (auto + webhook), `.forge/config.yml` policy | v1.7.0 |
-| P5 | OTel spans, per-agent budget caps wired into `llmbudget` | v1.7.1 |
-
-### Disaster Recovery
-
-> TODO: Document failover trigger, DNS TTL, and data-replication lag tolerance.
+| P1 | `llmresponse` envelope, LLM mode detection, `--json` flag wired to all `forge ship` commands | v1.7.0-alpha |
+| P2 | `context_summary` deterministic generator, `remedy` field on all error codes, `TestAllErrorsHaveRemedy` gate | v1.7.0-beta |
+| P3 | MCP tools for full `forge ship` pipeline, static schema under `docs/mcp/tools.json` | v1.7.0-rc |
+| P4 | `cost_usd` + `llm_tokens_used` in every response, budget cap wired to per-call spend | v1.7.0 |
+| P5 | `BREAKING.md` + migration note for piped-output scripts; update `forge doctor` to detect affected scripts | v1.7.1 |
 
 ---
 
-## ADR Summary
+## 12. ADR Summary
 
 **Status**: Proposed
 
-**Context**: rearchitect forge framework for ai-agent-first workflows
+**Context**: Vibe-coders increasingly interact with Forge through an LLM (Claude, GPT-4o, etc.) rather than directly. The current CLI was designed for humans: ANSI output, interactive prompts, prose error messages. This makes LLM-driven usage fragile and prompt-heavy.
 
-**Decision**: TODO — record the key architectural decision here.
+**Decision**: Make LLM the primary consumer. Structured JSON output is the default for any non-TTY context. Every response is self-contained (context, next steps, remedy). MCP tool surface covers the full ship pipeline.
 
 **Consequences**:
-- ✓ TODO: positive consequence
-- ✗ TODO: trade-off or risk to mitigate
+- ✓ LLM-driven `forge ship` workflows become robust and token-efficient.
+- ✓ No new orchestration runtime needed — the LLM conversation loop is the pipeline.
+- ✓ Human UX is fully preserved via TTY autodetect and `--human` flag.
+- ✗ Piped shell scripts that parse human-text output must add `--human` (documented in BREAKING.md).
