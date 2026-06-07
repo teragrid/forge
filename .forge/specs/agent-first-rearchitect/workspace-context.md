@@ -1,5 +1,5 @@
 # Workspace Context Snapshot
-Generated: 2026-06-02T16:24:09Z
+Generated: 2026-06-07T18:03:32Z
 
 ## Tech Stack
 - GitHub Actions CI
@@ -11,6 +11,8 @@ Generated: 2026-06-02T16:24:09Z
 
 ## Recent Changes (last 10 commits)
 ```
+fcff576 docs(spec): reframe to LLM-first rearchitecture
+4d5b2d9 feat(spec): AI-agent-first forge rearchitecture spec + arch
 8b94027 fix(cmdship): resolve pre-push lint gate for RFC-005 P3 files
 cb00b47 Merge branch 'feature/ship-hooks-learning-loop' into main
 c7c558c feat(cmdship): RFC-005 P3 — PII filter, A/B steering, drift detect, compound checkpoints, immutable audit, incremental re-run
@@ -19,8 +21,6 @@ c7c558c feat(cmdship): RFC-005 P3 — PII filter, A/B steering, drift detect, co
 65cac00 Merge pull request #21 from teragrid/fix/error-codes-spec-tracking
 dd9d040 fix: track spec files in git and regenerate ERROR_CODES.md
 27b2c41 fix: track spec files in git and regenerate ERROR_CODES.md
-7830663 Merge pull request #20 from teragrid/dependabot/go_modules/go-modules-2624566978
-fb1c99e Merge pull request #19 from teragrid/feature/ship-hooks-learning-loop
 ```
 
 ## Existing Feature Specs (avoid duplicates)

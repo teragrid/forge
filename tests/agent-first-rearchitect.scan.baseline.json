@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "feature": "rearchitect forge framework for ai-agent-first workflows",
+  "feature": "rearchitect forge framework for llm-first workflows",
   "slug": "agent-first-rearchitect",
   "families": [
     "secrets",
