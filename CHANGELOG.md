@@ -4,6 +4,27 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-06-04 — LLM-first rearchitecture
+
+### Added
+
+- **`internal/llmresponse` package** — standard JSON envelope emitted by all forge commands when running in LLM mode. Envelope fields: `ok`, `checkpoint`, `status`, `context_summary`, `next_actions`, `llm_tokens_used`, `cost_usd`, `duration_ms`, `error` (with `code`, `message`, `remedy`). See `docs/mcp/tools.json` for schema.
+- **LLM mode auto-detection** (`llmresponse.DetectMode`) — priority chain: `--human` opt-out > `--json` flag > `FORGE_LLM_MODE=1` > `NO_COLOR=1` > non-TTY stdout.
+- **`FORGE_LLM_MODE=1` environment variable** — enables JSON envelopes and suppresses all interactive `y/N` gates in `forge ship` (AC-3). LLM agents set this once; no per-command flags needed.
+- **`forge ship --human` flag** — explicit opt-out of LLM mode auto-detection; always produces human-readable output even when stdout is piped (AC-9).
+- **`forge ship` gate suppression** — when in LLM mode, `y/N` approval gates are automatically skipped (equivalent to `--yes`), so Claude/GPT-4o/Copilot can drive the pipeline without blocking.
+- **`context_summary` generator** (`llmresponse.GenerateSummary`) — deterministic ≤2000-char UTF-8 string giving an LLM complete situational awareness after one forge command. Includes verb/checkpoint, test results, spend, changed files, and error info (AC-7).
+- **`next_actions` generator** (`llmresponse.NextActions`) — ordered list of concrete copy-pasteable commands for the next pipeline step.
+- **`errcode.RegisterWithRemedy`** — new registration function that stores a copy-pasteable remedy alongside the description. `errcode.Remedy(c)` returns it. `*Error.ForgeCode()` and `*Error.ForgeRemedy()` implement the `llmresponse` interface for structured error envelopes.
+- **`llmresponse.BudgetExceededError`** — `FORGE-2001` error with remedy `set FORGE_BUDGET_USD=<amount>` for budget cap hits (AC-8). `llmresponse.CheckBudget(root)` reads the token ledger.
+- **10 MCP tools** (up from 4) — added `forge_ship_checkpoint`, `forge_get_errors`, `forge_set_budget`, `forge_list_specs`, `forge_get_spec`, `forge_check_health` to the MCP server (AC-4). Static schema at `docs/mcp/tools.json` (AC-5).
+- **`forge doctor` LLM-mode advisory** — new `llm-mode` check surfaces whether `FORGE_LLM_MODE` is set and what it does (T-018).
+
+### Breaking Changes
+
+- **`forge ship` piped output format** — when stdout is not a TTY (or `--json` / `FORGE_LLM_MODE=1`), output is now a JSON envelope instead of ANSI text. Use `--human` to opt out. See `BREAKING.md` for migration guide.
+- **`errcode.Register` signature unchanged** — backward-compatible; all existing `Register` calls continue to work. `RegisterWithRemedy` is additive.
+
 ## [1.5.0] — 2026-05-28
 
 ### Added

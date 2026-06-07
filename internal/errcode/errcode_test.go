@@ -158,3 +158,46 @@ func TestErrorCodes_AllIsSorted(t *testing.T) {
 		}
 	}
 }
+
+// TestRegisterWithRemedy_Happy verifies RegisterWithRemedy stores remedy text (T-008).
+func TestRegisterWithRemedy_Happy(t *testing.T) {
+	t.Parallel()
+	const c Code = 9060
+	RegisterWithRemedy(c, "test with remedy", "forge doctor  # run diagnostics")
+	if Remedy(c) != "forge doctor  # run diagnostics" {
+		t.Fatalf("Remedy(%d) = %q, want remedy text", int(c), Remedy(c))
+	}
+}
+
+// TestForgeErr_Interface verifies *Error implements ForgeCode/ForgeRemedy (T-008).
+func TestForgeErr_Interface(t *testing.T) {
+	t.Parallel()
+	const c Code = 9061
+	RegisterWithRemedy(c, "interface test", "retry after fix")
+	e := New(c, "hint text", nil)
+	if e.ForgeCode() != "FORGE-9061" {
+		t.Fatalf("ForgeCode() = %q, want FORGE-9061", e.ForgeCode())
+	}
+	if e.ForgeRemedy() != "retry after fix" {
+		t.Fatalf("ForgeRemedy() = %q, want 'retry after fix'", e.ForgeRemedy())
+	}
+}
+
+// TestForgeErr_HintFallback verifies ForgeRemedy falls back to Hint when no remedy registered (T-008).
+func TestForgeErr_HintFallback(t *testing.T) {
+	t.Parallel()
+	const c Code = 9062
+	Register(c, "no remedy registered")
+	e := New(c, "check the logs", nil)
+	if e.ForgeRemedy() != "check the logs" {
+		t.Fatalf("ForgeRemedy() should fall back to Hint; got %q", e.ForgeRemedy())
+	}
+}
+
+// TestRemedy_Unregistered_Empty verifies Remedy returns "" for unknown code (false-positive guard).
+func TestRemedy_Unregistered_Empty(t *testing.T) {
+	t.Parallel()
+	if got := Remedy(Code(9097)); got != "" {
+		t.Fatalf("Remedy(unregistered) = %q, want empty string", got)
+	}
+}

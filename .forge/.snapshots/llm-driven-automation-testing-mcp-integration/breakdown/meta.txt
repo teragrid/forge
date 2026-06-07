@@ -1,0 +1,2 @@
+checkpoint: breakdown
+taken_at: 2026-05-28T16:57:57Z

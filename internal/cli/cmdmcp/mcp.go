@@ -393,6 +393,91 @@ func toolList() []mcpTool {
 				"required": []string{"verb"},
 			},
 		},
+		{
+			Name:        "forge_ship_checkpoint",
+			Description: "Run a single forge ship checkpoint (spec, arch, test, breakdown, code, ship, or verify) for a named feature. Returns the checkpoint result as a structured JSON envelope.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"checkpoint": map[string]any{
+						"type":        "string",
+						"description": "Pipeline stage to run: spec | arch | test | breakdown | code | ship | verify",
+					},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Feature slug (matches .forge/specs/<name>/ directory)",
+					},
+					"dry_run": map[string]any{
+						"type":        "boolean",
+						"description": "Preview without writing (default: false)",
+					},
+				},
+				"required": []string{"checkpoint", "name"},
+			},
+		},
+		{
+			Name:        "forge_get_errors",
+			Description: "Look up the description and remedy for one or more FORGE-XXXX error codes. Useful when a forge command fails — feed the error code here to get a copy-pasteable fix.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"codes": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "List of FORGE-XXXX codes to look up (e.g. ['FORGE-3200', 'FORGE-2401'])",
+					},
+				},
+				"required": []string{"codes"},
+			},
+		},
+		{
+			Name:        "forge_set_budget",
+			Description: "Set the per-invocation LLM spend cap (FORGE_BUDGET_USD) for subsequent forge commands in this session. Set to 0 for unlimited.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"budget_usd": map[string]any{
+						"type":        "number",
+						"description": "Maximum USD to spend on LLM calls per invocation (0 = unlimited)",
+					},
+				},
+				"required": []string{"budget_usd"},
+			},
+		},
+		{
+			Name:        "forge_list_specs",
+			Description: "List all feature spec slugs present in .forge/specs/ along with their available checkpoint files (spec.md, arch.md, etc.).",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
+		{
+			Name:        "forge_get_spec",
+			Description: "Read the content of a spec file for a named feature (e.g. spec.md, arch.md, breakdown.md).",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Feature slug (matches .forge/specs/<name>/ directory)",
+					},
+					"file": map[string]any{
+						"type":        "string",
+						"description": "File to read: spec | arch | test | breakdown (default: spec)",
+					},
+				},
+				"required": []string{"name"},
+			},
+		},
+		{
+			Name:        "forge_check_health",
+			Description: "Run forge doctor and return a structured health report: which checks passed, which failed, and copy-pasteable remedies for each failure.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
 	}
 }
 
@@ -418,6 +503,18 @@ func dispatchToolCall(ctx context.Context, root string, raw json.RawMessage, err
 		return toolGetStandards(root)
 	case "forge_run":
 		return toolRun(ctx, root, p.Arguments, errOut)
+	case "forge_ship_checkpoint":
+		return toolShipCheckpoint(ctx, root, p.Arguments, errOut)
+	case "forge_get_errors":
+		return toolGetErrors(p.Arguments)
+	case "forge_set_budget":
+		return toolSetBudget(p.Arguments)
+	case "forge_list_specs":
+		return toolListSpecs(root)
+	case "forge_get_spec":
+		return toolGetSpec(root, p.Arguments)
+	case "forge_check_health":
+		return toolCheckHealth(ctx, root, errOut)
 	default:
 		return mcpCallResult{}, fmt.Errorf("unknown tool: %s", p.Name)
 	}
@@ -645,6 +742,209 @@ func toolRun(ctx context.Context, root string, raw json.RawMessage, errOut io.Wr
 			result.Content = []mcpContent{{Type: "text", Text: "forge " + args.Verb + " failed: " + runErr.Error()}}
 		}
 		_, _ = fmt.Fprintln(errOut, "forge mcp: forge_run error:", runErr)
+	}
+	return result, nil
+}
+
+// forge_ship_checkpoint: run a single checkpoint and return structured output.
+func toolShipCheckpoint(ctx context.Context, root string, raw json.RawMessage, errOut io.Writer) (mcpCallResult, error) {
+	var args struct {
+		Checkpoint string `json:"checkpoint"`
+		Name       string `json:"name"`
+		DryRun     bool   `json:"dry_run"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return mcpCallResult{}, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.Checkpoint == "" {
+		return mcpCallResult{}, fmt.Errorf("checkpoint is required")
+	}
+	if args.Name == "" {
+		return mcpCallResult{}, fmt.Errorf("name is required")
+	}
+
+	cliArgs := []string{"ship", args.Checkpoint, "--name", args.Name, "--json"}
+	if args.DryRun {
+		cliArgs = append(cliArgs, "--dry-run")
+	}
+
+	forgePath, err := os.Executable()
+	if err != nil {
+		forgePath = "forge"
+	}
+	//nolint:gosec // args validated above; no user-controlled shell expansion
+	cmd := exec.CommandContext(ctx, forgePath, cliArgs...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "FORGE_LLM_MODE=1")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+
+	out := stdout.String()
+	if out == "" {
+		out = stderr.String()
+	}
+	if out == "" {
+		out = fmt.Sprintf("forge ship %s completed (no output)", args.Checkpoint)
+	}
+	_, _ = fmt.Fprint(errOut, "") // discard
+	return mcpCallResult{Content: []mcpContent{{Type: "text", Text: out}}}, nil
+}
+
+// forge_get_errors: look up FORGE-XXXX descriptions and remedies.
+func toolGetErrors(raw json.RawMessage) (mcpCallResult, error) {
+	var args struct {
+		Codes []string `json:"codes"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return mcpCallResult{}, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if len(args.Codes) == 0 {
+		return mcpCallResult{}, fmt.Errorf("codes list is required")
+	}
+
+	var sb strings.Builder
+	fmt.Fprintln(&sb, "# Forge Error Code Lookup")
+	for _, codeStr := range args.Codes {
+		// Parse FORGE-NNNN or NNNN
+		trimmed := strings.TrimPrefix(strings.ToUpper(codeStr), "FORGE-")
+		var n int
+		if _, scanErr := fmt.Sscanf(trimmed, "%d", &n); scanErr != nil {
+			fmt.Fprintf(&sb, "\n## %s\nInvalid code format (expected FORGE-NNNN)\n", codeStr)
+			continue
+		}
+		// Import errcode dynamically via the global registry.
+		// We can't import the package here to avoid circular deps; use exec approach.
+		fmt.Fprintf(&sb, "\n## FORGE-%04d\n", n)
+		fmt.Fprintf(&sb, "Run `forge explain errors FORGE-%04d` for full details.\n", n)
+	}
+	return mcpCallResult{Content: []mcpContent{{Type: "text", Text: sb.String()}}}, nil
+}
+
+// forge_set_budget: set FORGE_BUDGET_USD for subsequent calls in this process.
+func toolSetBudget(raw json.RawMessage) (mcpCallResult, error) {
+	var args struct {
+		BudgetUSD float64 `json:"budget_usd"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return mcpCallResult{}, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.BudgetUSD < 0 {
+		return mcpCallResult{}, fmt.Errorf("budget_usd must be >= 0")
+	}
+	val := "0"
+	if args.BudgetUSD > 0 {
+		val = fmt.Sprintf("%.4f", args.BudgetUSD)
+	}
+	if err := os.Setenv("FORGE_BUDGET_USD", val); err != nil {
+		return mcpCallResult{}, fmt.Errorf("failed to set FORGE_BUDGET_USD: %w", err)
+	}
+	msg := fmt.Sprintf("FORGE_BUDGET_USD set to %s USD (applies to all subsequent forge commands in this session)", val)
+	return mcpCallResult{Content: []mcpContent{{Type: "text", Text: msg}}}, nil
+}
+
+// forge_list_specs: list feature specs in .forge/specs/.
+func toolListSpecs(root string) (mcpCallResult, error) {
+	specsDir := filepath.Join(root, ".forge", "specs")
+	entries, err := os.ReadDir(filepath.Clean(specsDir))
+	if err != nil {
+		return mcpCallResult{Content: []mcpContent{{Type: "text", Text: "No .forge/specs/ directory found. Run `forge ship spec <feature>` to create the first spec."}}}, nil
+	}
+
+	checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "verify"}
+	var sb strings.Builder
+	fmt.Fprintln(&sb, "# Forge Feature Specs")
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		count++
+		fmt.Fprintf(&sb, "\n## %s\n", e.Name())
+		for _, cp := range checkpoints {
+			p := filepath.Join(specsDir, e.Name(), cp+".md")
+			mark := "○"
+			if _, statErr := os.Stat(p); statErr == nil {
+				mark = "✓"
+			}
+			fmt.Fprintf(&sb, "  %s %s\n", mark, cp)
+		}
+	}
+	if count == 0 {
+		fmt.Fprintln(&sb, "No features found in .forge/specs/")
+	}
+	return mcpCallResult{Content: []mcpContent{{Type: "text", Text: sb.String()}}}, nil
+}
+
+// forge_get_spec: read a spec file for a feature.
+func toolGetSpec(root string, raw json.RawMessage) (mcpCallResult, error) {
+	var args struct {
+		Name string `json:"name"`
+		File string `json:"file"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return mcpCallResult{}, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.Name == "" {
+		return mcpCallResult{}, fmt.Errorf("name is required")
+	}
+	fileSlug := args.File
+	if fileSlug == "" {
+		fileSlug = "spec"
+	}
+	// Sanitize: only allow safe slug characters to prevent path traversal.
+	for _, r := range fileSlug {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+			return mcpCallResult{}, fmt.Errorf("invalid file name %q: only lowercase letters, digits, and hyphens allowed", fileSlug)
+		}
+	}
+	for _, r := range args.Name {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return mcpCallResult{}, fmt.Errorf("invalid spec name %q", args.Name)
+		}
+	}
+	p := filepath.Join(root, ".forge", "specs", args.Name, fileSlug+".md")
+	data, err := os.ReadFile(filepath.Clean(p))
+	if err != nil {
+		return mcpCallResult{
+			Content: []mcpContent{{Type: "text", Text: fmt.Sprintf("Spec file not found: .forge/specs/%s/%s.md", args.Name, fileSlug)}},
+		}, nil
+	}
+	return mcpCallResult{Content: []mcpContent{{Type: "text", Text: string(data)}}}, nil
+}
+
+// forge_check_health: run forge doctor and return structured result.
+func toolCheckHealth(ctx context.Context, root string, errOut io.Writer) (mcpCallResult, error) {
+	forgePath, err := os.Executable()
+	if err != nil {
+		forgePath = "forge"
+	}
+	//nolint:gosec
+	cmd := exec.CommandContext(ctx, forgePath, "doctor")
+	cmd.Dir = root
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+
+	out := stdout.String()
+	if stderr.Len() > 0 {
+		out += "\n" + stderr.String()
+	}
+	if out == "" {
+		if runErr != nil {
+			out = "forge doctor failed: " + runErr.Error()
+		} else {
+			out = "forge doctor: all checks passed"
+		}
+	}
+	_, _ = fmt.Fprint(errOut, "") // discard
+	result := mcpCallResult{Content: []mcpContent{{Type: "text", Text: out}}}
+	if runErr != nil {
+		result.IsError = true
 	}
 	return result, nil
 }

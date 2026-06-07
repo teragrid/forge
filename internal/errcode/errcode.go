@@ -133,10 +133,11 @@ func (c Code) Format() string {
 
 func (c Code) String() string { return c.Format() }
 
-// entry is a registered code with its short description.
+// entry is a registered code with its short description and remedy.
 type entry struct {
 	Code        Code
 	Description string
+	Remedy      string
 }
 
 var (
@@ -147,6 +148,12 @@ var (
 // Register declares a code with a one-line description. Panics on duplicate or
 // out-of-range. Call from package-level init() so collisions fail at build.
 func Register(c Code, description string) Code {
+	return RegisterWithRemedy(c, description, "")
+}
+
+// RegisterWithRemedy declares a code with a description and a copy-pasteable
+// remedy command. Panics on duplicate or out-of-range.
+func RegisterWithRemedy(c Code, description, remedy string) Code {
 	if !IsReserved(c) {
 		panic(fmt.Sprintf("errcode.Register: %s is outside any reserved range", c))
 	}
@@ -158,7 +165,7 @@ func Register(c Code, description string) Code {
 	if existing, ok := registry[c]; ok {
 		panic(fmt.Sprintf("errcode.Register: duplicate %s (already %q)", c, existing.Description))
 	}
-	registry[c] = entry{Code: c, Description: description}
+	registry[c] = entry{Code: c, Description: description, Remedy: remedy}
 	return c
 }
 
@@ -167,6 +174,13 @@ func Description(c Code) string {
 	regMu.RLock()
 	defer regMu.RUnlock()
 	return registry[c].Description
+}
+
+// Remedy returns the registered remedy for c, or "" if unknown.
+func Remedy(c Code) string {
+	regMu.RLock()
+	defer regMu.RUnlock()
+	return registry[c].Remedy
 }
 
 // All returns a sorted snapshot of all registered codes; used by `forge explain
@@ -226,4 +240,25 @@ func (e *Error) Is(target error) bool {
 		return false
 	}
 	return e.Code == t.Code
+}
+
+// ForgeCode implements the llmresponse.forgeErr interface: returns the
+// canonical FORGE-XXXX string for structured JSON error envelopes.
+func (e *Error) ForgeCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.Code.Format()
+}
+
+// ForgeRemedy implements the llmresponse.forgeErr interface: returns the
+// registered remedy for this error code, falling back to the Hint field.
+func (e *Error) ForgeRemedy() string {
+	if e == nil {
+		return ""
+	}
+	if r := Remedy(e.Code); r != "" {
+		return r
+	}
+	return e.Hint
 }

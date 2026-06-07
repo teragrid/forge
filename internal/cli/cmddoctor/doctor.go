@@ -129,6 +129,7 @@ func Run(root string) Report {
 		checkBinary("go", true, "install Go 1.24+ from https://go.dev/dl/"),
 		checkTempWritable(),
 		checkGitignoreDrift(root),
+		checkLLMModeAdvisory(),
 	)
 	rep.Healthy = true
 	for _, c := range rep.Checks {
@@ -307,5 +308,37 @@ func renderText(cmd *cobra.Command, r Report) {
 		fmt.Fprintln(w, "\nall required checks passed.")
 	} else {
 		fmt.Fprintln(w, "\nat least one required check failed.")
+	}
+}
+
+// checkLLMModeAdvisory advises on the FORGE_LLM_MODE environment variable.
+// It is informational (not required) — just surfaces the capability so LLMs
+// and operators know how to opt in or out.
+func checkLLMModeAdvisory() Check {
+	val := os.Getenv("FORGE_LLM_MODE")
+	switch val {
+	case "1":
+		return Check{
+			Name:     "llm-mode",
+			Status:   StatusOK,
+			Required: false,
+			Detail:   "FORGE_LLM_MODE=1 — JSON envelopes + gate suppression active",
+		}
+	case "":
+		return Check{
+			Name:     "llm-mode",
+			Status:   StatusWarn,
+			Required: false,
+			Detail:   "FORGE_LLM_MODE not set — human-readable output by default",
+			Hint:     "set FORGE_LLM_MODE=1 when an LLM is driving forge commands (enables JSON envelopes + suppresses y/N prompts)",
+		}
+	default:
+		return Check{
+			Name:     "llm-mode",
+			Status:   StatusWarn,
+			Required: false,
+			Detail:   fmt.Sprintf("FORGE_LLM_MODE=%q — expected '1' or unset", val),
+			Hint:     "set FORGE_LLM_MODE=1 to enable LLM mode, or unset to use human mode",
+		}
 	}
 }
