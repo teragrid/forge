@@ -104,3 +104,48 @@ These will always be clearly labelled `SECURITY BREAKING` in the changelog
 and release notes.
 
 See `docs/SECURITY.md` for the full vulnerability disclosure and patching policy.
+
+---
+
+## v1.7.0 — LLM-first rearchitecture (piped-output migration)
+
+**Feature:** `internal/llmresponse` + `forge ship --human` + 10 MCP tools
+**PR:** `feature/agent-first-rearchitect` → main
+
+### What changed
+
+| Area | Old behaviour | New behaviour |
+|------|---------------|---------------|
+| stdout (non-TTY / `--json`) | Mixed ANSI text | JSON envelope (one object per line) |
+| Interactive gates | `y/N` prompt always printed | Suppressed when `FORGE_LLM_MODE=1` or non-TTY |
+| Error output | Plain text | JSON with `code`, `message`, and `remedy` fields |
+| MCP tools | 4 tools | 10 tools (`forge_ship_checkpoint`, `forge_get_errors`, `forge_set_budget`, `forge_list_specs`, `forge_get_spec`, `forge_check_health` added) |
+
+### Migration guide (for piped/scripted users)
+
+If you pipe `forge ship` output (e.g. `forge ship … | jq`), the output is
+now a JSON envelope when stdout is not a TTY. No flag change needed — the
+auto-detection is automatic.
+
+To opt out and keep human-readable text even when piped:
+
+```sh
+forge ship spec --name auth-email --human
+```
+
+To opt in explicitly from a TTY:
+
+```sh
+forge ship code --name auth-email --json
+# or:
+FORGE_LLM_MODE=1 forge ship code --name auth-email
+```
+
+### New `FORGE_LLM_MODE` environment variable
+
+`FORGE_LLM_MODE=1` is the canonical way for LLM agents (Claude, GPT-4o,
+Copilot) to signal that they are the consumer. It:
+- Emits JSON envelopes on all output
+- Suppresses all interactive `y/N` gates (equivalent to `--yes`)
+- Disables ANSI colour codes
+- Adds `remedy` to every error response

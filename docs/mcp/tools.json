@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forge.sh/schemas/mcp/tools.json",
+  "title": "Forge MCP Tool Inventory",
+  "description": "Static schema for the 10 MCP tools exposed by `forge mcp serve`. This file is the source of truth for contract tests (T-013) and CI validation.",
+  "version": "1.0.0",
+  "tools": [
+    {
+      "name": "forge_kb_search",
+      "description": "Search the Forge knowledge base for patterns, best practices, and standards.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Search query" },
+          "max_results": { "type": "integer", "description": "Maximum results (default: 5, max: 20)" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "forge_get_workflow",
+      "description": "Get the step-by-step workflow for any Forge verb.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "verb": { "type": "string", "description": "Forge verb name (e.g. 'ship')" }
+        },
+        "required": ["verb"]
+      }
+    },
+    {
+      "name": "forge_get_standards",
+      "description": "Get coding standards active in this project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "forge_run",
+      "description": "Execute any Forge verb and return its output.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "verb": { "type": "string", "description": "Forge verb to run" },
+          "args": { "type": "array", "items": { "type": "string" }, "description": "Additional arguments" }
+        },
+        "required": ["verb"]
+      }
+    },
+    {
+      "name": "forge_ship_checkpoint",
+      "description": "Run a single forge ship checkpoint for a named feature.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "checkpoint": { "type": "string", "description": "Pipeline stage: spec|arch|test|breakdown|code|ship|verify" },
+          "name": { "type": "string", "description": "Feature slug" },
+          "dry_run": { "type": "boolean", "description": "Preview without writing" }
+        },
+        "required": ["checkpoint", "name"]
+      }
+    },
+    {
+      "name": "forge_get_errors",
+      "description": "Look up FORGE-XXXX error codes for descriptions and remedies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "codes": { "type": "array", "items": { "type": "string" }, "description": "FORGE-XXXX codes to look up" }
+        },
+        "required": ["codes"]
+      }
+    },
+    {
+      "name": "forge_set_budget",
+      "description": "Set FORGE_BUDGET_USD spend cap for subsequent forge commands.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "budget_usd": { "type": "number", "description": "Max USD per invocation (0 = unlimited)" }
+        },
+        "required": ["budget_usd"]
+      }
+    },
+    {
+      "name": "forge_list_specs",
+      "description": "List all feature specs in .forge/specs/ with checkpoint status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "forge_get_spec",
+      "description": "Read a spec file (spec.md, arch.md, etc.) for a named feature.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Feature slug" },
+          "file": { "type": "string", "description": "File slug: spec|arch|test|breakdown (default: spec)" }
+        },
+        "required": ["name"]
+      }
+    },
+    {
+      "name": "forge_check_health",
+      "description": "Run forge doctor and return a structured health report.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

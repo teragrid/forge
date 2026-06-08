@@ -100,10 +100,10 @@ func emitEvent(w io.Writer, cp Checkpoint, overrideEvent string) {
 
 // Reserved error codes (range 3200..3299).
 var (
-	ErrShipFailed      = errcode.Register(errcode.Code(3200), "ship checkpoint failed")
-	ErrSpecAuditFailed = errcode.Register(errcode.Code(3201), "spec audit: incomplete tasks or authz gaps detected")
-	ErrBranchFailed    = errcode.Register(errcode.Code(3203), "feature branch operation failed")
-	ErrQAVerifyFailed  = errcode.Register(errcode.Code(3204), "QA-verify: test suite or MCP probe failed")
+	ErrShipFailed      = errcode.RegisterWithRemedy(errcode.Code(3200), "ship checkpoint failed", "forge ship <checkpoint> --name <slug>  # retry the failed checkpoint")
+	ErrSpecAuditFailed = errcode.RegisterWithRemedy(errcode.Code(3201), "spec audit: incomplete tasks or authz gaps detected", "review .forge/specs/<slug>/spec.md and add missing ACs, then retry")
+	ErrBranchFailed    = errcode.RegisterWithRemedy(errcode.Code(3203), "feature branch operation failed", "git status  # resolve merge conflicts, then forge ship --no-branch")
+	ErrQAVerifyFailed  = errcode.RegisterWithRemedy(errcode.Code(3204), "QA-verify: test suite or MCP probe failed", "go test ./... -count=1  # fix failing tests, then forge ship qa-verify")
 )
 
 // Gate is called after each checkpoint runs (0-based idx, total count, completed cp).
@@ -223,6 +223,7 @@ func New() *cobra.Command {
 		description    string
 		specName       string // --name/-n: override spec directory name for 'forge ship spec'
 		asJSON         bool
+		humanMode      bool // --human: force human-readable output, opt-out of LLM mode auto-detection
 		yolo           bool
 		quick          bool   // --quick: lightweight spec+code only (skip test+breakdown+verify)
 		yes            bool   // --yes: auto-approve all gates (alias for --yolo for non-YOLO users)
@@ -239,6 +240,7 @@ func New() *cobra.Command {
 		c.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "preview what would happen without making LLM calls or git operations")
 		c.Flags().StringVar(&description, "description", "", "what this change does (deprecated: use positional arg instead)")
 		c.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
+		c.Flags().BoolVar(&humanMode, "human", false, "force human-readable output (opt-out of LLM mode auto-detection)")
 		c.Flags().BoolVarP(&yolo, "yolo", "Y", false, "skip all approval gates (ship without review prompts)")
 		c.Flags().BoolVarP(&quick, "quick", "Q", false, "lightweight run: spec+code only (skips test, breakdown, verify)")
 		c.Flags().BoolVarP(&yes, "yes", "y", false, "auto-approve all checkpoint gates (alias for --yolo)")
@@ -266,6 +268,16 @@ func New() *cobra.Command {
 		// --yes is an alias for --yolo (more approachable for non-YOLO users).
 		if yes {
 			yolo = true
+		}
+
+		// LLM mode (explicit signals only): suppress interactive y/N gates when
+		// FORGE_LLM_MODE=1 or NO_COLOR=1 so that LLMs driving forge commands are
+		// never blocked (AC-3). TTY detection is intentionally excluded here so
+		// that `go test` (non-TTY but human developer) never silently skips gates.
+		if !yolo && !asJSON && !humanMode {
+			if os.Getenv("FORGE_LLM_MODE") == "1" || os.Getenv("NO_COLOR") == "1" {
+				yolo = true
+			}
 		}
 
 		// --quick: run spec+code only (skip test, breakdown, verify).

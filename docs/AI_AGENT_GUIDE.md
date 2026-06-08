@@ -223,8 +223,9 @@ printf '%s\n%s\n' \
 ```
 
 **Expected:** response contains `"protocolVersion":"2024-11-05"` and an array
-of 4 tools: `forge_kb_search`, `forge_get_workflow`, `forge_get_standards`,
-`forge_run`.
+of **10 tools**: `forge_kb_search`, `forge_get_workflow`, `forge_get_standards`,
+`forge_run`, `forge_ship_checkpoint`, `forge_get_errors`, `forge_set_budget`,
+`forge_list_specs`, `forge_get_spec`, `forge_check_health`.
 
 ---
 
@@ -352,7 +353,82 @@ Execute any Forge verb and return its output. Unsafe verbs are denied
 
 ---
 
-## 6. Full Command Reference
+### `forge_ship_checkpoint`
+
+Run a single `forge ship` checkpoint and return a structured JSON envelope.
+
+**Input schema:**
+
+```json
+{
+  "checkpoint": "<name>",  // required — e.g. "spec", "arch", "test", "code", "ship"
+  "feature": "<slug>",    // required — spec slug under .forge/specs/
+  "dry_run": false        // optional — default false
+}
+```
+
+**Returns:** `{ "ok": true, "checkpoint": "code", "status": "completed", "context_summary": "...", "next_actions": [...], "cost_usd": 0.012, "duration_ms": 4200 }`
+
+---
+
+### `forge_get_errors`
+
+Retrieve the last forge error list with structured code and remedy.
+
+**Input schema:** `{}` (no parameters)
+
+**Returns:** Array of `{ "code": "FORGE-2001", "message": "...", "remedy": "set FORGE_BUDGET_USD=<amount>" }`
+
+---
+
+### `forge_set_budget`
+
+Set the `FORGE_BUDGET_USD` per-invocation LLM spend cap for the current session.
+
+**Input schema:**
+
+```json
+{
+  "usd": 0.50   // required — cap in USD; 0 = unlimited
+}
+```
+
+---
+
+### `forge_list_specs`
+
+List all specs under `.forge/specs/` with status and checkpoint progress.
+
+**Input schema:** `{}` (no parameters)
+
+**Returns:** Array of `{ "slug": "rate-limiter", "status": "draft", "progress": "2/7" }`
+
+---
+
+### `forge_get_spec`
+
+Read the full content of any spec file by slug and file name.
+
+**Input schema:**
+
+```json
+{
+  "slug": "<spec-slug>",      // required — e.g. "rate-limiter"
+  "file": "spec.md"           // optional — default "spec.md"
+}
+```
+
+---
+
+### `forge_check_health`
+
+Run `forge doctor` and return structured health results.
+
+**Input schema:** `{}` (no parameters)
+
+**Returns:** `{ "ok": true, "checks": [ { "name": "llm-mode", "status": "advisory", "message": "..." } ] }`
+
+---
 
 All commands run against the project in the current working directory unless
 otherwise noted. Flags marked `†` are available on every verb.
@@ -364,8 +440,16 @@ otherwise noted. Flags marked `†` are available on every verb.
 | `--model <model>` | LLM model override for this invocation (e.g. `gpt-4o`, `claude-sonnet-4-5`) |
 | `--budget-usd <n>` | Hard LLM spend cap in USD for this invocation (`0` = unlimited) |
 | `--profile <name>` | Load a named config profile from `forge.config.yml` |
-| `--json` | Machine-readable JSON output (supported by most verbs) |
+| `--json` | Machine-readable JSON output (supported by most verbs; auto-enabled when stdout is non-TTY) |
+| `--human` | Force human-readable output even when piped or `FORGE_LLM_MODE=1` is set |
 | `--quiet` | Suppress informational output; only print findings/errors |
+
+**LLM-first mode (v1.7.0+):** Set `FORGE_LLM_MODE=1` in the shell environment once to enable JSON envelopes on all verbs and auto-approve all `forge ship` interactive gates — no per-command flags needed.
+
+```bash
+export FORGE_LLM_MODE=1
+forge ship code   # emits JSON envelope; no y/N prompts
+```
 
 ---
 

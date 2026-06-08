@@ -42,7 +42,7 @@ Confirm it worked:
 
 ```bash
 forge version
-# Should print something like: forge 1.0.1
+# Should print something like: forge 1.7.0
 ```
 
 > **Windows only:** if `forge version` shows `0.0.0-dev` instead of a real number, npm cached an old version. Fix it with:

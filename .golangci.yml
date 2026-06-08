@@ -39,5 +39,12 @@ issues:
       linters:
         - gosec
         - errcheck
+    # SA5011: false-positive "possible nil pointer dereference" in tests that
+    # call t.Fatal/t.Fatalf after a nil-guard — staticcheck does not model
+    # t.Fatal as a terminator, so the subsequent field access is flagged.
+    - path: _test\.go
+      text: "SA5011"
+      linters:
+        - staticcheck
   max-issues-per-linter: 0
   max-same-issues: 0

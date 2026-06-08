@@ -1,1 +1,0 @@
-{"version":"1","module":"github.com/teragrid/forge","project_type":"go","created_at":"2026-05-17T00:00:00Z","conventions":{"errcode_range_per_verb":true,"verbmeta_required":true,"tests_before_ship":true,"audit_log_path":".forge/audit.log"}}
