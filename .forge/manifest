@@ -1,0 +1,24 @@
+# .forge/manifest — Forge hygiene / managed file registry
+# Format: sections [scratch] and [managed]. Lines starting with '#' are
+# comments. Blanks are ignored. Glob patterns support **, *, ?.
+# Managed patterns win over scratch (false-positive deletion guard).
+
+[scratch]
+**/.forge/scratch/**
+**/*.tmp.*
+**/_scratch_*
+**/scratch_*
+dist/
+bin/
+
+[managed]
+.gitignore
+.gitleaks.toml
+.forge/manifest
+.forge/specs/**
+.forge/eval/**
+.forge/context/**
+.forge/instructions/**
+AGENTS.md
+CLAUDE.md
+tests/**
