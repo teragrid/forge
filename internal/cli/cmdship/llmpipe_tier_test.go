@@ -88,9 +88,10 @@ func TestInvoke_UsesRouterWhenMinTierSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	// T0 model for anthropic is claude-3-5-haiku-20241022.
-	if got := cp.lastModel; got != "claude-3-5-haiku-20241022" {
-		t.Errorf("model used = %q, want T0 haiku model", got)
+	// T0 model for anthropic is the current haiku-family model in DefaultTiers.
+	wantT0 := tierrouter.DefaultTiers[0].AnthropicModel
+	if got := cp.lastModel; got != wantT0 {
+		t.Errorf("model used = %q, want T0 haiku model %q", got, wantT0)
 	}
 }
 
