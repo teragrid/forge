@@ -31,6 +31,10 @@ import (
 
 // TestRun_NoProvider returns a graceful no-provider result when no API keys set.
 func TestRun_NoProvider(t *testing.T) {
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")

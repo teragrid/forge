@@ -214,7 +214,7 @@ func TestAnthropicAdapter_Complete_RespectsReqModel(t *testing.T) {
 
 func TestAnthropicAdapter_Complete_HTTP401(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"error":"invalid key"}`, http.StatusUnauthorized)
 	}))
 	defer srv.Close()

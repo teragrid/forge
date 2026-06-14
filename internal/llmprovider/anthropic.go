@@ -40,8 +40,8 @@ import (
 )
 
 const (
-	anthropicAPIBase     = "https://api.anthropic.com/v1"
-	anthropicAPIVersion  = "2023-06-01"
+	anthropicAPIBase      = "https://api.anthropic.com/v1"
+	anthropicAPIVersion   = "2023-06-01"
 	anthropicDefaultModel = "claude-sonnet-4-5-20250514"
 )
 
@@ -91,12 +91,12 @@ func readClaudeCodeAPIKey() string {
 		return ""
 	}
 	var cfg struct {
-		PrimaryApiKey string `json:"primaryApiKey"`
+		PrimaryAPIKey string `json:"primaryApiKey"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return ""
 	}
-	return cfg.PrimaryApiKey
+	return cfg.PrimaryAPIKey
 }
 
 // ── Provider interface ─────────────────────────────────────────────────────────
