@@ -1647,10 +1647,11 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	// Initialize the LLM pipe once for the entire run.
 	// opts.LLMPipe enables test injection of a MockProvider; production code
-	// leaves it nil so auto-detection runs via llmprovider.Detect.
+	// leaves it nil so auto-detection runs via llmprovider.DetectOrPrompt (or
+	// silent dry-run when --dry-run is active).
 	pipe := opts.LLMPipe
 	if pipe == nil {
-		pipe = newLLMPipe(root)
+		pipe = newLLMPipeInteractive(root, opts.DryRun)
 	}
 
 	// Resolve quality-gate hooks and config.

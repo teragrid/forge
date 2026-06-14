@@ -257,6 +257,10 @@ func TestReadGHConfigToken_NoOAuthToken(t *testing.T) {
 // -- Detect() integration -----------------------------------------------------
 
 func TestDetect_CopilotPickedUp(t *testing.T) {
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")

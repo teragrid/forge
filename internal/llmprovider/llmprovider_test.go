@@ -147,6 +147,10 @@ func TestAnthropicAdapter_Capabilities(t *testing.T) {
 
 func TestDetect_NoEnvVars(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "")
 	t.Setenv("GEMINI_API_KEY", "")
@@ -185,6 +189,10 @@ func TestDetect_AnthropicKeyPresent(t *testing.T) {
 
 func TestDetect_OpenAIKeyPresent(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "sk-test-key-12345678901234567890abcdef")
 
@@ -211,14 +219,43 @@ func TestDetect_AnthropicTakesPrecedence(t *testing.T) {
 	}
 }
 
-// ── False-positive: stub adapters return ErrProviderFail, not nil ─────────────
+func TestDetect_ClaudeCodeConfig_PicksUpAnthropicProvider(t *testing.T) {
+	// Verify that forge auto-detects the Anthropic provider from
+	// ~/.claude/config.json when ANTHROPIC_API_KEY is not set.
+	dir := t.TempDir()
+	claudeDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `{"primaryApiKey":"sk-ant-claude-code-auto-detected"}`
+	if err := os.WriteFile(filepath.Join(claudeDir, "config.json"), []byte(cfg), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("ANTHROPIC_API_KEY", "") // must not be set
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("FORGE_NO_LLM", "")
 
-func TestAnthropicAdapter_CompleteReturnsStubError(t *testing.T) {
+	p, err := llmprovider.Detect()
+	if err != nil {
+		t.Fatalf("Detect with Claude Code config: %v", err)
+	}
+	if p.Name() != "anthropic" {
+		t.Errorf("expected anthropic from Claude Code config, got %q", p.Name())
+	}
+}
+
+// ── AnthropicAdapter zero-value guard ─────────────────────────────────────────
+
+func TestAnthropicAdapter_Complete_ZeroValue_ReturnsError(t *testing.T) {
 	t.Parallel()
+	// Zero-value adapter has no API key — must fail with FORGE-4051, not panic.
 	a := &llmprovider.AnthropicAdapter{}
 	_, err := a.Complete(context.Background(), &llmprovider.Request{UserPrompt: "test"})
 	if err == nil {
-		t.Fatal("stub adapter must not succeed without HTTP transport")
+		t.Fatal("zero-value adapter must not succeed (no API key)")
 	}
 	if !strings.Contains(err.Error(), "FORGE-4051") {
 		t.Fatalf("expected FORGE-4051, got: %v", err)
@@ -352,6 +389,10 @@ func TestDetect_ConfigProvider_TakesPriorityOverEnvOrder(t *testing.T) {
 // the configured provider's API key is absent, detection falls back to the
 // next available env-var provider rather than returning an error.
 func TestDetect_ConfigProvider_FallsBackOnMissingCredentials(t *testing.T) {
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	cfgFile := writeTempConfig(t, "llm:\n  provider: anthropic\n")
 	t.Setenv("FORGE_CONFIG", cfgFile)
 	t.Setenv("ANTHROPIC_API_KEY", "") // configured but no key — must fall back
@@ -373,6 +414,10 @@ func TestDetect_ConfigProvider_FallsBackOnMissingCredentials(t *testing.T) {
 // TestDetect_NoEnvVars_ErrorMentionsForgeConfig verifies that the ErrNoProvider
 // error message guides users to use forge config set as well as env vars.
 func TestDetect_NoEnvVars_ErrorMentionsForgeConfig(t *testing.T) {
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	cfgFile := writeTempConfig(t, "llm:\n  provider: auto\n")
 	t.Setenv("FORGE_CONFIG", cfgFile)
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -400,6 +445,10 @@ func TestDetect_NoEnvVars_ErrorMentionsForgeConfig(t *testing.T) {
 // TestDetect_ConfigModel_AppliedToEmptyModelRequest verifies that when
 // forge.yml sets llm.model, a request with Model="" has the model applied.
 func TestDetect_ConfigModel_AppliedToEmptyModelRequest(t *testing.T) {
+	// Redirect HOME so detectAnthropicKey cannot read ~/.claude/config.json on this machine.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
 	cfgFile := writeTempConfig(t, "llm:\n  model: gpt-4o-forge-test\n")
 	t.Setenv("FORGE_CONFIG", cfgFile)
 	t.Setenv("OPENAI_API_KEY", "sk-test-key-12345678901234567890abcdef")

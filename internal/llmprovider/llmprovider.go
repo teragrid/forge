@@ -16,18 +16,27 @@
 // interface, environment-variable-based provider detection (IDE-config bridge),
 // and a mock provider for use in tests.
 //
-// Detection order:
-//  1. ANTHROPIC_API_KEY  → AnthropicAdapter (Claude models)
-//  2. OPENAI_API_KEY     → OpenAIAdapter (GPT models)
-//  3. Neither present    → ErrNoProvider (FORGE-4050)
+// Detection order (highest priority first):
+//  0. forge.yml llm.provider          → explicit provider by name
+//  1. ANTHROPIC_API_KEY               → AnthropicAdapter (Claude models)
+//     ~/.claude/config.json           → AnthropicAdapter (Claude Code CLI — no extra setup)
+//  2. OPENAI_API_KEY                  → OpenAIAdapter (GPT models)
+//  3. GEMINI_API_KEY                  → GeminiAdapter
+//  4. AZURE_OPENAI_API_KEY            → AzureOpenAIAdapter
+//  5. AWS_BEDROCK_REGION              → BedrockAdapter
+//  6. OLLAMA_HOST                     → OllamaAdapter (local / air-gap)
+//  7. GH_TOKEN / gh CLI / VS Code    → CopilotProvider (GitHub Copilot plan)
 //
-// No external HTTP calls are made by the adapters in this package; they carry
-// only the key and capability metadata. Actual HTTP transport is the caller's
-// responsibility, which allows clean separation from HTTP mocking in tests.
+// Concrete HTTP implementations live in anthropic.go, gemini.go, copilot.go,
+// azure.go, and bedrock.go. OpenAI and Ollama carry only metadata; inject a
+// concrete client for real calls.
 package llmprovider
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -158,11 +167,12 @@ func Detect() (Provider, error) {
 		}
 	}
 
-	// Env-var auto-detection (used when no explicit provider is configured).
+	// Env-var / config-file auto-detection.
 	if inner == nil {
 		switch {
-		case os.Getenv("ANTHROPIC_API_KEY") != "":
-			inner = &AnthropicAdapter{apiKey: os.Getenv("ANTHROPIC_API_KEY")}
+		case detectAnthropicKey() != "":
+			// Covers ANTHROPIC_API_KEY and ~/.claude/config.json (Claude Code CLI).
+			inner = newAnthropicProvider()
 		case os.Getenv("OPENAI_API_KEY") != "":
 			inner = &OpenAIAdapter{apiKey: os.Getenv("OPENAI_API_KEY")}
 		default:
@@ -189,14 +199,64 @@ func Detect() (Provider, error) {
 	return &profileProvider{inner: inner, configModel: configModel}, nil
 }
 
+// DetectOrPrompt calls Detect and, when no provider is found, interactively
+// prompts the user to paste an Anthropic API key. It writes the prompt to w
+// and reads the key from r; pass nil to use os.Stderr / os.Stdin.
+//
+// On success the key is set in the process environment (ANTHROPIC_API_KEY) so
+// any subsequent Detect() call or sub-command also picks it up.
+func DetectOrPrompt(r io.Reader, w io.Writer) (Provider, error) {
+	p, err := Detect()
+	if err == nil {
+		return p, nil
+	}
+	// Only prompt when no provider at all was found (FORGE-4050).
+	if !strings.Contains(err.Error(), "FORGE-4050") {
+		return nil, err
+	}
+
+	if w == nil {
+		w = os.Stderr
+	}
+	if r == nil {
+		r = os.Stdin
+	}
+
+	fmt.Fprintln(w, "\nNo LLM provider detected. forge needs an API key to make LLM calls.")
+	fmt.Fprintln(w, "You can also set one of these environment variables permanently:")
+	fmt.Fprintln(w, "  ANTHROPIC_API_KEY  — Anthropic Claude (https://console.anthropic.com/)")
+	fmt.Fprintln(w, "  OPENAI_API_KEY     — OpenAI GPT")
+	fmt.Fprintln(w, "  GEMINI_API_KEY     — Google Gemini")
+	fmt.Fprintln(w, "  GH_TOKEN           — GitHub Copilot (requires Copilot subscription)")
+	fmt.Fprint(w, "\nPaste your Anthropic API key to continue (or press Enter to skip): ")
+
+	scanner := bufio.NewScanner(r)
+	if scanner.Scan() {
+		key := strings.TrimSpace(scanner.Text())
+		if key != "" {
+			if err2 := os.Setenv("ANTHROPIC_API_KEY", key); err2 != nil {
+				return nil, fmt.Errorf("failed to set ANTHROPIC_API_KEY: %w", err2)
+			}
+			adapter := &AnthropicAdapter{apiKey: key}
+			fmt.Fprintln(w, "Using Anthropic Claude for this session.")
+			return &profileProvider{inner: adapter}, nil
+		}
+	}
+
+	// User skipped — return the original ErrNoProvider so callers can fall back to dry-run.
+	return nil, err
+}
+
 // detectByName initialises a provider by explicit name, using the same
 // credential env-vars as the auto-detection path. Returns nil when the
 // provider's credentials are unavailable.
 func detectByName(name string) Provider {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "anthropic":
-		if k := os.Getenv("ANTHROPIC_API_KEY"); k != "" {
-			return &AnthropicAdapter{apiKey: k}
+	case "anthropic", "claude", "claude-code":
+		// "claude" and "claude-code" are accepted aliases for the Anthropic provider;
+		// credential detection covers both ANTHROPIC_API_KEY and ~/.claude/config.json.
+		if p := newAnthropicProvider(); p != nil {
+			return p
 		}
 	case "openai":
 		if k := os.Getenv("OPENAI_API_KEY"); k != "" {
@@ -226,47 +286,9 @@ func detectByName(name string) Provider {
 	return nil
 }
 
-// ── Anthropic adapter ─────────────────────────────────────────────────────────
-
-// AnthropicAdapter is a Provider skeleton for the Anthropic Claude API.
-// HTTP transport is intentionally not included here; inject a custom transport
-// or use a concrete implementation built on top of this adapter.
-type AnthropicAdapter struct {
-	apiKey string
-}
-
-func (a *AnthropicAdapter) Name() string { return "anthropic" }
-
-func (a *AnthropicAdapter) Capabilities() Capabilities {
-	return Capabilities{
-		Streaming: true,
-		MaxTokens: 200000,
-		Models: []string{
-			// Claude 4 family
-			"claude-opus-4-8-20250514",
-			"claude-sonnet-4-5-20250514",
-			"claude-haiku-4-5-20251001",
-			// Claude 3.7
-			"claude-3-7-sonnet-20250219",
-			// Claude 3.5
-			"claude-3-5-sonnet-20241022",
-			"claude-3-5-haiku-20241022",
-		},
-	}
-}
-
-// Complete is a stub that returns ErrProviderFail. Replace with a concrete
-// HTTP implementation when needed.
-func (a *AnthropicAdapter) Complete(_ context.Context, req *Request) (*Response, error) {
-	if req == nil {
-		return nil, errcode.New(ErrInvalidInput, "request must not be nil", nil)
-	}
-	return nil, errcode.New(ErrProviderFail,
-		"AnthropicAdapter.Complete: HTTP transport not implemented; wire a concrete client", nil)
-}
-
-// APIKey returns the raw API key (for use by concrete HTTP clients).
-func (a *AnthropicAdapter) APIKey() string { return a.apiKey }
+// AnthropicAdapter is defined in anthropic.go with a full HTTP implementation
+// and auto-detection of credentials from ANTHROPIC_API_KEY and
+// ~/.claude/config.json (Claude Code CLI).
 
 // ── OpenAI adapter ────────────────────────────────────────────────────────────
 

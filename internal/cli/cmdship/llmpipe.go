@@ -77,6 +77,20 @@ func newLLMPipe(root string) *LLMPipe {
 	return newLLMPipeWithProvider(p, root)
 }
 
+// newLLMPipeInteractive is like newLLMPipe but prompts the user for an API key
+// when no provider is detected and dryRun is false. In dry-run mode it falls
+// back to nil silently, matching the old behaviour.
+func newLLMPipeInteractive(root string, dryRun bool) *LLMPipe {
+	if dryRun {
+		return newLLMPipe(root)
+	}
+	p, err := llmprovider.DetectOrPrompt(nil, nil) // nil → os.Stdin / os.Stderr
+	if err != nil {
+		return nil
+	}
+	return newLLMPipeWithProvider(p, root)
+}
+
 // newLLMPipeWithProvider creates an LLMPipe backed by the given provider.
 // Intended for tests — inject a *llmprovider.MockProvider to exercise LLM
 // code paths without network calls.

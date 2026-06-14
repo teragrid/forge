@@ -4,6 +4,18 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.2] — 2026-06-14 — Credential auto-detection & interactive key prompt
+
+### Added
+
+- **Anthropic Claude auto-detection from Claude Code CLI** — forge now reads `~/.claude/config.json` (the `primaryApiKey` field) so users who have Claude Code installed can run forge commands without setting `ANTHROPIC_API_KEY` separately. The same credential that powers their Claude Code session is reused automatically. Priority: `ANTHROPIC_API_KEY` env var → `~/.claude/config.json` → next provider.
+- **`llmprovider.DetectOrPrompt()`** — new function that wraps `Detect()` and, when no provider is found, interactively prompts the user to paste an Anthropic API key. `forge ship` calls this in non-dry-run mode so first-time users are guided rather than silently dropped into dry-run.
+- **`"claude"` and `"claude-code"` provider aliases** — `forge config set llm.provider claude-code` and `forge config set llm.provider claude` are now accepted as aliases for the Anthropic provider.
+
+### Fixed
+
+- **Test hermetics** — detection tests that expected `ErrNoProvider` or a non-Anthropic provider when `ANTHROPIC_API_KEY=""` were sensitive to the presence of `~/.claude/config.json` on the developer machine. All such tests now redirect `HOME`/`USERPROFILE` to an empty temp directory so the new auto-detection path does not interfere.
+
 ## [1.7.1] — 2026-06-14 — Multi-LLM provider fixes
 
 ### Fixed
