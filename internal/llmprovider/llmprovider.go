@@ -242,9 +242,15 @@ func (a *AnthropicAdapter) Capabilities() Capabilities {
 		Streaming: true,
 		MaxTokens: 200000,
 		Models: []string{
+			// Claude 4 family
+			"claude-opus-4-8-20250514",
+			"claude-sonnet-4-5-20250514",
+			"claude-haiku-4-5-20251001",
+			// Claude 3.7
+			"claude-3-7-sonnet-20250219",
+			// Claude 3.5
 			"claude-3-5-sonnet-20241022",
 			"claude-3-5-haiku-20241022",
-			"claude-3-opus-20240229",
 		},
 	}
 }
@@ -276,9 +282,16 @@ func (o *OpenAIAdapter) Capabilities() Capabilities {
 		Streaming: true,
 		MaxTokens: 128000,
 		Models: []string{
+			// GPT-4.1 family
+			"gpt-4.1",
+			"gpt-4.1-mini",
+			// GPT-4o family
 			"gpt-4o",
 			"gpt-4o-mini",
-			"gpt-4-turbo",
+			// o-series reasoning models
+			"o4-mini",
+			"o3",
+			"o1",
 		},
 	}
 }

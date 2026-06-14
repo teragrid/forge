@@ -4,6 +4,18 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-06-14 — Multi-LLM provider fixes
+
+### Fixed
+
+- **TierRouter model selection** — Gemini, Azure OpenAI, Bedrock, Copilot, and Ollama providers were all sent Anthropic model IDs by the tier escalation ladder. Each provider family now receives the correct model names: Gemini gets Gemini IDs, Azure/OpenAI get OpenAI IDs, Bedrock gets Anthropic IDs, and Copilot/Ollama defer to their own configured defaults.
+- **Gemini `Complete()` ignored `req.Model`** — the Gemini adapter always used the provider's initialisation-time default model even when the tier router or caller set `Request.Model`. It now respects `req.Model` and reports the actual model used in the response.
+- **Stale Anthropic model list** — capabilities advertised only Claude 3.5/3-Opus. Now includes the full Claude 4.x family (`claude-opus-4-8-20250514`, `claude-sonnet-4-5-20250514`, `claude-haiku-4-5-20251001`) and Claude 3.7 (`claude-3-7-sonnet-20250219`).
+- **Stale OpenAI model list** — capabilities only listed `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`. Now includes `gpt-4.1`, `gpt-4.1-mini`, `o4-mini`, `o3`, `o1`.
+- **Stale Gemini model list and default** — default was `gemini-1.5-flash`; updated to `gemini-2.0-flash`. Capabilities now list the full Gemini 2.5 and 2.0 families.
+- **Copilot fallback models missing version suffixes** — `claude-3-7-sonnet` and `claude-3-5-sonnet` lacked date suffixes, causing ambiguous model resolution. All fallback entries now use fully-versioned IDs. Added `claude-opus-4-8-20250514`, `gpt-4.1`, and `o4-mini` to the fallback list.
+- **TierRouter `DefaultTiers` using outdated models** — T0/T1/T2 ladders updated to current model generations across all three provider families (Anthropic, OpenAI, Gemini).
+
 ## [1.7.0] — 2026-06-08 — LLM-first rearchitecture
 
 ### Added

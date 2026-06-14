@@ -29,7 +29,7 @@
 // first call to Capabilities(), so new Copilot models appear automatically.
 // If the endpoint is unreachable the known-good fallback list is used instead.
 //
-// Default model: claude-sonnet-4-5 (override via FORGE_COPILOT_MODEL).
+// Default model: claude-sonnet-4-5-20250514 (override via FORGE_COPILOT_MODEL).
 package llmprovider
 
 import (
@@ -53,17 +53,21 @@ import (
 
 const (
 	copilotAPIBase      = "https://api.githubcopilot.com"
-	copilotDefaultModel = "claude-sonnet-4-5"
+	copilotDefaultModel = "claude-sonnet-4-5-20250514"
 )
 
 // copilotKnownModels is the static fallback used when the /models endpoint is
-// unreachable (air-gap, token not yet valid, etc.).
+// unreachable (air-gap, token not yet valid, etc.). Versioned IDs are preferred
+// for stability; the live /models endpoint is the authoritative source.
 var copilotKnownModels = []string{
-	"claude-sonnet-4-5",
-	"claude-3-7-sonnet",
-	"claude-3-5-sonnet",
+	"claude-sonnet-4-5-20250514",
+	"claude-opus-4-8-20250514",
+	"claude-3-7-sonnet-20250219",
+	"claude-3-5-sonnet-20241022",
+	"gpt-4.1",
 	"gpt-4o",
 	"gpt-4o-mini",
+	"o4-mini",
 	"o3-mini",
 }
 

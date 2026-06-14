@@ -43,16 +43,18 @@ const (
 type TierSpec struct {
 	// Tier is the tier label (T0, T1, T2).
 	Tier string
-	// AnthropicModel / OpenAIModel are the preferred model names.
+	// AnthropicModel / OpenAIModel / GeminiModel are the preferred model names
+	// for each provider family.
 	AnthropicModel string
 	OpenAIModel    string
+	GeminiModel    string
 }
 
 // DefaultTiers is the canonical escalation ladder.
 var DefaultTiers = []TierSpec{
-	{TierCheap, "claude-3-5-haiku-20241022", "gpt-4o-mini"},
-	{TierBalanced, "claude-3-5-sonnet-20241022", "gpt-4o"},
-	{TierPowerful, "claude-3-opus-20240229", "gpt-4-turbo"},
+	{TierCheap, "claude-haiku-4-5-20251001", "gpt-4o-mini", "gemini-2.0-flash"},
+	{TierBalanced, "claude-sonnet-4-5-20250514", "gpt-4o", "gemini-2.5-flash-preview-05-20"},
+	{TierPowerful, "claude-opus-4-8-20250514", "gpt-4.1", "gemini-2.5-pro-preview-06-05"},
 }
 
 // RouteResult is the response from the tier router.
@@ -99,11 +101,27 @@ func (r *Router) Route(ctx context.Context, req llmprovider.Request, minTier str
 	var lastErr error
 	for i := startIdx; i < len(r.tiers); i++ {
 		ts := r.tiers[i]
-		model := ts.AnthropicModel
-		if r.provider.Name() == "openai" {
+		var model string
+		switch r.provider.Name() {
+		case "openai", "azure-openai":
+			// Azure OpenAI uses the same model family as OpenAI.
 			model = ts.OpenAIModel
+		case "gemini":
+			model = ts.GeminiModel
+		case "bedrock":
+			// Bedrock model IDs share the Anthropic model names (caller must
+			// use the full bedrock ARN format if needed, but the base name is the
+			// same Anthropic versioned string).
+			model = ts.AnthropicModel
+		case "github-copilot", "ollama":
+			// These providers have their own model selection / defaults; send
+			// an empty model string so the provider uses its configured default.
+			model = ""
+		default:
+			// anthropic and any future Anthropic-compatible providers.
+			model = ts.AnthropicModel
 		}
-		if model == "" {
+		if model == "" && ts.AnthropicModel != "" && r.provider.Name() != "github-copilot" && r.provider.Name() != "ollama" {
 			model = ts.AnthropicModel
 		}
 

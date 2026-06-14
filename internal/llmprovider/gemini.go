@@ -32,7 +32,7 @@ import (
 )
 
 const geminiAPIBase = "https://generativelanguage.googleapis.com/v1beta/models"
-const geminiDefaultModel = "gemini-1.5-flash"
+const geminiDefaultModel = "gemini-2.0-flash"
 
 // GeminiProvider implements Provider using the Google Gemini REST API.
 type GeminiProvider struct {
@@ -91,7 +91,11 @@ type geminiResponse struct {
 
 // Complete sends a request to the Gemini generateContent API and returns a Response.
 func (g *GeminiProvider) Complete(ctx context.Context, req *Request) (*Response, error) {
-	url := fmt.Sprintf("%s/%s:generateContent?key=%s", geminiAPIBase, g.model, g.apiKey)
+	model := g.model
+	if req.Model != "" {
+		model = req.Model
+	}
+	url := fmt.Sprintf("%s/%s:generateContent?key=%s", geminiAPIBase, model, g.apiKey)
 
 	body := geminiRequest{
 		Contents: []geminiContent{
@@ -145,7 +149,7 @@ func (g *GeminiProvider) Complete(ctx context.Context, req *Request) (*Response,
 		Content:      content,
 		InputTokens:  gr.UsageMetadata.PromptTokenCount,
 		OutputTokens: gr.UsageMetadata.CandidatesTokenCount,
-		Model:        g.model,
+		Model:        model,
 	}, nil
 }
 
@@ -158,9 +162,15 @@ func (g *GeminiProvider) Capabilities() Capabilities {
 		Streaming: false,
 		MaxTokens: 1048576,
 		Models: []string{
-			"gemini-1.5-flash",
+			// Gemini 2.5 family
+			"gemini-2.5-pro-preview-06-05",
+			"gemini-2.5-flash-preview-05-20",
+			// Gemini 2.0 family
+			"gemini-2.0-flash",
+			"gemini-2.0-flash-lite",
+			// Gemini 1.5 family (still available)
 			"gemini-1.5-pro",
-			"gemini-2.0-flash-exp",
+			"gemini-1.5-flash",
 		},
 	}
 }
