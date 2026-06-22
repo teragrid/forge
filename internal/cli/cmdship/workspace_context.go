@@ -70,6 +70,21 @@ type WorkspaceContextResult struct {
 
 	// TestFW is the detected test framework context (RFC-005 §6.3).
 	TestFW TestFrameworkContext
+
+	// ProjectOverview is the first ~600 chars of README.md for project context.
+	ProjectOverview string
+
+	// GitBranch is the current git branch name (empty when unavailable).
+	GitBranch string
+
+	// KeyEntryPoints are relative paths to canonical entry-point files (main.go, etc.).
+	KeyEntryPoints []string
+
+	// APISchemas are relative paths to detected API schema files (proto, OpenAPI, GraphQL).
+	APISchemas []string
+
+	// KeyDeps is a short list of notable runtime dependencies.
+	KeyDeps []string
 }
 
 // techStackIndicator maps a filename (relative to root) to a human-readable label.
@@ -119,13 +134,30 @@ func collectWorkspaceContext(root, slug string) WorkspaceContextResult {
 		sb.WriteString("\n")
 	}
 
-	// 2. Top-level project structure (non-hidden directories only).
-	if dirs := scanTopLevelDirs(root); len(dirs) > 0 {
-		sb.WriteString("## Project Structure\n")
-		sb.WriteString("- " + strings.Join(dirs, "/, ") + "/\n\n")
+	// 2. Project overview from README.md — orient the LLM to the project's purpose.
+	if overview := readProjectOverview(root); overview != "" {
+		res.ProjectOverview = overview
+		sb.WriteString("## Project Overview\n")
+		sb.WriteString(overview)
+		sb.WriteString("\n\n")
 	}
 
-	// 3. Recent git activity (last 10 commits).
+	// 3. Two-level project structure (non-hidden, skips vendor/node_modules).
+	if tree := scanProjectTreeTwoLevel(root); len(tree) > 0 {
+		sb.WriteString("## Project Structure\n")
+		for _, line := range tree {
+			sb.WriteString("- " + line + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// 4. Current git branch — gives the LLM branch-naming conventions.
+	if branch := readGitBranch(root); branch != "" {
+		res.GitBranch = branch
+		sb.WriteString(fmt.Sprintf("## Git Branch\n`%s`\n\n", branch))
+	}
+
+	// 5. Recent git activity (last 10 commits).
 	if log := recentGitLog(root, 10); log != "" {
 		res.HasGit = true
 		sb.WriteString("## Recent Changes (last 10 commits)\n```\n")
@@ -133,25 +165,55 @@ func collectWorkspaceContext(root, slug string) WorkspaceContextResult {
 		sb.WriteString("\n```\n\n")
 	}
 
-	// 4. Existing feature specs — helps LLM avoid duplicating existing work.
-	if specs := listExistingSpecs(root); len(specs) > 0 {
-		sb.WriteString("## Existing Feature Specs (avoid duplicates)\n")
-		sb.WriteString("- " + strings.Join(specs, ", ") + "\n\n")
-	}
-
-	// 5. Project conventions from AGENTS.md or .github/copilot-instructions.md.
-	if conv := loadConventionSummary(root); conv != "" {
-		sb.WriteString("## Project Conventions\n")
-		sb.WriteString(conv)
+	// 6. Key entry points — helps the LLM understand main execution paths.
+	if entries := detectKeyEntryPoints(root); len(entries) > 0 {
+		res.KeyEntryPoints = entries
+		sb.WriteString("## Key Entry Points\n")
+		for _, e := range entries {
+			sb.WriteString("- " + e + "\n")
+		}
 		sb.WriteString("\n")
 	}
 
-	// 6. Test framework context (RFC-005 §6.3) — deterministic, zero LLM.
+	// 7. API / schema files — surfaces existing contracts the spec must respect.
+	if schemas := detectAPISchemas(root); len(schemas) > 0 {
+		res.APISchemas = schemas
+		sb.WriteString("## API Schemas\n")
+		for _, s := range schemas {
+			sb.WriteString("- " + s + "\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// 8. Test framework context (RFC-005 §6.3) — deterministic, zero LLM.
 	fw := detectTestFramework(root)
 	res.TestFW = fw
 	if fw.Language != "" {
 		sb.WriteString("## Test Framework\n")
 		sb.WriteString(fmt.Sprintf("- Language: %s  Runner: %s  Fuzz: %v\n\n", fw.Language, fw.TestRunner, fw.FuzzSupport))
+
+		// 9. Key dependencies — surfaces the runtime library landscape.
+		if deps := detectKeyDependencies(root, fw.Language); len(deps) > 0 {
+			res.KeyDeps = deps
+			sb.WriteString("## Key Dependencies\n")
+			for _, d := range deps {
+				sb.WriteString("- " + d + "\n")
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// 10. Existing feature specs — helps LLM avoid duplicating existing work.
+	if specs := listExistingSpecs(root); len(specs) > 0 {
+		sb.WriteString("## Existing Feature Specs (avoid duplicates)\n")
+		sb.WriteString("- " + strings.Join(specs, ", ") + "\n\n")
+	}
+
+	// 11. Project conventions from CLAUDE.md / AGENTS.md / copilot-instructions.md / CONTRIBUTING.md.
+	if conv := loadConventionSummary(root); conv != "" {
+		sb.WriteString("## Project Conventions\n")
+		sb.WriteString(conv)
+		sb.WriteString("\n")
 	}
 
 	res.Content = sb.String()
@@ -212,24 +274,250 @@ func readGoModSummary(root string) string {
 	return modPath
 }
 
-// scanTopLevelDirs returns the names of non-hidden top-level directories in root.
-func scanTopLevelDirs(root string) []string {
+// scanProjectTreeTwoLevel returns a two-level directory listing as indented lines.
+// Hidden dirs and noise dirs (vendor, node_modules, dist, build) are skipped.
+func scanProjectTreeTwoLevel(root string) []string {
+	skipDirs := map[string]bool{
+		"vendor": true, "node_modules": true, ".git": true,
+		".forge": true, "dist": true, "build": true,
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil
 	}
-	var dirs []string
+	var lines []string
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || skipDirs[e.Name()] {
 			continue
 		}
-		name := e.Name()
-		if strings.HasPrefix(name, ".") {
-			continue // skip .git, .forge, etc.
+		lines = append(lines, e.Name()+"/")
+		sub, err := os.ReadDir(filepath.Join(root, e.Name()))
+		if err != nil {
+			continue
 		}
-		dirs = append(dirs, name)
+		subCount := 0
+		for _, se := range sub {
+			if !se.IsDir() || strings.HasPrefix(se.Name(), ".") || skipDirs[se.Name()] {
+				continue
+			}
+			lines = append(lines, "  "+se.Name()+"/")
+			subCount++
+			if subCount >= 5 {
+				break
+			}
+		}
+		if len(lines) >= 30 {
+			break
+		}
 	}
-	return dirs
+	return lines
+}
+
+// readProjectOverview returns the first ~600 chars of README.md for project context.
+func readProjectOverview(root string) string {
+	for _, name := range []string{"README.md", "readme.md", "README.rst", "README"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(string(data))
+		const maxChars = 600
+		if len(content) > maxChars {
+			content = content[:maxChars] + " [truncated]"
+		}
+		return content
+	}
+	return ""
+}
+
+// readGitBranch returns the current branch name or "" when unavailable or detached.
+func readGitBranch(root string) string {
+	cmd := exec.Command("git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD") //nolint:gosec // G204: root is validated via os.Stat before reaching here
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" { // detached HEAD state
+		return ""
+	}
+	return branch
+}
+
+// detectKeyEntryPoints returns relative paths to canonical entry-point files.
+func detectKeyEntryPoints(root string) []string {
+	candidates := []string{
+		"main.go",
+		"main.py", "app.py", "run.py", "server.py", "manage.py",
+		"src/index.ts", "index.ts", "src/main.ts", "src/app.ts",
+		"index.js", "src/index.js",
+		"main.rs", "src/main.rs",
+	}
+	var found []string
+	for _, rel := range candidates {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			found = append(found, rel)
+		}
+	}
+	// Also detect cmd/*/main.go (Go multi-command layout).
+	if cmdEntries, err := os.ReadDir(filepath.Join(root, "cmd")); err == nil {
+		for _, e := range cmdEntries {
+			if !e.IsDir() {
+				continue
+			}
+			rel := filepath.Join("cmd", e.Name(), "main.go")
+			if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+				found = append(found, filepath.ToSlash(rel))
+			}
+		}
+	}
+	if len(found) > 5 {
+		found = found[:5]
+	}
+	return found
+}
+
+// detectAPISchemas returns relative paths to API schema files (proto, OpenAPI, GraphQL).
+func detectAPISchemas(root string) []string {
+	fixed := []string{
+		"openapi.yaml", "openapi.yml", "openapi.json",
+		"swagger.yaml", "swagger.yml", "swagger.json",
+		"api/openapi.yaml", "api/swagger.yaml",
+		"schema.graphql", "api/schema.graphql",
+	}
+	var found []string
+	for _, rel := range fixed {
+		if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+			found = append(found, rel)
+		}
+	}
+	// Walk for *.proto files (up to 3).
+	protoCount := 0
+	_ = filepath.Walk(root, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if fi.IsDir() {
+			name := fi.Name()
+			if name == "vendor" || name == "node_modules" || name == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if protoCount < 3 && strings.HasSuffix(fi.Name(), ".proto") {
+			rel, _ := filepath.Rel(root, path)
+			found = append(found, filepath.ToSlash(rel))
+			protoCount++
+		}
+		return nil
+	})
+	if len(found) > 8 {
+		found = found[:8]
+	}
+	return found
+}
+
+// detectKeyDependencies returns a short list of notable runtime dependencies.
+func detectKeyDependencies(root, lang string) []string {
+	switch lang {
+	case "go":
+		return parseGoModDeps(root)
+	case "typescript":
+		return parseNodeDeps(root)
+	case "python":
+		return parsePythonDeps(root)
+	}
+	return nil
+}
+
+// parseGoModDeps extracts direct (then indirect) deps from go.mod, up to 10.
+func parseGoModDeps(root string) []string {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return nil
+	}
+	inRequire := false
+	var direct, indirect []string
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "require (" {
+			inRequire = true
+			continue
+		}
+		if inRequire && trimmed == ")" {
+			inRequire = false
+			continue
+		}
+		if inRequire && trimmed != "" && !strings.HasPrefix(trimmed, "//") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 2 {
+				entry := parts[0] + " " + parts[1]
+				if strings.Contains(trimmed, "// indirect") {
+					indirect = append(indirect, entry)
+				} else {
+					direct = append(direct, entry)
+				}
+			}
+		}
+		// Single-line require (not inside a block).
+		if !inRequire && strings.HasPrefix(trimmed, "require ") && !strings.Contains(trimmed, "(") {
+			rest := strings.TrimPrefix(trimmed, "require ")
+			parts := strings.Fields(rest)
+			if len(parts) >= 2 {
+				direct = append(direct, parts[0]+" "+parts[1])
+			}
+		}
+	}
+	all := append(direct, indirect...)
+	if len(all) > 10 {
+		all = all[:10]
+	}
+	return all
+}
+
+// parseNodeDeps extracts runtime dependencies from package.json, up to 10.
+func parseNodeDeps(root string) []string {
+	data, err := os.ReadFile(filepath.Join(root, "package.json"))
+	if err != nil {
+		return nil
+	}
+	var pkg map[string]json.RawMessage
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return nil
+	}
+	var deps map[string]string
+	if d, ok := pkg["dependencies"]; ok {
+		_ = json.Unmarshal(d, &deps)
+	}
+	result := make([]string, 0, len(deps))
+	for name, ver := range deps {
+		result = append(result, name+"@"+strings.Trim(ver, "\""))
+	}
+	sort.Strings(result)
+	if len(result) > 10 {
+		result = result[:10]
+	}
+	return result
+}
+
+// parsePythonDeps reads the first 10 non-comment lines from requirements.txt.
+func parsePythonDeps(root string) []string {
+	data, err := os.ReadFile(filepath.Join(root, "requirements.txt"))
+	if err != nil {
+		return nil
+	}
+	var deps []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		deps = append(deps, line)
+		if len(deps) >= 10 {
+			break
+		}
+	}
+	return deps
 }
 
 // recentGitLog runs `git log --oneline -n <n>` and returns the trimmed output.
@@ -486,17 +774,32 @@ func collectTestFileSample(root, lang string, maxFiles int) []string {
 	return found
 }
 
+// loadConventionSummary reads all present convention files and returns a combined
+// summary. Each file contributes up to 300 chars; the combined output is capped
+// at 900 chars so the section stays LLM-friendly regardless of how many files exist.
 func loadConventionSummary(root string) string {
 	candidates := []struct {
 		path  string
 		label string
 	}{
+		{filepath.Join(root, "CLAUDE.md"), "CLAUDE.md"},
 		{filepath.Join(root, "AGENTS.md"), "AGENTS.md"},
 		{filepath.Join(root, ".github", "copilot-instructions.md"), "copilot-instructions.md"},
 		{filepath.Join(root, "CONTRIBUTING.md"), "CONTRIBUTING.md"},
+		{filepath.Join(root, "DEVELOPMENT.md"), "DEVELOPMENT.md"},
+		{filepath.Join(root, "ARCHITECTURE.md"), "ARCHITECTURE.md"},
+		{filepath.Join(root, "docs", "ARCHITECTURE.md"), "docs/ARCHITECTURE.md"},
+		{filepath.Join(root, "docs", "development.md"), "docs/development.md"},
+		{filepath.Join(root, "docs", "contributing.md"), "docs/contributing.md"},
 	}
-	const maxChars = 500
+	const perFileMax = 300
+	const totalMax = 900
+	var parts []string
+	total := 0
 	for _, c := range candidates {
+		if total >= totalMax {
+			break
+		}
 		data, err := os.ReadFile(c.path)
 		if err != nil {
 			continue
@@ -512,10 +815,18 @@ func loadConventionSummary(root string) string {
 			lines = append(lines, trimmed)
 		}
 		condensed := strings.Join(lines, " ")
-		if len(condensed) > maxChars {
-			condensed = condensed[:maxChars] + " [truncated]"
+		if len(condensed) > perFileMax {
+			condensed = condensed[:perFileMax] + " [truncated]"
 		}
-		return fmt.Sprintf("(from %s) %s\n", c.label, condensed)
+		remaining := totalMax - total
+		if len(condensed) > remaining {
+			condensed = condensed[:remaining] + " [truncated]"
+		}
+		parts = append(parts, fmt.Sprintf("(from %s) %s", c.label, condensed))
+		total += len(condensed)
 	}
-	return ""
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n") + "\n"
 }
