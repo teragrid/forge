@@ -468,11 +468,11 @@ func parseGoModDeps(root string) []string {
 			}
 		}
 	}
-	all := append(direct, indirect...)
-	if len(all) > 10 {
-		all = all[:10]
+	direct = append(direct, indirect...)
+	if len(direct) > 10 {
+		direct = direct[:10]
 	}
-	return all
+	return direct
 }
 
 // parseNodeDeps extracts runtime dependencies from package.json, up to 10.
