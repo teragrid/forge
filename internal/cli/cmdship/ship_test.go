@@ -1429,7 +1429,7 @@ func TestCheckTest_LLM_GeneratesStubs(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("```go\nfunc TestLogin(t *testing.T) {}\n```"),
 	}
-	cp := checkTest(root, "add login", "", mockPipe(root, mock))
+	cp := checkTest(root, "add login", "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1457,7 +1457,7 @@ func TestCheckTest_LLM_ProviderFails_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkTest(root, "broken feature", "", mockPipe(root, mock))
+	cp := checkTest(root, "broken feature", "", mockPipe(root, mock), false)
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning on provider error, got %q: %s", cp.Status, cp.Detail)
@@ -1476,14 +1476,89 @@ func TestCheckTest_LLM_ExistingTestFiles(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("```go\nfunc TestExtra(t *testing.T) {}\n```"),
 	}
-	cp := checkTest(root, "extend feature", "", mockPipe(root, mock))
+	cp := checkTest(root, "extend feature", "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("existing test files should give ok, got %q: %s", cp.Status, cp.Detail)
 	}
 }
 
-// â”€â”€ Breakdown checkpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// TestCheckTest_DoesNotClobberExistingNamedArtifacts — regression test for a
+// real bug: checkTest used to call writeTestArtifacts unconditionally, so
+// re-running `forge ship test` (or a full `forge ship`/`forge ship -d`) after
+// a developer had already written real content into the 4 named artifacts
+// (<slug>.test.ts, .integration.test.ts, .rls.test.ts, .scan.baseline.json)
+// would silently overwrite that content with fresh RED placeholder stubs.
+// Once all 4 artifacts exist, checkTest must leave them untouched.
+func TestCheckTest_DoesNotClobberExistingNamedArtifacts(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := slugify("add login")
+	testsDir := filepath.Join(root, "tests")
+	if err := os.MkdirAll(testsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const realContent = "// hand-written, real assertions\nexpect(true).toBe(true);\n"
+	names := []string{
+		slug + ".test.ts",
+		slug + ".integration.test.ts",
+		slug + ".rls.test.ts",
+		slug + ".scan.baseline.json",
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(testsDir, name), []byte(realContent), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("```go\nfunc TestLogin(t *testing.T) {}\n```"),
+	}
+	cp := checkTest(root, "add login", "", mockPipe(root, mock), false)
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join(testsDir, name))
+		if err != nil {
+			t.Fatalf("artifact %s missing after checkTest: %v", name, err)
+		}
+		if string(data) != realContent {
+			t.Errorf("artifact %s was overwritten; got:\n%s", name, data)
+		}
+	}
+}
+
+// TestCheckTest_DryRunNeverWritesArtifacts — --dry-run must be side-effect-free
+// (per its documented contract: "preview what would happen without making LLM
+// calls or git operations"). checkTest must not scaffold the 4 named artifacts
+// on disk when dryRun is true, even when none exist yet.
+func TestCheckTest_DryRunNeverWritesArtifacts(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := slugify("add login")
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("```go\nfunc TestLogin(t *testing.T) {}\n```"),
+	}
+
+	_ = checkTest(root, "add login", "", mockPipe(root, mock), true)
+
+	testsDir := filepath.Join(root, "tests")
+	for _, name := range []string{
+		slug + ".test.ts",
+		slug + ".integration.test.ts",
+		slug + ".rls.test.ts",
+		slug + ".scan.baseline.json",
+	} {
+		if _, err := os.Stat(filepath.Join(testsDir, name)); err == nil {
+			t.Errorf("dry-run must not write %s to disk", name)
+		}
+	}
+}
+
+// ── Breakdown checkpoint ──────────────────────────────────────────────────
 
 // TestCheckBreakdown_LLM_GeneratesBreakdown â€” when no breakdown.md exists the LLM
 // produces one and writes it under .forge/specs/<slug>/breakdown.md.

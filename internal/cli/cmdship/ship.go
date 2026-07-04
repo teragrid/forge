@@ -885,7 +885,16 @@ func slugify(s string) string {
 // M1-03: git timestamp guard — test files must predate or match their
 // corresponding production files. If any prod file is newer than its test
 // file by more than 60 seconds the checkpoint is marked as a failure.
-func checkTest(root, description, specName string, pipe *LLMPipe) Checkpoint {
+//
+// dryRun, when true, never writes to disk — matches the documented `--dry-run`
+// contract ("preview what would happen without making LLM calls or git
+// operations"). Even outside dry-run, the 4 named artifacts (G-006) are only
+// ever scaffolded when at least one is missing: once all 4 exist, this
+// function leaves them untouched rather than overwriting hand-written test
+// content with fresh RED stubs on every run (see CHANGELOG 1.7.4 — a real
+// bug where re-running `forge ship test`/`forge ship -d` clobbered completed
+// test files back to placeholder stubs).
+func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) Checkpoint {
 	cp := Checkpoint{Name: "Test"}
 	testFiles := findTestFiles(root)
 
@@ -907,8 +916,13 @@ func checkTest(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		slug = slugify(description)
 	}
 
-	// G-006: write / verify all 4 named test artifacts.
-	if description != "" {
+	// G-006: write the 4 named test artifacts, but only when scaffolding is
+	// actually needed. Never write during --dry-run, and never overwrite a
+	// slug whose 4 artifacts are already all present — writeTestArtifacts
+	// unconditionally stomps existing files with RED placeholder stubs, so
+	// re-running this checkpoint after real tests have been written must be a
+	// no-op, not a regression.
+	if description != "" && !dryRun && !allTestArtifactsExist(root, slug) {
 		specMD := ""
 		specPath := filepath.Join(root, ".forge", "specs", slug, "spec.md")
 		if data, err := os.ReadFile(specPath); err == nil {
@@ -1720,7 +1734,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	snapBefore("test")
 	go func() {
 		defer dagWG.Done()
-		testCP = checkTest(root, opts.Description, opts.SpecName, pipe)
+		testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 	}()
 	dagWG.Wait()
 	allCPs = append(allCPs, archCP, testCP)

@@ -4,6 +4,14 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.4] — 2026-07-04 — Test checkpoint no longer clobbers existing tests
+
+### Fixed
+
+- **`forge ship test` (checkpoint 3) overwrote hand-written test content with RED placeholder stubs on every re-run** — `checkTest` called `writeTestArtifacts` unconditionally whenever a feature description was present, with no check for whether the 4 named artifacts (`<slug>.test.ts`, `.integration.test.ts`, `.rls.test.ts`, `.scan.baseline.json`) already held real, developer-written content. Re-running `forge ship test`, a full `forge ship`, or even `forge ship -d` (dry-run) after tests were completed would silently reset them to `expect(false).toBe(true)` stubs. `checkTest` now skips the write entirely once `allTestArtifactsExist` reports all 4 present — the checkpoint still reports coverage status, it just never touches files that are already there.
+- **`--dry-run` was not side-effect-free for the Test checkpoint** — despite being documented as "preview what would happen without making LLM calls or git operations," `forge ship -d` still wrote the 4 named test artifacts to disk. `checkTest` now takes an explicit `dryRun` parameter (threaded from `RunPipeline`'s `opts.DryRun`) and never writes to disk when set.
+- Added `TestCheckTest_DoesNotClobberExistingNamedArtifacts` and `TestCheckTest_DryRunNeverWritesArtifacts` regression tests in `internal/cli/cmdship/ship_test.go`.
+
 ## [1.7.2] — 2026-06-14 — Credential auto-detection & interactive key prompt
 
 ### Added
