@@ -4,6 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.6] — 2026-07-05 — Fix npm test passed-count parsing in QA-Verify
+
+### Fixed
+
+- **QA-Verify's npm test detail always reported "0 case(s) passed"** even when the real Jest run passed thousands of tests. Root cause, found immediately after shipping 1.7.5's Node detection: Jest always prints a `Test Suites: N passed, N total` line *before* the `Tests: ...` line, so the original unanchored `(\d+)\s+passed` regex matched the suite count (e.g. 296) instead of the individual-test count (e.g. 4118) — or matched nothing at all once the parsing was naively anchored to `Tests:` immediately followed by digits, since Jest's `Tests:` line commonly has a `N todo,` or `N failed,` group before the passed count (`Tests: 6 todo, 4118 passed, 4124 total`). Fixed with `(?m)^Tests:.*?(\d+)\s+passed`, anchored to a line starting with `Tests:` specifically (not `Test Suites:`), taking the first `N passed` within that line.
+- Added a regression test reproducing the exact multi-line Jest output shape (`Test Suites:` line followed by a `Tests:` line with a `todo` prefix) that exposed both bugs at once.
+
 ## [1.7.5] — 2026-07-05 — QA-Verify recognizes Node/TypeScript projects
 
 ### Added

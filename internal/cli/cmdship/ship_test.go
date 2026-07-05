@@ -32,6 +32,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -2073,6 +2074,54 @@ func TestRunQATestSuite_NodeProject_RunsNpmTest(t *testing.T) {
 	}
 	if !strings.Contains(detail, "3 case(s) passed") {
 		t.Errorf("detail should report the parsed passed-count: %s", detail)
+	}
+}
+
+// TestRunQATestSuite_NodeProject_ParsesPassedCountWithTodoPrefix — regression
+// test for a real bug found while dogfooding: real Jest output always prints
+// a "Test Suites: N passed, N total" line BEFORE the "Tests: ..." line, and
+// the "Tests:" line itself isn't always "Tests: N passed" — a preceding
+// "N todo," or "N failed," group is common (e.g. "Tests: 6 todo, 4118
+// passed, 4124 total"). Two bugs compounded: an unanchored "(\d+)\s+passed"
+// search matches the Test Suites count (e.g. 296) instead of the real
+// per-test count (4118), and a "Tests:" anchor without accounting for the
+// "todo"/"failed" prefix matched nothing at all, reporting 0. Verified
+// against a fixture that reproduces the exact multi-line shape Jest emits.
+func TestRunQATestSuite_NodeProject_ParsesPassedCountWithTodoPrefix(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	// Reproduce the multi-line shape via a script FILE rather than an
+	// inline `node -e "..."` command — hand-quoting a multi-line string
+	// through npm's script -> shell -> node argv chain is fragile and
+	// platform-dependent (cmd.exe's quoting rules differ from POSIX
+	// shells), and isn't what this test is trying to verify anyway.
+	jestLikeOutput := "Test Suites: 296 passed, 296 total\nTests:       6 todo, 4118 passed, 4124 total\n"
+	fakeJestScript := "console.log(" + strconv.Quote(jestLikeOutput) + ");"
+	if err := os.WriteFile(filepath.Join(root, "fake-jest-output.js"), []byte(fakeJestScript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pkg := map[string]any{
+		"name":    "fixture",
+		"version": "1.0.0",
+		"scripts": map[string]string{"test": "node fake-jest-output.js"},
+	}
+	pkgJSON, err := json.Marshal(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "package.json"), pkgJSON, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	status, detail := runQATestSuite(root)
+
+	if status != "ok" {
+		t.Fatalf("status: want ok, got %q detail: %s", status, detail)
+	}
+	if !strings.Contains(detail, "4118 case(s) passed") {
+		t.Errorf("detail should report the Tests: line's 4118, not the Test Suites: line's 296: %s", detail)
 	}
 }
 

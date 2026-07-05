@@ -1571,7 +1571,17 @@ func runQATestSuite(root string) (status, detail string) {
 		}
 		out := res.Stdout + res.Stderr
 		passed := 0
-		if m := regexp.MustCompile(`Tests:\s+(\d+)\s+passed`).FindStringSubmatch(out); m != nil {
+		// Jest's summary line isn't always "Tests: N passed" — a preceding
+		// "N todo," or "N failed," group is common (e.g. "Tests: 6 todo,
+		// 4118 passed, 4124 total"), so anchoring on "Tests:" immediately
+		// before the digits misses the real passed-count. But matching
+		// "N passed" anywhere in the output is also wrong: Jest always
+		// prints a "Test Suites: N passed, N total" line BEFORE the
+		// "Tests: ..." line, so an unanchored search finds the suite count,
+		// not the individual-test count. Anchor to a line that starts with
+		// "Tests:" specifically (not "Test Suites:") and take the first
+		// "N passed" within that line.
+		if m := regexp.MustCompile(`(?m)^Tests:.*?(\d+)\s+passed`).FindStringSubmatch(out); m != nil {
 			passed, _ = strconv.Atoi(m[1])
 		}
 		return "ok", fmt.Sprintf(
