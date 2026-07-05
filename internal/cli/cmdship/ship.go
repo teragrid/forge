@@ -36,6 +36,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1303,6 +1304,7 @@ func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
 //     Fallback (no MCP server):
 //     Go project  — go.mod present           → go test ./... --count=1
 //     Python proj — pyproject.toml/pytest.ini → pytest -q --tb=short
+//     Node proj   — package.json w/ "test" script → npm test --silent
 //     No runner   — warning (no tools configured)
 //
 // generateManualTestPlan produces a 6-role manual test plan written to
@@ -1468,11 +1470,28 @@ func generateManualTestPlan(root, description string, pipe *LLMPipe) string {
 // (status, detail). Called exclusively by checkQAVerify so that the manual
 // test plan generation can run once after all automated tests complete.
 func runQATestSuite(root string) (status, detail string) {
-	sp := procspawn.New("go", "python", "python3", "pytest")
+	sp := procspawn.New("go", "python", "python3", "pytest", "npm")
 
 	goMCPEntry := filepath.Join(root, "cmd", "mcp", "main.go")
 	pyMCPEntry := filepath.Join(root, "mcp_server.py")
 	goModFile := filepath.Join(root, "go.mod")
+
+	// Node/TypeScript projects have no standardized MCP-entry-point
+	// convention analogous to cmd/mcp/main.go or mcp_server.py, so this is a
+	// native-fallback-only detection: package.json must exist AND declare a
+	// non-empty "test" script. `npm test` with no script defined just prints
+	// an npm error and exits 1 — indistinguishable from a real test failure —
+	// so the script's presence is checked up front rather than letting a
+	// missing script masquerade as a failing test suite.
+	hasNpmTestScript := false
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		var pkg struct {
+			Scripts map[string]string `json:"scripts"`
+		}
+		if json.Unmarshal(data, &pkg) == nil && strings.TrimSpace(pkg.Scripts["test"]) != "" {
+			hasNpmTestScript = true
+		}
+	}
 
 	switch {
 	case pathExists(goMCPEntry):
@@ -1540,6 +1559,23 @@ func runQATestSuite(root string) (status, detail string) {
 		passed := strings.Count(res.Stdout, " passed")
 		return "ok", fmt.Sprintf(
 			"QA (pytest): %d case(s) passed (%.1fs) — add mcp_server.py to enable MCP agent QA",
+			passed, res.Duration.Seconds())
+
+	case hasNpmTestScript:
+		res, err := sp.Run("npm",
+			[]string{"test", "--silent"},
+			procspawn.Options{Dir: root, Timeout: 190 * time.Second},
+		)
+		if err != nil {
+			return "warning", fmt.Sprintf("QA (npm test): tests did not pass (%v) — add mcp_server.py/cmd/mcp for MCP agent QA", err)
+		}
+		out := res.Stdout + res.Stderr
+		passed := 0
+		if m := regexp.MustCompile(`Tests:\s+(\d+)\s+passed`).FindStringSubmatch(out); m != nil {
+			passed, _ = strconv.Atoi(m[1])
+		}
+		return "ok", fmt.Sprintf(
+			"QA (npm test): %d case(s) passed (%.1fs) — add mcp_server.py/cmd/mcp to enable MCP agent QA",
 			passed, res.Duration.Seconds())
 	}
 
@@ -1610,12 +1646,12 @@ func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
 		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
 			cp.Detail = fmt.Sprintf("QA-Verify: no test runner found; %d spec audit warning(s) — "+
 				"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, "+
-				"or ensure go.mod / pyproject.toml is present for native test fallback",
+				"or ensure go.mod / pyproject.toml / package.json (with a \"test\" script) is present for native test fallback",
 				len(auditRes.Gaps))
 		} else {
 			cp.Detail = "QA-Verify: no MCP server or test runner found — " +
 				"add cmd/mcp/ (Go) or mcp_server.py (Python) for AI-agent QA, " +
-				"or ensure go.mod / pyproject.toml is present for native test fallback"
+				"or ensure go.mod / pyproject.toml / package.json (with a \"test\" script) is present for native test fallback"
 		}
 		return cp
 	}

@@ -2048,3 +2048,51 @@ func TestCheckQAVerify_NoRunner(t *testing.T) {
 		t.Error("False-positive guard: must not be fail")
 	}
 }
+
+// TestRunQATestSuite_NodeProject_RunsNpmTest — regression test for a real gap:
+// runQATestSuite had no case for Node/TypeScript projects at all (only Go and
+// Python), so any package.json-based project always fell through to "no MCP
+// server or test runner found" regardless of how many real tests it had.
+// A package.json with a non-empty "test" script must now be picked up and
+// run via `npm test --silent`.
+func TestRunQATestSuite_NodeProject_RunsNpmTest(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	pkgJSON := `{"name":"fixture","version":"1.0.0","scripts":{"test":"node -e \"console.log('Tests: 3 passed, 3 total')\""}}`
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(pkgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	status, detail := runQATestSuite(root)
+
+	if status != "ok" {
+		t.Fatalf("status: want ok, got %q detail: %s", status, detail)
+	}
+	if !strings.Contains(detail, "npm test") {
+		t.Errorf("detail should mention npm test: %s", detail)
+	}
+	if !strings.Contains(detail, "3 case(s) passed") {
+		t.Errorf("detail should report the parsed passed-count: %s", detail)
+	}
+}
+
+// TestRunQATestSuite_NodeProject_NoTestScript_FallsThrough — false-positive
+// guard: a package.json with no "test" script (common for pure libraries or
+// mid-scaffold projects) must NOT be treated as a Node test runner — `npm
+// test` with no script defined just prints an npm error and exits 1, which
+// would be indistinguishable from a real failing suite if not guarded against
+// up front.
+func TestRunQATestSuite_NodeProject_NoTestScript_FallsThrough(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	pkgJSON := `{"name":"fixture","version":"1.0.0","scripts":{"build":"tsc"}}`
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(pkgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	status, detail := runQATestSuite(root)
+
+	if status != "warning" || detail != "" {
+		t.Fatalf("expected the no-runner-found fallback (warning, \"\"), got status=%q detail=%q", status, detail)
+	}
+}

@@ -4,6 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.5] — 2026-07-05 — QA-Verify recognizes Node/TypeScript projects
+
+### Added
+
+- **`runQATestSuite` now has a native-fallback case for Node/TypeScript projects** — a `package.json` declaring a non-empty `"test"` script is run via `npm test --silent` and its Jest-style `Tests: N passed` output is parsed into the checkpoint detail, matching the existing Go (`go test ./...`) and Python (`pytest`) native fallbacks. Previously QA-Verify only recognized Go (`go.mod`, `cmd/mcp/main.go`) and Python (`pyproject.toml`/`pytest.ini`/`setup.cfg`, `mcp_server.py`) projects — every Node/TypeScript project (including forge's own `next-app`/`ts-service` scaffold templates) always fell through to "no MCP server or test runner found" regardless of how many real tests it had. Found while dogfooding on a downstream Next.js project with 300+ passing Jest suites that QA-Verify reported as having no test runner at all.
+- A `package.json` present but with no `"test"` script (or an empty one) correctly falls through to the "no runner found" warning rather than treating a missing-script `npm test` failure (exit 1, no tests actually ran) as a real test failure.
+
 ## [1.7.4] — 2026-07-04 — Test checkpoint no longer clobbers existing tests
 
 ### Fixed
