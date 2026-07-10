@@ -366,6 +366,47 @@ func TestRunWithTrash_Recoverable(t *testing.T) {
 	}
 }
 
+// TestRunWithTrash_DoesNotReNestOwnTrash is a regression guard: a root-level
+// scratch pattern like `_*` matches by basename at any depth (gitignore
+// semantics), so a file moved into .forge/trash/<run1>/... on the first
+// apply used to match the SAME pattern again on a second apply and get
+// moved into .forge/trash/<run2>/.forge/trash/<run1>/..., nesting one level
+// deeper on every subsequent run without ever converging. Confirmed live on
+// a real project: two `forge clean --apply` runs in a row produced
+// .forge/trash/<run2>/.forge/trash/<run1>/supabase/.branches/_current_branch.
+func TestRunWithTrash_DoesNotReNestOwnTrash(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_*"}, nil)
+	_ = os.WriteFile(filepath.Join(root, "_current_branch"), []byte("main"), 0o600)
+
+	res1, err := RunWithTrash(root)
+	if err != nil {
+		t.Fatalf("first RunWithTrash: %v", err)
+	}
+	if res1.TrashDir == "" {
+		t.Fatal("expected first apply to move a candidate to trash")
+	}
+
+	res2, err := RunWithTrash(root)
+	if err != nil {
+		t.Fatalf("second RunWithTrash: %v", err)
+	}
+	if len(res2.Candidates) != 0 {
+		t.Fatalf("second apply must find 0 candidates (trash must not be re-scanned), got %v", res2.Candidates)
+	}
+	if res2.TrashDir != "" {
+		t.Fatalf("second apply must not create a new trash dir when there is nothing to clean, got %q", res2.TrashDir)
+	}
+
+	// The file from the first run's trash must still be exactly where it
+	// was left -- not re-nested one level deeper.
+	firstTrashPath := filepath.Join(root, filepath.FromSlash(res1.TrashDir), "_current_branch")
+	if _, statErr := os.Stat(firstTrashPath); statErr != nil {
+		t.Errorf("file from first trash run missing/moved: %v", statErr)
+	}
+}
+
 // TestRunWithTrash_EmptyTree returns empty result without error. G-061.
 func TestRunWithTrash_EmptyTree(t *testing.T) {
 	t.Parallel()

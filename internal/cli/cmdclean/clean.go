@@ -60,6 +60,23 @@ var autoSkipDirs = map[string]bool{
 	".cache":       true,
 }
 
+// forgeTrashRel is the manifest-relative path of forge clean --apply's own
+// destination directory. It must never be re-scanned: a root-level scratch
+// pattern like `_*` matches by basename at any depth (gitignore semantics),
+// so a previously-trashed file (e.g. `_current_branch`) sitting inside
+// .forge/trash/<run-id>/... matches again on the next run and gets moved
+// into a new, deeper .forge/trash/<run-id>/.forge/trash/<old-run-id>/...
+// nest -- each subsequent --apply nests one level deeper without ever
+// actually converging. Confirmed live: `forge clean --apply` run twice in a
+// row on the same repo produced .forge/trash/<run2>/.forge/trash/<run1>/...
+const forgeTrashRel = ".forge/trash"
+
+// isForgeTrash reports whether rel (slash-separated, root-relative) is
+// forge's own trash directory or a path inside it.
+func isForgeTrash(rel string) bool {
+	return rel == forgeTrashRel || strings.HasPrefix(rel, forgeTrashRel+"/")
+}
+
 // loadMerged loads scratch/managed patterns from both .forge/manifest and
 // .forge/hygiene.yml (if present), returning the union of both. This ensures
 // forge clean is consistent with forge hygiene's pattern set (issue #15).
@@ -258,6 +275,12 @@ func Run(root string, apply bool) (*Result, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		if isForgeTrash(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if mf.IsScratch(rel) {
 			res.Candidates = append(res.Candidates, rel)
 			if d.IsDir() {
@@ -308,6 +331,12 @@ func RunDryRun(root string) (*Result, error) {
 		}
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
+		if isForgeTrash(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if mf.IsScratch(rel) {
 			res.Candidates = append(res.Candidates, rel)
 			if d.IsDir() {
@@ -337,6 +366,12 @@ func RunWithTrash(root string) (*Result, error) {
 		}
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
+		if isForgeTrash(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if mf.IsScratch(rel) {
 			res.Candidates = append(res.Candidates, rel)
 			if d.IsDir() {

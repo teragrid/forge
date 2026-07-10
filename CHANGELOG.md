@@ -4,6 +4,12 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.7] — 2026-07-10 — `forge clean --apply` no longer re-nests its own trash directory
+
+### Fixed
+
+- **`forge clean --apply` re-nested `.forge/trash` deeper on every run instead of converging.** The scan never excluded `.forge/trash` (its own destination directory) from the walk. Manifest `[scratch]` patterns are matched gitignore-style — a root-level pattern like `_*` matches by basename at any depth — so a file just moved into `.forge/trash/<run1>/...` matched the same pattern again on the very next `--apply` and got moved into `.forge/trash/<run2>/.forge/trash/<run1>/...`, nesting one level deeper every run without ever reaching zero candidates. Found live on a real project: two consecutive `forge clean --apply` runs produced `.forge/trash/<run2>/.forge/trash/<run1>/supabase/.branches/_current_branch`; the workaround at the time was deleting `.forge/trash` directly rather than retrying `--apply`, since retrying only nested it further. Fixed by excluding `.forge/trash` (and everything inside it) from the scan in `Run`, `RunDryRun`, and `RunWithTrash`, the same way `.git` and `autoSkipDirs` already are. Added `TestRunWithTrash_DoesNotReNestOwnTrash`, which runs `RunWithTrash` twice in a row and asserts the second pass finds zero candidates and creates no new trash directory.
+
 ## [1.7.6] — 2026-07-05 — Fix npm test passed-count parsing in QA-Verify
 
 ### Fixed
