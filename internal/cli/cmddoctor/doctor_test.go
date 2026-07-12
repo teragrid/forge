@@ -179,3 +179,51 @@ func TestCheckSchemaDrift_EmptyDir(t *testing.T) {
 		}
 	}
 }
+
+// -- checkLLMProviderLive (forge doctor --llm) --------------------------------
+//
+// Regression coverage for a real incident (2026-07-12): forge ship failed
+// silently across every LLM checkpoint because of a stale forge.yml llm.model
+// value, and diagnosing it required a custom Go program and ~20 minutes of
+// manual digging. `forge doctor --llm` exists to collapse that into one
+// command; these tests lock its "no provider" path (deterministic, no
+// network). The "provider detected but call fails/succeeds" paths are
+// covered at the provider level by TestCopilotProvider_Complete_* in
+// internal/llmprovider, since checkLLMProviderLive's own network call can't
+// be mocked without invasive changes to llmprovider.Detect().
+func TestCheckLLMProviderLive_NoProviderDetected(t *testing.T) {
+	// Isolate every credential source so Detect() deterministically fails.
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("USERPROFILE", emptyHome)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("AZURE_OPENAI_API_KEY", "")
+	t.Setenv("AWS_BEDROCK_REGION", "")
+	t.Setenv("OLLAMA_HOST", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	// gh CLI config file: point at a directory that doesn't exist.
+	t.Setenv("GH_CONFIG_DIR", filepath.Join(emptyHome, "does_not_exist"))
+	// Block the `gh auth token` subprocess fallback (same hermetic trick as
+	// TestCopilotProvider_NoToken_ReturnsNil in internal/llmprovider) --
+	// without this, a real `gh` CLI session on the machine running the test
+	// (as was the case during development of this test) makes Detect()
+	// non-deterministically find a real Copilot token.
+	t.Setenv("PATH", emptyHome)
+
+	c := checkLLMProviderLive()
+	if c.Name != "llm-provider" {
+		t.Errorf("Name = %q, want %q", c.Name, "llm-provider")
+	}
+	if c.Status != StatusWarn {
+		t.Errorf("Status = %q, want %q (no provider is advisory, not a hard failure)", c.Status, StatusWarn)
+	}
+	if c.Required {
+		t.Error("Required = true, want false — an LLM provider is optional for most forge commands")
+	}
+	if c.Hint == "" {
+		t.Error("Hint must not be empty when no provider is detected")
+	}
+}

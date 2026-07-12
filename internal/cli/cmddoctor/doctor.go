@@ -15,6 +15,7 @@
 package cmddoctor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,10 +23,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/teragrid/forge/internal/errcode"
+	"github.com/teragrid/forge/internal/llmprovider"
 	"github.com/teragrid/forge/internal/verbmeta"
 )
 
@@ -77,6 +80,7 @@ func New() *cobra.Command {
 	var (
 		asJSON bool
 		drift  bool
+		llm    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "doctor",
@@ -88,6 +92,17 @@ func New() *cobra.Command {
 			// G-114: --drift appends schema-drift checks.
 			if drift {
 				rep.Checks = append(rep.Checks, checkSchemaDrift(root)...)
+			}
+			// --llm: detect + LIVE-test the configured LLM provider with a
+			// real (minimal, ~1-token) completion call, so config problems
+			// (stale forge.yml llm.model, zero API credit, wrong provider
+			// picked up, etc.) surface as one command instead of a multi-step
+			// manual debugging session. Opt-in only, since unlike every other
+			// check here this makes a real network call and consumes tokens.
+			if llm {
+				rep.Checks = append(rep.Checks, checkLLMProviderLive())
+			}
+			if drift || llm {
 				rep.Healthy = true
 				for _, c := range rep.Checks {
 					if c.Required && c.Status == StatusFail {
@@ -113,6 +128,7 @@ func New() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
 	cmd.Flags().BoolVar(&drift, "drift", false, "also check for schema drift (G-114)")
+	cmd.Flags().BoolVar(&llm, "llm", false, "live-test the configured LLM provider with a real completion call")
 	return cmd
 }
 
@@ -340,5 +356,57 @@ func checkLLMModeAdvisory() Check {
 			Detail:   fmt.Sprintf("FORGE_LLM_MODE=%q — expected '1' or unset", val),
 			Hint:     "set FORGE_LLM_MODE=1 to enable LLM mode, or unset to use human mode",
 		}
+	}
+}
+
+// checkLLMProviderLive detects the active LLM provider the same way `forge
+// ship` does, then sends one minimal real completion request to confirm it
+// actually works end-to-end — not just that credentials are present.
+//
+// This exists because credential/config PRESENCE and a WORKING call are two
+// different things: a stale forge.yml llm.model, an API key with zero
+// account credit, or a provider picking an unavailable model can all leave
+// `forge ship` silently failing on every checkpoint while every other health
+// signal looks green. `forge doctor --llm` collapses that whole class of
+// problem into one command with a full, untruncated reason — for a human or
+// an LLM driving forge to read directly, instead of digging through
+// .forge/learned/*.jsonl or adding ad-hoc debug code (as happened in a real
+// incident on 2026-07-12).
+func checkLLMProviderLive() Check {
+	// llmprovider.Detect reads forge.yml / credentials relative to the
+	// process's current working directory (same as forge ship), so there is
+	// no root parameter to thread through here.
+	p, err := llmprovider.Detect()
+	if err != nil {
+		return Check{
+			Name:     "llm-provider",
+			Status:   StatusWarn,
+			Required: false,
+			Detail:   "no LLM provider detected: " + err.Error(),
+			Hint:     "set ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / GH_TOKEN, or forge.yml llm.provider",
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	resp, err := p.Complete(ctx, &llmprovider.Request{
+		UserPrompt: "Reply with exactly: ok",
+		MaxTokens:  8,
+		Capability: "doctor-llm-check",
+	})
+	if err != nil {
+		return Check{
+			Name:     "llm-provider",
+			Status:   StatusFail,
+			Required: false,
+			Detail:   fmt.Sprintf("provider=%s call FAILED: %s", p.Name(), err.Error()),
+			Hint:     "run 'forge doctor --llm --json' for the full error; check forge.yml llm.provider/llm.model, API key validity, and account credit balance",
+		}
+	}
+	return Check{
+		Name:     "llm-provider",
+		Status:   StatusOK,
+		Required: false,
+		Detail:   fmt.Sprintf("provider=%s model=%s — live call succeeded", p.Name(), resp.Model),
 	}
 }

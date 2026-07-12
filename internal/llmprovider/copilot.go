@@ -434,9 +434,14 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 		return resp, err
 	}
 
-	// Model-availability error: do NOT silently fall back when the caller explicitly
-	// requested a specific model (req.Model != ""), so user intent is honoured.
-	if req.Model != "" {
+	// Model-availability error: do NOT silently fall back when the caller
+	// pinned a specific model (req.ModelPinned), so genuine user intent is
+	// honoured. A model merely defaulted from forge.yml's llm.model /
+	// FORGE_COPILOT_MODEL (req.Model set but ModelPinned false, via
+	// profileProvider.Complete) is NOT pinned intent -- it must still fall
+	// back, otherwise a stale/unavailable configured model permanently
+	// breaks every call with no recovery path.
+	if req.ModelPinned {
 		return nil, fmt.Errorf(
 			"copilot: model %q returned HTTP 400; set FORGE_COPILOT_MODEL to a supported model",
 			primaryModel)
