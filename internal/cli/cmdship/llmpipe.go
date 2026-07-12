@@ -36,6 +36,7 @@ package cmdship
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,7 +240,39 @@ func shipMessage(pipe *LLMPipe) string {
 	return "LLM provider: " + pipe.ProviderName()
 }
 
-// llmErrNote converts an LLM error into a concise user-facing note.
+// extractAPIErrorMessage pulls the human-readable "message" field out of a
+// provider error body shaped like {"error":{"message":"..."}} or
+// {"error":{"type":"...","message":"..."}} (the shape used by both Anthropic
+// and GitHub Copilot/OpenAI-compatible APIs). Returns "" if the string isn't
+// JSON or has no such field, so callers can fall back to the raw text.
+func extractAPIErrorMessage(s string) string {
+	start := strings.IndexByte(s, '{')
+	if start < 0 {
+		return ""
+	}
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"` // some providers put it at the top level
+	}
+	if err := json.Unmarshal([]byte(s[start:]), &body); err != nil {
+		return ""
+	}
+	if body.Error.Message != "" {
+		return body.Error.Message
+	}
+	return body.Message
+}
+
+// llmErrNote converts an LLM error into a concise user-facing note for the
+// single-line checkpoint summary. Prefers the API's own "message" field
+// (the actual root cause, e.g. "Your credit balance is too low...") over a
+// blind character truncation, which previously often cut the message off
+// exactly before the useful part (e.g. "...last error: copilot: model
+// \"claude-sonnet-4-6\" ..." with the real reason never shown). For the full,
+// untruncated error — e.g. when writing to .forge/learned/*.jsonl for later
+// diagnosis by a human or an LLM driving forge — use llmErrFull instead.
 func llmErrNote(err error) string {
 	if err == nil {
 		return ""
@@ -253,11 +286,28 @@ func llmErrNote(err error) string {
 		strings.Contains(s, "no ANTHROPIC_API_KEY"):
 		return "no provider configured"
 	default:
-		if len(s) > 80 {
-			return s[:77] + "..."
+		if msg := extractAPIErrorMessage(s); msg != "" {
+			if len(msg) > 160 {
+				return msg[:157] + "..."
+			}
+			return msg
+		}
+		if len(s) > 160 {
+			return s[:157] + "..."
 		}
 		return s
 	}
+}
+
+// llmErrFull returns the complete, untruncated error text — for persisted
+// diagnostics (.forge/learned/*.jsonl) where losing the root cause to
+// truncation defeats the entire purpose of the log. Unlike llmErrNote, this
+// is never shortened.
+func llmErrFull(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // estimateCost returns an approximate USD cost for a completion call.

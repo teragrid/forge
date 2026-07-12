@@ -277,3 +277,184 @@ func TestDetect_CopilotPickedUp(t *testing.T) {
 		t.Errorf("Detect() provider = %q, want %q", p.Name(), "github-copilot")
 	}
 }
+
+// -- Complete() model-unavailable fallback -------------------------------------
+//
+// Regression coverage for a live incident (2026-07-12): a stale forge.yml
+// llm.model value naming a model GitHub Copilot's /models endpoint listed but
+// /chat/completions rejected (HTTP 400) caused every forge ship LLM call to
+// fail outright, because req.Model being non-empty (merely a soft config
+// default applied by profileProvider.Complete, not a genuine per-call
+// requirement) was mistaken for pinned user intent and suppressed the
+// built-in fallback-to-copilotKnownModels recovery path entirely.
+
+// mockChatServer returns a /chat/completions handler that returns HTTP 400
+// "model unavailable" for any model in badModels, and a successful completion
+// for any other model.
+func mockChatServer(t *testing.T, badModels map[string]bool) (*httptest.Server, *[]string) {
+	t.Helper()
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		seen = append(seen, body.Model)
+		if badModels[body.Model] {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"The requested model is not supported."}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model":   body.Model,
+			"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}},
+			"usage":   map[string]int{"prompt_tokens": 1, "completion_tokens": 1},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &seen
+}
+
+func TestCopilotProvider_Complete_FallsBackWhenModelUnpinned(t *testing.T) {
+	// req.Model is set (as profileProvider.Complete would do from a stale
+	// forge.yml llm.model default) but ModelPinned is false -- the fallback
+	// to copilotKnownModels[0] must still run and succeed.
+	badPrimary := copilotKnownModels[0] + "-does-not-exist"
+	srv, seen := mockChatServer(t, map[string]bool{badPrimary: true})
+
+	p := &CopilotProvider{
+		token:   "ghp_test",
+		model:   copilotDefaultModel,
+		baseURL: srv.URL,
+		client:  srv.Client(),
+	}
+
+	resp, err := p.Complete(context.Background(), &Request{
+		Model:       badPrimary,
+		ModelPinned: false,
+		UserPrompt:  "hi",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v, want fallback to succeed", err)
+	}
+	if resp.Content != "ok" {
+		t.Errorf("Content = %q, want %q", resp.Content, "ok")
+	}
+	if len(*seen) < 2 {
+		t.Fatalf("expected at least 2 attempts (primary + fallback), got %v", *seen)
+	}
+	if (*seen)[0] != badPrimary {
+		t.Errorf("first attempt model = %q, want %q", (*seen)[0], badPrimary)
+	}
+}
+
+func TestCopilotProvider_Complete_DoesNotFallBackWhenModelPinned(t *testing.T) {
+	// ModelPinned=true means the caller genuinely requires this exact model
+	// -- must fail fast with an actionable error, not silently substitute.
+	badPrimary := "some-pinned-model"
+	srv, seen := mockChatServer(t, map[string]bool{badPrimary: true})
+
+	p := &CopilotProvider{
+		token:   "ghp_test",
+		model:   copilotDefaultModel,
+		baseURL: srv.URL,
+		client:  srv.Client(),
+	}
+
+	_, err := p.Complete(context.Background(), &Request{
+		Model:       badPrimary,
+		ModelPinned: true,
+		UserPrompt:  "hi",
+	})
+	if err == nil {
+		t.Fatal("Complete() error = nil, want an error (pinned model unavailable)")
+	}
+	if !strings.Contains(err.Error(), badPrimary) {
+		t.Errorf("error = %v, want it to mention the pinned model %q", err, badPrimary)
+	}
+	if len(*seen) != 1 {
+		t.Errorf("expected exactly 1 attempt (no fallback for a pinned model), got %v", *seen)
+	}
+}
+
+func TestCopilotProvider_Complete_SucceedsOnFirstTry(t *testing.T) {
+	srv, seen := mockChatServer(t, nil)
+	p := &CopilotProvider{
+		token:   "ghp_test",
+		model:   copilotDefaultModel,
+		baseURL: srv.URL,
+		client:  srv.Client(),
+	}
+	resp, err := p.Complete(context.Background(), &Request{UserPrompt: "hi"})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Errorf("Content = %q, want %q", resp.Content, "ok")
+	}
+	if len(*seen) != 1 {
+		t.Errorf("expected exactly 1 attempt on success, got %v", *seen)
+	}
+}
+
+// TestProfileProvider_ConfigModel_NotPinned locks the actual root-cause fix:
+// profileProvider.Complete fills Request.Model from forge.yml's llm.model
+// (configModel) as a soft default, and must NOT also set ModelPinned -- doing
+// so would re-introduce the exact live incident this test guards against
+// (a stale configured model permanently defeating CopilotProvider's
+// fallback-to-copilotKnownModels recovery).
+func TestProfileProvider_ConfigModel_NotPinned(t *testing.T) {
+	var received *Request
+	inner := &MockProvider{Fn: func(r *Request) (*Response, error) {
+		received = r
+		return &Response{Content: "ok"}, nil
+	}}
+	p := &profileProvider{inner: inner, configModel: "claude-sonnet-4-6"}
+
+	_, err := p.Complete(context.Background(), &Request{UserPrompt: "hi"})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if received == nil {
+		t.Fatal("inner provider did not receive a request")
+	}
+	if received.Model != "claude-sonnet-4-6" {
+		t.Errorf("Model = %q, want configModel %q", received.Model, "claude-sonnet-4-6")
+	}
+	if received.ModelPinned {
+		t.Error("ModelPinned = true, want false — a config-file default must not suppress fallback")
+	}
+}
+
+// TestProfileProvider_ConfigModel_DoesNotOverrideExplicitModel confirms a
+// caller-supplied Model (e.g. from tierrouter's own tier selection) still
+// wins over the config default, and its ModelPinned value passes through
+// unchanged (profileProvider must not touch it either way).
+func TestProfileProvider_ConfigModel_DoesNotOverrideExplicitModel(t *testing.T) {
+	var received *Request
+	inner := &MockProvider{Fn: func(r *Request) (*Response, error) {
+		received = r
+		return &Response{Content: "ok"}, nil
+	}}
+	p := &profileProvider{inner: inner, configModel: "claude-sonnet-4-6"}
+
+	_, err := p.Complete(context.Background(), &Request{
+		Model:       "claude-opus-4-8-20250514",
+		ModelPinned: true,
+		UserPrompt:  "hi",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if received.Model != "claude-opus-4-8-20250514" {
+		t.Errorf("Model = %q, want caller's explicit model unchanged", received.Model)
+	}
+	if !received.ModelPinned {
+		t.Error("ModelPinned = false, want true — caller's own value must pass through unchanged")
+	}
+}

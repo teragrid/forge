@@ -1070,7 +1070,10 @@ func checkBreakdown(root, description, specName string, pipe *LLMPipe) Checkpoin
 				cp.Detail = fmt.Sprintf("no breakdown.md [LLM:%s — %s] — run forge ship breakdown to generate",
 					pipe.ProviderName(), llmErrNote(err))
 				// G-011: record breakdown failure for future learning context.
-				appendFailure(root, "breakdown", description, cp.Detail)
+				// Persist the FULL error (not the truncated cp.Detail) so a
+				// later diagnosis (human or LLM) can see the actual root
+				// cause instead of a "..."-truncated fragment.
+				appendFailure(root, "breakdown", description, cp.Detail+" | full: "+llmErrFull(err))
 				return cp
 			}
 			if generated != "" {

@@ -64,7 +64,17 @@ type Capabilities struct {
 type Request struct {
 	// Model is the model identifier (e.g. "claude-3-5-sonnet-20241022").
 	// If empty, the provider chooses a sensible default.
-	Model        string
+	Model string
+	// ModelPinned distinguishes a hard, caller-intended model requirement
+	// (e.g. a future `forge ship --model X` flag) from a soft default merely
+	// filled in from forge.yml's llm.model / FORGE_COPILOT_MODEL (see
+	// profileProvider.Complete). Providers that support automatic fallback
+	// to a known-good model on an HTTP 400 model-unavailable error (see
+	// CopilotProvider.Complete) should only suppress that fallback when
+	// ModelPinned is true — a config-file default that happens to name an
+	// unavailable/deprecated model must not silently defeat the fallback
+	// that exists precisely to recover from that situation.
+	ModelPinned  bool
 	SystemPrompt string
 	UserPrompt   string
 	// MaxTokens caps the completion length. 0 means provider default.
