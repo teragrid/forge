@@ -4,6 +4,17 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.8] — 2026-07-13 — Stale config no longer permanently defeats the Copilot model fallback
+
+### Fixed
+
+- **A stale `forge.yml` `llm.model` value could permanently break every `forge ship` LLM call, with the root cause hidden behind `...` truncation.** `profileProvider.Complete` fills `Request.Model` from `forge.yml`'s `llm.model` as a soft default whenever a caller (e.g. the tier router, which deliberately leaves `Model` empty for Copilot so the provider can pick its own default) left it unset. `CopilotProvider.Complete`'s automatic fallback to `copilotKnownModels` on an HTTP 400 "model unavailable" response existed specifically to recover from an unavailable/deprecated model, but was gated on `req.Model != ""` — intended to mean "the caller explicitly pinned this model, honour it" — which could never distinguish a genuine pin from a config-file default that merely happened to be broken, so it suppressed recovery every time. Found via a real incident: a project's `forge.yml` named a model GitHub Copilot's `/models` endpoint listed but its `/chat/completions` endpoint rejected, failing every checkpoint with the actual reason truncated away. Fixed by adding `Request.ModelPinned bool`, distinct from `Request.Model` — `profileProvider` never sets it when filling in a config default, so the fallback now correctly reaches configured-but-broken models while still honouring a genuinely pinned model (e.g. a future `--model` flag) with no silent substitution.
+- **LLM error messages were truncated at 77 characters, frequently cutting off exactly before the useful part** (the API's own `"message"` field, which sits inside a JSON body after a longer error-type prefix). `llmErrNote` now extracts that field directly when present, and the fallback truncation limit was raised to 160 characters. The full, untruncated error is now also persisted to `.forge/learned/breakdown-failures.jsonl` (previously only the truncated summary was recorded), so a later diagnosis — by a human or an LLM driving forge — doesn't lose the root cause to the same truncation twice.
+
+### Added
+
+- **`forge doctor --llm`** detects the active LLM provider the same way `forge ship` does, then sends one minimal real completion call and reports success or failure with the full error text — collapsing a class of incident that previously took a custom throwaway program and ad-hoc tracing into a single command. Opt-in (makes a real, token-consuming network call) and non-required, so it never blocks `forge doctor`'s overall health verdict on its own.
+
 ## [1.7.7] — 2026-07-10 — `forge clean --apply` no longer re-nests its own trash directory
 
 ### Fixed
