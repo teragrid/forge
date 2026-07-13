@@ -4,6 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.9] — 2026-07-13 — `--name`/`-n` no longer fragments a spec across two directories
+
+### Fixed
+
+- **`forge ship "<description>" -n custom-slug` silently split one feature's artefacts across two `.forge/specs/` directories.** `checkSpec`/`checkArch` correctly resolve `--name` before doing anything, but `generateTestStubs`, `generateBreakdown`, and `generateCodePlan` (the functions that actually write `test-stubs.md`, `breakdown.md`, `tasks.md`, and `code-plan.md`) each independently re-derived `slugify(description)` with no `specName` parameter at all — so those four files landed in a second directory auto-slugified from the raw description, while `spec.md`/`arch.md` correctly used `--name`. `checkCode`'s own success message claimed the file was written under the `--name` directory even while `generateCodePlan` silently wrote it to the wrong one. The same bug existed in the qa-verify/ship gap-remediation path (`auditSpecVsCode`, `remediateIncompleteTasks`, `remediateAuthzGap`) and in `checkPR`/`buildPRBody`, so the final QA audit could silently check an empty, nonexistent directory whenever `--name` didn't match the description's natural slug. Found via 3 reproductions in a single real project session (2 LLM providers, 100% reproducible). Fixed by threading the caller-resolved slug into every one of these functions instead of letting them recompute it.
+- **The Code/Ship checkpoint reported a nonsensical "N modified file(s)" count.** `countChangedFiles` never checked git status — it recursively walked the entire working tree counting every `.go`/`.ts`/`.js`/`.py`/`.sql` file that existed on disk, regardless of whether it was actually changed. On a real ~1700-source-file project this reported "1693 modified file(s)" when `git status --short` showed single digits, across two separate runs with different providers. Now uses `gitservice.Status()` (`git status --porcelain`), which respects `.gitignore` and counts only genuinely modified/staged/untracked paths.
+
 ## [1.7.8] — 2026-07-13 — Stale config no longer permanently defeats the Copilot model fallback
 
 ### Fixed
