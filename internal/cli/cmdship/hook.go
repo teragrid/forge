@@ -70,6 +70,9 @@ type HookContext struct {
 	Root string
 	// Description is the feature description.
 	Description string
+	// SpecName is the --name/-n override, when the caller resolved one. Takes
+	// priority over the slug derived from Description — see auditSpecVsCode.
+	SpecName string
 	// Pipe is the active LLM pipe (may be nil in dry-run / no-LLM mode).
 	Pipe *LLMPipe
 	// Result is the checkpoint result; nil during PhasePreCheckpoint.
@@ -513,7 +516,7 @@ var specCodeAlignmentHandler = func(ctx HookContext) HookResult {
 	if ctx.Result == nil || ctx.Result.Status == "fail" {
 		return HookResult{Passed: true}
 	}
-	result := auditSpecVsCode(ctx.Root, ctx.Description)
+	result := auditSpecVsCode(ctx.Root, ctx.Description, ctx.SpecName)
 	if !result.HasBlockingGaps() {
 		return HookResult{Passed: true}
 	}

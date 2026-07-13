@@ -67,7 +67,7 @@ func countBySeverity(gaps []AuditGap, severity string) int {
 
 func TestAuditSpecVsCode_NoSpecDir(t *testing.T) {
 	t.Parallel()
-	res := auditSpecVsCode(t.TempDir(), "")
+	res := auditSpecVsCode(t.TempDir(), "", "")
 	if res.SpecFound {
 		t.Error("expected SpecFound=false when no .forge/specs/ dir")
 	}
@@ -85,7 +85,7 @@ func TestAuditSpecVsCode_SpecMDAbsent(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".forge", "specs", "my-feature"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res := auditSpecVsCode(root, "my feature")
+	res := auditSpecVsCode(root, "my feature", "")
 	if res.SpecFound {
 		t.Error("expected SpecFound=false when spec.md absent")
 	}
@@ -103,12 +103,38 @@ func TestAuditSpecVsCode_AllTasksComplete(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"tasks.md": "- [x] Implement login\n- [x] Add JWT middleware\n",
 	})
-	res := auditSpecVsCode(root, "add auth")
+	res := auditSpecVsCode(root, "add auth", "")
 	if !res.SpecFound {
 		t.Fatal("expected SpecFound=true")
 	}
 	if res.HasBlockingGaps() {
 		t.Errorf("expected no blocking gaps; got: %v", res.Gaps)
+	}
+}
+
+// ── AUDIT-03b: specName overrides slugify(description) (regression) ─────────
+//
+// Real incident: auditSpecVsCode always derived the slug from slugify(description),
+// ignoring any --name/-n override the caller resolved. When a description's
+// slugified form differed from the --name value, qa-verify/checkVerify silently
+// audited an empty, nonexistent directory instead of the real spec — auditing
+// nothing rather than the actual feature. Reproduced live via a real forge ship
+// run with --name.
+func TestAuditSpecVsCode_SpecNameOverridesSlugifiedDescription(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	description := "a very long feature description whose slugified form is " +
+		"nothing like the custom name below"
+	makeSpecDir(t, root, "custom-slug", map[string]string{
+		"spec.md":  "# Spec\n",
+		"tasks.md": "- [x] Done task\n",
+	})
+	res := auditSpecVsCode(root, description, "custom-slug")
+	if !res.SpecFound {
+		t.Fatalf("expected SpecFound=true when auditing via specName override; got Slug=%q, Gaps=%v", res.Slug, res.Gaps)
+	}
+	if res.Slug != "custom-slug" {
+		t.Errorf("expected Slug=%q, got %q", "custom-slug", res.Slug)
 	}
 }
 
@@ -123,7 +149,7 @@ func TestAuditSpecVsCode_IncompleteTasks(t *testing.T) {
 			"- [ ] Pending task 1\n" +
 			"- [ ] Pending task 2\n",
 	})
-	res := auditSpecVsCode(root, "add auth")
+	res := auditSpecVsCode(root, "add auth", "")
 	if !res.HasBlockingGaps() {
 		t.Fatal("expected blocking gap for incomplete tasks")
 	}
@@ -153,7 +179,7 @@ func TestAuditSpecVsCode_NoFalsePositive_AllComplete(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"tasks.md": "- [x] Step one\n- [x] Step two\n- [x] Step three\n",
 	})
-	res := auditSpecVsCode(root, "feature x")
+	res := auditSpecVsCode(root, "feature x", "")
 	if res.HasBlockingGaps() {
 		t.Errorf("no blocking gaps expected; got: %v", res.Gaps)
 	}
@@ -179,7 +205,7 @@ events_emitted: []
 	if err := os.WriteFile(filepath.Join(root, "tests", "billing.rls.test.ts"), []byte(rlsContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := auditSpecVsCode(root, "billing")
+	res := auditSpecVsCode(root, "billing", "")
 	if !res.HasBlockingGaps() {
 		t.Error("expected blocking gap for untested authz role")
 	}
@@ -217,7 +243,7 @@ events_emitted: []
 	if err := os.WriteFile(filepath.Join(root, "tests", "billing.rls.test.ts"), []byte(rlsContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := auditSpecVsCode(root, "billing")
+	res := auditSpecVsCode(root, "billing", "")
 	for _, g := range res.Gaps {
 		if g.Type == "authz-role-untested" && g.Severity == "blocking" {
 			t.Errorf("unexpected blocking authz gap: %+v", g)
@@ -247,7 +273,7 @@ events_emitted:
 	if err := os.WriteFile(filepath.Join(root, "tests", "onboarding.test.ts"), []byte(testContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res := auditSpecVsCode(root, "onboarding")
+	res := auditSpecVsCode(root, "onboarding", "")
 	// Missing event should be a warning, not blocking.
 	found := false
 	for _, g := range res.Gaps {
@@ -275,7 +301,7 @@ events_emitted: []
 		"spec.md":  "# Spec\n",
 		"spec.yml": specYML,
 	})
-	res := auditSpecVsCode(root, "widget")
+	res := auditSpecVsCode(root, "widget", "")
 	for _, g := range res.Gaps {
 		if g.Type == "missing-event-test" {
 			t.Errorf("unexpected event gap when events_emitted is empty: %+v", g)
@@ -292,8 +318,8 @@ func TestAuditSpecVsCode_Idempotent(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"tasks.md": "- [ ] Task A\n- [x] Task B\n",
 	})
-	r1 := auditSpecVsCode(root, "feature")
-	r2 := auditSpecVsCode(root, "feature")
+	r1 := auditSpecVsCode(root, "feature", "")
+	r2 := auditSpecVsCode(root, "feature", "")
 	if len(r1.Gaps) != len(r2.Gaps) {
 		t.Errorf("idempotency: first call got %d gaps, second got %d", len(r1.Gaps), len(r2.Gaps))
 	}
@@ -343,7 +369,7 @@ func TestAuditSpecVsCode_NoAuthzModel(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"spec.yml": "authz_model: \"\"\nevents_emitted: []\n",
 	})
-	res := auditSpecVsCode(root, "simple")
+	res := auditSpecVsCode(root, "simple", "")
 	for _, g := range res.Gaps {
 		if g.Type == "authz-role-untested" {
 			t.Errorf("unexpected authz gap when authz_model is empty: %+v", g)
@@ -360,7 +386,7 @@ func TestCheckIncompleteTasks_AsteriskBullets(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"tasks.md": "* [x] Done\n* [ ] Not done\n",
 	})
-	res := auditSpecVsCode(root, "feat")
+	res := auditSpecVsCode(root, "feat", "")
 	if !res.HasBlockingGaps() {
 		t.Error("expected blocking gap for asterisk-bullet unchecked task")
 	}
@@ -375,7 +401,7 @@ func TestCheckVerify_WithBlockingGap_Fails(t *testing.T) {
 		"spec.md":  "# Spec\n",
 		"tasks.md": "- [ ] Still pending\n",
 	})
-	cp := checkVerify(root, "add auth", nil)
+	cp := checkVerify(root, "add auth", "", nil)
 	if cp.Status != "fail" {
 		t.Errorf("expected status 'fail' with blocking gaps, got %q", cp.Status)
 	}
@@ -392,7 +418,7 @@ func TestCheckVerify_WithBlockingGap_Fails(t *testing.T) {
 func TestCheckVerify_CleanProject_Passes(t *testing.T) {
 	t.Parallel()
 	// Fresh temp dir: no .forge/specs/ at all → audit returns empty result.
-	cp := checkVerify(t.TempDir(), "", nil)
+	cp := checkVerify(t.TempDir(), "", "", nil)
 	if cp.Status == "fail" {
 		t.Errorf("expected checkVerify to pass on clean project, got fail: %s", cp.Detail)
 	}

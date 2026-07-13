@@ -32,9 +32,10 @@ import (
 )
 
 // checkPR creates a draft GitHub pull request using the gh CLI.
+// specName, when non-empty, overrides the slug derived from description.
 // Returns Status="warning" (never "fail") when gh is absent, unauthenticated,
 // or the remote is not a GitHub repository.
-func checkPR(root, description string) Checkpoint {
+func checkPR(root, description, specName string) Checkpoint {
 	cp := Checkpoint{Name: "PR"}
 
 	ghPath, err := exec.LookPath("gh")
@@ -49,7 +50,7 @@ func checkPR(root, description string) Checkpoint {
 		title = "forge ship: automated change"
 	}
 
-	body := buildPRBody(root, description)
+	body := buildPRBody(root, description, specName)
 	args := []string{"pr", "create", "--title", title, "--body", body, "--draft"}
 
 	cmd := exec.Command(ghPath, args...) //nolint:gosec // path resolved via LookPath
@@ -70,15 +71,19 @@ func checkPR(root, description string) Checkpoint {
 
 // buildPRBody assembles the PR description from the spec and breakdown files
 // stored in .forge/specs/<slug>/, with a forge ship watermark footer.
-func buildPRBody(root, description string) string {
+// specName, when non-empty, overrides the slug derived from description.
+func buildPRBody(root, description, specName string) string {
 	var sb strings.Builder
 	sb.WriteString("## Summary\n")
 	if description != "" {
 		sb.WriteString(description)
 		sb.WriteString("\n\n")
 	}
-	if description != "" {
-		slug := slugify(description)
+	if description != "" || specName != "" {
+		slug := specName
+		if slug == "" {
+			slug = slugify(description)
+		}
 		specFile := filepath.Join(root, ".forge", "specs", slug, "spec.md")
 		if data, err := os.ReadFile(specFile); err == nil {
 			sb.WriteString("## Spec\n")

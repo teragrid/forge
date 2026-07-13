@@ -64,8 +64,8 @@ func truncateTokens(s string, maxTokens int) string {
 
 // remediateGaps is the public entry-point used by the code checkpoint (round 1).
 // It delegates to remediateGapsRound with round=1 (full context).
-func remediateGaps(root, description string, gaps []AuditGap, pipe *LLMPipe) int {
-	return remediateGapsRound(root, description, gaps, pipe, 1, nil)
+func remediateGaps(root, description, specName string, gaps []AuditGap, pipe *LLMPipe) int {
+	return remediateGapsRound(root, description, specName, gaps, pipe, 1, nil)
 }
 
 // remediateGapsRound attempts to close every gap using the LLM.
@@ -73,9 +73,14 @@ func remediateGaps(root, description string, gaps []AuditGap, pipe *LLMPipe) int
 // (only the gap item + prior attempt ≤300 tokens) to cut per-round token cost
 // from ~48,000 to ~11,550 tokens (-76%).
 //
+// specName, when non-empty, overrides the slug derived from description — must
+// match whatever --name/-n resolved to elsewhere in the pipeline (see
+// auditSpecVsCode), or remediation writes its output to a directory the rest
+// of the checkpoints never read from.
+//
 // stateMap optionally carries prior-round state keyed by gap.ID (or gap.Description).
 // Returns the number of gaps for which a remediation was dispatched successfully.
-func remediateGapsRound(root, description string, gaps []AuditGap, pipe *LLMPipe, round int, stateMap map[string]*RemediationState) int {
+func remediateGapsRound(root, description, specName string, gaps []AuditGap, pipe *LLMPipe, round int, stateMap map[string]*RemediationState) int {
 	if pipe == nil || len(gaps) == 0 {
 		return 0
 	}
@@ -97,9 +102,9 @@ func remediateGapsRound(root, description string, gaps []AuditGap, pipe *LLMPipe
 		var err error
 		switch g.Type {
 		case "incomplete-tasks":
-			err = remediateIncompleteTasks(root, description, g, pipe, state)
+			err = remediateIncompleteTasks(root, description, specName, g, pipe, state)
 		case "authz-role-untested":
-			err = remediateAuthzGap(root, description, g, pipe, state)
+			err = remediateAuthzGap(root, description, specName, g, pipe, state)
 		case "missing-event-test":
 			err = remediateEventGap(root, description, g, pipe, state)
 		}
@@ -114,10 +119,16 @@ func remediateGapsRound(root, description string, gaps []AuditGap, pipe *LLMPipe
 // implementation plan via the LLM, writes it to code-plan.md, and marks every
 // "- [ ]" line as "- [x]" so the subsequent audit pass sees no blocking task gap.
 // On round 2+ it uses shrinking context (gap + prior attempt only) to cut tokens.
-func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
+// specName, when non-empty, overrides the slug derived from description.
+func remediateIncompleteTasks(root, description, specName string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
+
 	tasksPath := gap.File
 	if tasksPath == "" {
-		tasksPath = filepath.Join(root, ".forge", "specs", slugify(description), "tasks.md")
+		tasksPath = filepath.Join(root, ".forge", "specs", slug, "tasks.md")
 	}
 	tasksData, err := os.ReadFile(tasksPath)
 	if err != nil {
@@ -137,7 +148,6 @@ func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMP
 		return nil
 	}
 
-	slug := slugify(description)
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
 	var userPrompt string
@@ -202,7 +212,8 @@ func remediateIncompleteTasks(root, description string, gap AuditGap, pipe *LLMP
 
 // remediateAuthzGap generates an RLS test file for an authz role that was
 // declared in spec.yml but has no corresponding *.rls.test.ts coverage.
-func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
+// specName, when non-empty, overrides the slug derived from description.
+func remediateAuthzGap(root, description, specName string, gap AuditGap, pipe *LLMPipe, state *RemediationState) error {
 	// Derive target file path from the hint: "add tests/<role>.rls.test.ts covering ..."
 	target := ""
 	if idx := strings.Index(gap.Hint, "tests/"); idx >= 0 {
@@ -217,7 +228,10 @@ func remediateAuthzGap(root, description string, gap AuditGap, pipe *LLMPipe, st
 		return fmt.Errorf("remediateAuthzGap: cannot determine target path from hint %q", gap.Hint)
 	}
 
-	slug := slugify(description)
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
 	var userPrompt string
