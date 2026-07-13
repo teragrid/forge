@@ -352,12 +352,18 @@ func specStub(description string) string {
 
 // generateTestStubs asks the LLM to produce failing test stubs for the feature
 // and writes them to .forge/specs/<slug>/test-stubs.md.
+// specName, when non-empty, overrides the slug derived from description — the
+// caller (checkTest) already resolves --name/-n vs. the description-derived
+// slug, and must pass the same value here so the two agree on the directory.
 // Returns ("", nil) when description is empty or pipe is nil.
-func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) {
+func generateTestStubs(root, description, specName string, pipe *LLMPipe) (string, error) {
 	if description == "" || pipe == nil {
 		return "", nil
 	}
-	slug := slugify(description)
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
 	// Include spec content as context if available.
@@ -417,12 +423,17 @@ func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) 
 
 // generateBreakdown asks the LLM to decompose the spec into an atomic task list
 // and writes the result to .forge/specs/<slug>/breakdown.md.
+// specName, when non-empty, overrides the slug derived from description — see
+// generateTestStubs for why the caller-resolved slug must be threaded through.
 // Returns ("", nil) when description is empty or pipe is nil.
-func generateBreakdown(root, description string, pipe *LLMPipe) (string, error) {
+func generateBreakdown(root, description, specName string, pipe *LLMPipe) (string, error) {
 	if description == "" || pipe == nil {
 		return "", nil
 	}
-	slug := slugify(description)
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
 	// Load spec for context.
@@ -533,12 +544,17 @@ func extractTasksMD(feature, breakdown string) string {
 // generateCodePlan asks the LLM for a step-by-step code implementation plan
 // derived from the spec and breakdown, then writes it to
 // .forge/specs/<slug>/code-plan.md.
+// specName, when non-empty, overrides the slug derived from description — see
+// generateTestStubs for why the caller-resolved slug must be threaded through.
 // Returns ("", nil) when description is empty, pipe is nil, or no context exists.
-func generateCodePlan(root, description string, pipe *LLMPipe) (string, error) {
+func generateCodePlan(root, description, specName string, pipe *LLMPipe) (string, error) {
 	if description == "" || pipe == nil {
 		return "", nil
 	}
-	slug := slugify(description)
+	slug := specName
+	if slug == "" {
+		slug = slugify(description)
+	}
 	specsDir := filepath.Join(root, ".forge", "specs", slug)
 
 	var sb strings.Builder

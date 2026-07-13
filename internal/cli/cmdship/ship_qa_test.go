@@ -42,8 +42,8 @@ import (
 func TestCheckQAVerify_Idempotent(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	cp1 := checkQAVerify(root, "test feature", nil)
-	cp2 := checkQAVerify(root, "test feature", nil)
+	cp1 := checkQAVerify(root, "test feature", "", nil)
+	cp2 := checkQAVerify(root, "test feature", "", nil)
 	if cp1.Status != cp2.Status {
 		t.Errorf("Idempotency: first=%q second=%q", cp1.Status, cp2.Status)
 	}
@@ -53,7 +53,7 @@ func TestCheckQAVerify_Idempotent(t *testing.T) {
 func TestCheckQAVerify_NameIsAlwaysSet(t *testing.T) {
 	t.Parallel()
 	for _, desc := range []string{"", "  ", "some feature"} {
-		cp := checkQAVerify(t.TempDir(), desc, nil)
+		cp := checkQAVerify(t.TempDir(), desc, "", nil)
 		if cp.Name != "QA-Verify" {
 			t.Errorf("desc=%q: Name: want %q, got %q", desc, "QA-Verify", cp.Name)
 		}
@@ -72,7 +72,7 @@ func TestCheckQAVerify_GoMCPEntry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(entryDir, "main.go"), []byte("package main\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cp := checkQAVerify(root, "test feature", nil)
+	cp := checkQAVerify(root, "test feature", "", nil)
 	if cp.Name != "QA-Verify" {
 		t.Errorf("Name: want %q, got %q", "QA-Verify", cp.Name)
 	}
@@ -91,7 +91,7 @@ func TestCheckQAVerify_PythonMCPEntry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "mcp_server.py"), []byte("# mcp\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cp := checkQAVerify(root, "test feature", nil)
+	cp := checkQAVerify(root, "test feature", "", nil)
 	if cp.Name != "QA-Verify" {
 		t.Errorf("Name: want %q, got %q", "QA-Verify", cp.Name)
 	}
@@ -109,7 +109,7 @@ func TestCheckQAVerify_GoModFallback(t *testing.T) {
 		[]byte("module example.com/test\ngo 1.21\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cp := checkQAVerify(root, "test feature", nil)
+	cp := checkQAVerify(root, "test feature", "", nil)
 	if cp.Name != "QA-Verify" {
 		t.Errorf("Name: want %q, got %q", "QA-Verify", cp.Name)
 	}
@@ -124,7 +124,7 @@ func TestCheckQAVerify_GoModFallback(t *testing.T) {
 // populated after checkQAVerify, regardless of whether a spec exists.
 func TestCheckQAVerify_GapAuditIsAlwaysSet(t *testing.T) {
 	t.Parallel()
-	cp := checkQAVerify(t.TempDir(), "any feature", nil)
+	cp := checkQAVerify(t.TempDir(), "any feature", "", nil)
 	if cp.GapAudit == nil {
 		t.Error("GapAudit must never be nil after checkQAVerify")
 	}
@@ -156,7 +156,7 @@ func TestCheckQAVerify_BlockingGapFailsCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkQAVerify(root, "test feature", nil)
+	cp := checkQAVerify(root, "test feature", "", nil)
 
 	if cp.GapAudit == nil {
 		t.Fatal("GapAudit must be set when a spec directory exists")
@@ -191,7 +191,7 @@ func TestCheckQAVerify_WarningGapDoesNotFail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkQAVerify(root, "warn feature", nil)
+	cp := checkQAVerify(root, "warn feature", "", nil)
 
 	if cp.GapAudit == nil {
 		t.Fatal("GapAudit must be set when a spec directory exists")
@@ -212,7 +212,7 @@ func TestCheckQAVerify_NoSpecMeansNoBlockingGaps(t *testing.T) {
 	root := t.TempDir()
 	// No .forge/specs/ — auditSpecVsCode returns an empty result.
 
-	cp := checkQAVerify(root, "unspecced feature", nil)
+	cp := checkQAVerify(root, "unspecced feature", "", nil)
 
 	if cp.GapAudit == nil {
 		t.Error("GapAudit must always be non-nil after checkQAVerify")
@@ -259,7 +259,7 @@ func TestCheckQAVerify_RemediationClearsBlockingGap(t *testing.T) {
 	}
 	pipe := mockPipe(root, mock)
 
-	cp := checkQAVerify(root, "remediation feature", pipe)
+	cp := checkQAVerify(root, "remediation feature", "", pipe)
 
 	// After remediation, tasks.md should have all boxes checked.
 	tasksData, err := os.ReadFile(filepath.Join(specDir, "tasks.md"))
@@ -308,7 +308,7 @@ func TestCheckQAVerify_RemediationMaxRoundsReached(t *testing.T) {
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("provider unavailable")}
 	pipe := mockPipe(root, mock)
 
-	cp := checkQAVerify(root, "stuck feature", pipe)
+	cp := checkQAVerify(root, "stuck feature", "", pipe)
 
 	if cp.Status != "fail" {
 		t.Errorf("expected fail when gap persists after max rounds; got Status=%q", cp.Status)
@@ -328,7 +328,7 @@ func TestRemediateGaps_NilPipe(t *testing.T) {
 	gaps := []AuditGap{
 		{Type: "incomplete-tasks", Severity: "blocking", Description: "1 task", File: "/nonexistent/tasks.md"},
 	}
-	n := remediateGaps(t.TempDir(), "any feature", gaps, nil)
+	n := remediateGaps(t.TempDir(), "any feature", "", gaps, nil)
 	if n != 0 {
 		t.Errorf("nil pipe must return 0 dispatched; got %d", n)
 	}
@@ -362,7 +362,7 @@ func TestRemediateIncompleteTasks_MarksTasksDone(t *testing.T) {
 		Severity: "blocking",
 		File:     tasksPath,
 	}
-	if err := remediateIncompleteTasks(root, "mark done feature", gap, pipe, nil); err != nil {
+	if err := remediateIncompleteTasks(root, "mark done feature", "", gap, pipe, nil); err != nil {
 		t.Fatalf("remediateIncompleteTasks returned error: %v", err)
 	}
 
@@ -377,6 +377,53 @@ func TestRemediateIncompleteTasks_MarksTasksDone(t *testing.T) {
 	// Positive check: no unchecked boxes remain.
 	if contains(content, "- [ ]") || contains(content, "* [ ]") {
 		t.Errorf("unchecked tasks remain in tasks.md after remediation:\n%s", content)
+	}
+}
+
+// TestRemediateIncompleteTasks_HonorsSpecNameOverride — regression test: when
+// gap.File is empty (the caller didn't resolve one), remediateIncompleteTasks
+// used to fall back to slugify(description) unconditionally, ignoring the
+// --name/-n override — so it could neither find the real tasks.md nor write
+// code-plan.md to the directory the rest of the pipeline uses.
+func TestRemediateIncompleteTasks_HonorsSpecNameOverride(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	description := "a very long feature description whose slugified form is " +
+		"nothing like the custom name below"
+
+	specDir := filepath.Join(root, ".forge", "specs", "custom-slug")
+	if err := os.MkdirAll(specDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "tasks.md"), []byte("- [ ] Pending\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &llmprovider.MockProvider{
+		Response: &llmprovider.Response{Content: "# Code plan\n\nImplement the pending task."},
+	}
+	pipe := mockPipe(root, mock)
+
+	// gap.File deliberately empty — forces the tasksPath fallback that must
+	// honor specName.
+	gap := AuditGap{Type: "incomplete-tasks", Severity: "blocking"}
+	if err := remediateIncompleteTasks(root, description, "custom-slug", gap, pipe, nil); err != nil {
+		t.Fatalf("remediateIncompleteTasks returned error: %v", err)
+	}
+
+	updated, err := os.ReadFile(filepath.Join(specDir, "tasks.md"))
+	if err != nil {
+		t.Fatalf("tasks.md under the --name override directory was not touched: %v", err)
+	}
+	if contains(string(updated), "- [ ]") {
+		t.Errorf("unchecked tasks remain after remediation:\n%s", string(updated))
+	}
+	if _, err := os.ReadFile(filepath.Join(specDir, "code-plan.md")); err != nil {
+		t.Fatalf("code-plan.md not written under the --name override directory: %v", err)
+	}
+	wrongDir := filepath.Join(root, ".forge", "specs", slugify(description))
+	if _, err := os.Stat(wrongDir); err == nil {
+		t.Fatalf("remediation artefacts leaked into the description-derived slug directory %q — specName was not honored", wrongDir)
 	}
 }
 
@@ -412,7 +459,7 @@ func TestRemediationState_Round1_UsesFullContext(t *testing.T) {
 
 	state := &RemediationState{GapItem: "Task one", Round: 1}
 	gap := AuditGap{Type: "incomplete-tasks", Severity: "blocking", File: tasksPath}
-	if err := remediateIncompleteTasks(root, "full ctx feature", gap, pipe, state); err != nil {
+	if err := remediateIncompleteTasks(root, "full ctx feature", "", gap, pipe, state); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -458,7 +505,7 @@ func TestRemediationState_Round2_UsesShrinkingContext(t *testing.T) {
 		Round:        2,
 	}
 	gap := AuditGap{Type: "incomplete-tasks", Severity: "blocking", File: tasksPath}
-	if err := remediateIncompleteTasks(root, "shrink ctx feature", gap, pipe, state); err != nil {
+	if err := remediateIncompleteTasks(root, "shrink ctx feature", "", gap, pipe, state); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -502,7 +549,7 @@ func TestRemediateGapsRound_StateMapPropagated(t *testing.T) {
 	stateMap := make(map[string]*RemediationState)
 
 	// Round 1 — state map is empty → creates state entry.
-	remediateGapsRound(root, "statemap feature", gaps, pipe, 1, stateMap)
+	remediateGapsRound(root, "statemap feature", "", gaps, pipe, 1, stateMap)
 	if stateMap["Task A"] == nil {
 		t.Fatal("stateMap must contain an entry for 'Task A' after round 1")
 	}
@@ -540,7 +587,7 @@ func TestRemediateGaps_NilPipeRoundVariant(t *testing.T) {
 	gaps := []AuditGap{
 		{Type: "incomplete-tasks", Severity: "blocking", Description: "task", File: "/nonexistent"},
 	}
-	n := remediateGapsRound(t.TempDir(), "feat", gaps, nil, 2, nil)
+	n := remediateGapsRound(t.TempDir(), "feat", "", gaps, nil, 2, nil)
 	if n != 0 {
 		t.Errorf("nil pipe must return 0; got %d", n)
 	}
