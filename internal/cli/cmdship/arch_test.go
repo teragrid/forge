@@ -511,6 +511,58 @@ func TestCheckArch_DoesNotBlockPipelineOnWarning(t *testing.T) {
 	}
 }
 
+// ── Workspace context forwarding (J3) ──────────────────────────────────────────
+
+// TestCheckArch_ForwardsWorkspaceContext — J3 (fix-checkpoint-llm-quality-and-observability):
+// the arch prompt must include the same deterministic workspace-context
+// summary checkSpec already collects, so the LLM is grounded in the actual
+// project's tech stack instead of inventing infrastructure. Regression
+// fixture for the exact incident: a real forge repo (go.mod present) got an
+// arch.md inventing Redis/DataDog/NextAuth/S3 on a downstream Supabase+Next.js
+// project because the arch prompt never carried tech-stack context at all.
+func TestCheckArch_ForwardsWorkspaceContext(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := slugify("add payment api")
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec: add payment API\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Mark this as a Go project so detectTechStack (via collectWorkspaceContext)
+	// has something concrete to report.
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/testproj\n\ngo 1.22\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// The mock is also invoked by the post-generation parallel role debate;
+	// capture only the first call (the actual arch-generation prompt).
+	var capturedPrompt string
+	var captured bool
+	mock := &llmprovider.MockProvider{
+		Fn: func(req *llmprovider.Request) (*llmprovider.Response, error) {
+			if !captured {
+				capturedPrompt = req.SystemPrompt + "\n" + req.UserPrompt
+				captured = true
+			}
+			return mockResponse("# Architecture: add payment API\n\n## 1. Component Topology\n\nPayment service.\n"), nil
+		},
+	}
+	cp := checkArch(root, "add payment api", "", mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(capturedPrompt, "Workspace Context") {
+		t.Errorf("arch prompt should include the workspace-context section; got: %s", capturedPrompt)
+	}
+	if !strings.Contains(capturedPrompt, "Go module") {
+		t.Errorf("arch prompt should include the detected tech stack (Go module); got: %s", capturedPrompt)
+	}
+}
+
 // ── Supabase RPC detection ─────────────────────────────────────────────────────
 
 // TestDetectAPIStyle_SupabaseRPC — detectAPIStyle returns "supabase-rpc" when

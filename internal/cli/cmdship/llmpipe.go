@@ -381,10 +381,18 @@ func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) 
 		userPrompt.Write(data)
 		userPrompt.WriteString("\n```\n\n")
 	}
-	testInstruction := "Generate failing unit test stubs in Go that will pass only after the feature is " +
-		"implemented. Use table-driven tests. Include: happy path, boundary cases, and " +
-		"at least one negative case. For each API operation defined in the OpenAPI contract " +
-		"include a corresponding test case. Wrap code in a ```go block."
+	// J4 (fix-checkpoint-llm-quality-and-observability): use the project's
+	// actually-detected language/framework, not a hardcoded Go assumption —
+	// confirmed dogfooding this checkpoint on a TypeScript/Jest project
+	// produced Go net/http test stubs that couldn't even compile there.
+	fw := detectTestFramework(root)
+	lang, langLabel, codeFence, tddHint := testStubLanguageProfile(fw)
+
+	testInstruction := fmt.Sprintf(
+		"Generate failing unit test stubs in %s that will pass only after the feature is "+
+			"implemented. Include: happy path, boundary cases, and at least one negative case. "+
+			"For each API operation defined in the OpenAPI contract include a corresponding test case. "+
+			"Wrap code in a ```%s block.", langLabel, codeFence)
 	if apiStyle == "supabase-rpc" {
 		testInstruction += " For Supabase RPC operations (/rest/v1/rpc/{fn}), include tests that " +
 			"verify the RPC returns the correct JSON shape defined in the OpenAPI response schema, " +
@@ -394,12 +402,11 @@ func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) 
 
 	content, err := pipe.InvokeWithKnowledge(
 		"ship:test:generate", "",
-		"You are a senior Go QA engineer generating test stubs for a TDD workflow. "+
-			"Write idiomatic Go tests using the standard testing package. "+
-			"Use t.Parallel() and t.TempDir() where appropriate.",
+		fmt.Sprintf("You are a senior %s QA engineer generating test stubs for a TDD workflow. %s",
+			langLabel, tddHint),
 		userPrompt.String(),
 		3000,
-		"test", "testing", "go-service",
+		"test", "testing", lang,
 		[]string{"openapi", "tdd", "test-stubs"},
 	)
 	if err != nil {
@@ -413,6 +420,29 @@ func generateTestStubs(root, description string, pipe *LLMPipe) (string, error) 
 	}
 	_ = os.WriteFile(filepath.Join(specsDir, "test-stubs.md"), []byte(content), 0o600)
 	return content, nil
+}
+
+// testStubLanguageProfile maps a detected TestFrameworkContext to the prompt
+// language name, knowledge-tag slug, code-fence language, and a short
+// framework-specific TDD hint used to build generateTestStubs' prompt (J4).
+// Defaults to TypeScript/Jest — the project's original G-006 assumption —
+// when no language was detected, matching writeTestArtifactsWithContext's
+// own default branch.
+func testStubLanguageProfile(fw TestFrameworkContext) (lang, langLabel, codeFence, tddHint string) {
+	switch fw.Language {
+	case "go":
+		return "go", "Go", "go",
+			"Write idiomatic Go tests using the standard testing package. Use t.Parallel() and t.TempDir() where appropriate."
+	case "python":
+		return "python", "Python", "python",
+			"Write idiomatic Python tests using pytest. Use fixtures where appropriate."
+	case "java":
+		return "java", "Java", "java",
+			"Write idiomatic Java tests using JUnit 5. Use @TempDir where appropriate."
+	default:
+		return "typescript", "TypeScript", "typescript",
+			"Write idiomatic TypeScript tests using Jest. Tests must compile but fail at runtime until implemented."
+	}
 }
 
 // generateBreakdown asks the LLM to decompose the spec into an atomic task list
