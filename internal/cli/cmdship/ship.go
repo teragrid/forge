@@ -983,7 +983,7 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 			cp.Detail = fmt.Sprintf("%d test file(s) found; missing artifacts: %s", len(testFiles), strings.Join(missing, ", "))
 		}
 		if pipe != nil {
-			if _, err := generateTestStubs(root, description, pipe); err != nil {
+			if _, err := generateTestStubs(root, description, slug, pipe); err != nil {
 				cp.Detail += fmt.Sprintf(" [LLM:%s — %s]", pipe.ProviderName(), llmErrNote(err))
 			}
 		}
@@ -991,7 +991,7 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 	}
 	// No test files — generate 4 named artifacts.
 	if pipe != nil {
-		if _, err := generateTestStubs(root, description, pipe); err != nil {
+		if _, err := generateTestStubs(root, description, slug, pipe); err != nil {
 			cp.Status = "warning"
 			cp.Detail = fmt.Sprintf("no test files; 4 artifacts written to tests/%s.* [LLM:%s — %s]",
 				slug, pipe.ProviderName(), llmErrNote(err))
@@ -1106,7 +1106,7 @@ func checkBreakdown(root, description, specName string, pipe *LLMPipe) Checkpoin
 		}
 		// Breakdown does not exist — attempt LLM generation.
 		if pipe != nil {
-			generated, err := generateBreakdown(root, description, pipe)
+			generated, err := generateBreakdown(root, description, slug, pipe)
 			if err != nil {
 				cp.Status = "warning"
 				cp.Detail = fmt.Sprintf("no breakdown.md [LLM:%s — %s] — run forge ship breakdown to generate",
@@ -1156,7 +1156,7 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	}
 
 	if pipe != nil {
-		plan, err := generateCodePlan(root, description, pipe)
+		plan, err := generateCodePlan(root, description, slug, pipe)
 		if err != nil {
 			if changedFiles > 0 {
 				cp.Status = "ok"
@@ -1205,38 +1205,36 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	return cp
 }
 
-// countChangedFiles returns the number of modified/untracked files via git status.
-// Returns 0 if git is unavailable or not a repo.
+// countChangedFiles returns the number of modified/untracked files via git status
+// (equivalent to counting lines in `git status --porcelain`).
+// Returns 0 if git is unavailable, the directory is not a repo, or the status
+// call fails for any other reason.
+//
+// Prior implementation walked the entire working tree counting every
+// .go/.ts/.js/.py/.sql file that existed on disk, regardless of whether it was
+// actually changed — on a real project with thousands of source files this
+// reported a number like "1693 modified file(s)" when the real change count
+// (confirmed via `git status --short`) was in the single digits. That made the
+// Code/Ship checkpoint output actively misleading. git status --porcelain
+// respects .gitignore and reports only genuinely modified/staged/untracked
+// paths, which is what the checkpoint detail message claims to report.
 func countChangedFiles(root string) int {
-	statusFile := filepath.Join(root, ".git", "index")
-	if _, err := os.Stat(statusFile); err != nil {
+	svc, err := gitservice.New(root)
+	if err != nil {
 		return 0
 	}
-	// Walk for any modified files (a fast approximation without exec)
-	count := 0
-	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			if d != nil && d.IsDir() {
-				n := d.Name()
-				if n == ".git" || n == "node_modules" || n == "vendor" || n == "dist" {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-		ext := filepath.Ext(d.Name())
-		if ext == ".go" || ext == ".ts" || ext == ".js" || ext == ".py" || ext == ".sql" {
-			count++
-		}
-		return nil
-	})
-	return count
+	statuses, err := svc.Status()
+	if err != nil {
+		return 0
+	}
+	return len(statuses)
 }
 
 // checkVerify runs the security scanner, clean check, checks the manifest,
 // and (TG-39) audits spec artefacts for incomplete tasks and authz gaps.
 // M1-10: forge clean --check is now wired here.
-func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
+// specName, when non-empty, overrides the slug derived from description.
+func checkVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Ship"}
 
 	// Run security scan.
@@ -1290,7 +1288,7 @@ func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	// When a pipe is available, run the same auto-remediation loop used in
 	// checkQAVerify so that both the Ship and QA-Verify checkpoints operate
 	// consistently. The loop is capped at maxRemediationRounds.
-	auditRes := auditSpecVsCode(root, description)
+	auditRes := auditSpecVsCode(root, description, specName)
 	cp.GapAudit = &auditRes
 
 	remediationRounds := 0
@@ -1298,8 +1296,8 @@ func checkVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	for auditRes.HasBlockingGaps() && pipe != nil && remediationRounds < maxRemediationRounds {
 		remediationRounds++
 		// L4: Pass round number so shrinking context is used for round 2+.
-		remediateGapsRound(root, description, auditRes.Gaps, pipe, remediationRounds, remediationState)
-		auditRes = auditSpecVsCode(root, description)
+		remediateGapsRound(root, description, specName, auditRes.Gaps, pipe, remediationRounds, remediationState)
+		auditRes = auditSpecVsCode(root, description, specName)
 		cp.GapAudit = &auditRes
 	}
 
@@ -1638,7 +1636,8 @@ func runQATestSuite(root string) (status, detail string) {
 	return "warning", ""
 }
 
-func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
+// specName, when non-empty, overrides the slug derived from description.
+func checkQAVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "QA-Verify"}
 
 	// ── Phase 1: spec-vs-code gap audit with auto-remediation loop ───────────
@@ -1647,15 +1646,15 @@ func checkQAVerify(root, description string, pipe *LLMPipe) Checkpoint {
 	// loop calls remediateGaps to implement the missing pieces, then re-audits.
 	// This continues until all blocking gaps are cleared or maxRemediationRounds
 	// is exhausted — ensuring the pipeline ships only when fully spec-compliant.
-	auditRes := auditSpecVsCode(root, description)
+	auditRes := auditSpecVsCode(root, description, specName)
 	cp.GapAudit = &auditRes
 
 	remediationState := make(map[string]*RemediationState)
 	for auditRes.HasBlockingGaps() && pipe != nil && cp.RemediationRounds < maxRemediationRounds {
 		cp.RemediationRounds++
 		// L4: Pass round number so shrinking context is used for round 2+.
-		remediateGapsRound(root, description, auditRes.Gaps, pipe, cp.RemediationRounds, remediationState)
-		auditRes = auditSpecVsCode(root, description)
+		remediateGapsRound(root, description, specName, auditRes.Gaps, pipe, cp.RemediationRounds, remediationState)
+		auditRes = auditSpecVsCode(root, description, specName)
 		cp.GapAudit = &auditRes
 	}
 
@@ -1836,12 +1835,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	allCPs = append(allCPs, checkCode(root, opts.Description, opts.SpecName, pipe))
 	snapBefore("ship")
 	allCPs = append(allCPs,
-		checkVerify(root, opts.Description, pipe),
-		checkQAVerify(root, opts.Description, pipe),
+		checkVerify(root, opts.Description, opts.SpecName, pipe),
+		checkQAVerify(root, opts.Description, opts.SpecName, pipe),
 	)
 	// PR checkpoint: appended only for full-pipeline runs with --pr.
 	if opts.CreatePR && len(opts.Names) == 0 {
-		allCPs = append(allCPs, checkPR(root, opts.Description))
+		allCPs = append(allCPs, checkPR(root, opts.Description, opts.SpecName))
 	}
 
 	checkpointIndex := map[string]int{
@@ -1895,6 +1894,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				CheckpointName: strings.ToLower(cp.Name),
 				Root:           root,
 				Description:    opts.Description,
+				SpecName:       opts.SpecName,
 				Pipe:           pipe,
 				Result:         &cp,
 			}
@@ -2062,6 +2062,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			Phase:       PhasePostPipeline,
 			Root:        root,
 			Description: opts.Description,
+			SpecName:    opts.SpecName,
 			Pipe:        pipe,
 		}
 		runHooks(PhasePostPipeline, hookCtx, hooks, hookCfg) // post-pipeline failures are advisory only

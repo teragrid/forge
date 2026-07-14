@@ -1452,6 +1452,32 @@ func TestCheckTest_LLM_GeneratesStubs(t *testing.T) {
 	}
 }
 
+// TestCheckTest_LLM_HonorsSpecNameOverride — regression test: generateTestStubs
+// must write to the --name/-n override directory, not a second directory
+// auto-slugified from the raw description. See
+// TestCheckBreakdown_LLM_HonorsSpecNameOverride for the full incident context.
+func TestCheckTest_LLM_HonorsSpecNameOverride(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	description := "Master content calendar: a long feature description whose " +
+		"slugified form differs from the --name override below"
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("```go\nfunc TestCalendar(t *testing.T) {}\n```"),
+	}
+	cp := checkTest(root, description, "custom-slug", mockPipe(root, mock), false)
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if _, err := os.ReadFile(filepath.Join(root, ".forge", "specs", "custom-slug", "test-stubs.md")); err != nil {
+		t.Fatalf("test-stubs.md not written under the --name override directory: %v", err)
+	}
+	wrongDir := filepath.Join(root, ".forge", "specs", slugify(description))
+	if _, err := os.Stat(wrongDir); err == nil {
+		t.Fatalf("test-stubs.md leaked into the description-derived slug directory %q — specName was not honored", wrongDir)
+	}
+}
+
 // TestCheckTest_LLM_ProviderFails_Warning â€” when the LLM returns an error and no
 // test files exist, the checkpoint is "warning" (not "fail").
 func TestCheckTest_LLM_ProviderFails_Warning(t *testing.T) {
@@ -1587,6 +1613,38 @@ func TestCheckBreakdown_LLM_GeneratesBreakdown(t *testing.T) {
 	}
 }
 
+// TestCheckBreakdown_LLM_HonorsSpecNameOverride — regression test for a real
+// incident: generateBreakdown used to independently re-derive slugify(description)
+// instead of honoring the --name/-n override the caller already resolved, so
+// breakdown.md/tasks.md landed in a second, wrong .forge/specs/<slug>/ directory
+// (auto-slugified from the raw description) while spec.md/arch.md correctly used
+// the --name override. Reproduced live across 3 real forge ship runs (2 providers)
+// before the fix threaded specName through generateBreakdown.
+func TestCheckBreakdown_LLM_HonorsSpecNameOverride(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	description := "Master content calendar: a long feature description whose " +
+		"slugified form differs from the --name override below"
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("## Task 1\nDo the thing.\n"),
+	}
+	cp := checkBreakdown(root, description, "custom-slug", mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if _, err := os.ReadFile(filepath.Join(root, ".forge", "specs", "custom-slug", "breakdown.md")); err != nil {
+		t.Fatalf("breakdown.md not written under the --name override directory: %v", err)
+	}
+	if _, err := os.ReadFile(filepath.Join(root, ".forge", "specs", "custom-slug", "tasks.md")); err != nil {
+		t.Fatalf("tasks.md not written under the --name override directory: %v", err)
+	}
+	wrongDir := filepath.Join(root, ".forge", "specs", slugify(description))
+	if _, err := os.Stat(wrongDir); err == nil {
+		t.Fatalf("breakdown artefacts leaked into the description-derived slug directory %q — specName was not honored", wrongDir)
+	}
+}
+
 // TestCheckBreakdown_LLM_ExistingBreakdown â€” when breakdown.md already exists the
 // checkpoint is "ok" immediately without calling the LLM.
 func TestCheckBreakdown_LLM_ExistingBreakdown(t *testing.T) {
@@ -1662,6 +1720,50 @@ func TestCheckCode_LLM_GeneratesCodePlan(t *testing.T) {
 	}
 }
 
+// TestCheckCode_LLM_HonorsSpecNameOverride — regression test: generateCodePlan
+// must read spec.md/breakdown.md from, and write code-plan.md to, the --name/-n
+// override directory, not a second directory auto-slugified from the raw
+// description. See TestCheckBreakdown_LLM_HonorsSpecNameOverride for the full
+// incident context — this one matters most in practice because the checkCode
+// log line ("code plan written by %s (see .forge/specs/%s/code-plan.md)")
+// reported the *correct* --name directory even while generateCodePlan silently
+// wrote the real file to the wrong one, making the bug invisible from the CLI
+// output alone.
+func TestCheckCode_LLM_HonorsSpecNameOverride(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	description := "Master content calendar: a long feature description whose " +
+		"slugified form differs from the --name override below"
+	dir := filepath.Join(root, ".forge", "specs", "custom-slug")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "breakdown.md"), []byte("## Task 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("## Step 1\nCreate handler.\n"),
+	}
+	cp := checkCode(root, description, "custom-slug", mockPipe(root, mock))
+
+	if cp.Status != "ok" {
+		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	}
+	if mock.Calls() == 0 {
+		t.Fatal("MockProvider.Complete was not called — generateCodePlan did not find spec.md/breakdown.md under the --name override directory")
+	}
+	if _, err := os.ReadFile(filepath.Join(dir, "code-plan.md")); err != nil {
+		t.Fatalf("code-plan.md not written under the --name override directory: %v", err)
+	}
+	wrongDir := filepath.Join(root, ".forge", "specs", slugify(description))
+	if _, err := os.Stat(wrongDir); err == nil {
+		t.Fatalf("code-plan.md leaked into the description-derived slug directory %q — specName was not honored", wrongDir)
+	}
+}
+
 // TestCheckCode_LLM_NoContext_NoCallMade â€” when neither spec.md nor breakdown.md
 // exist, generateCodePlan returns early and the LLM is NOT called.
 func TestCheckCode_LLM_NoContext_NoCallMade(t *testing.T) {
@@ -1683,15 +1785,12 @@ func TestCheckCode_LLM_NoContext_NoCallMade(t *testing.T) {
 // still results in "ok" (falls back to file-count structural check).
 func TestCheckCode_LLM_ProviderFails_GracefulFallback(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	// Write a .go file so countChangedFiles returns > 0.
-	// We also need a .git/index to trick the git check.
-	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".git", "index"), []byte(""), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	skipIfNoGitShip(t)
+	// countChangedFiles now shells out to `git status --porcelain` (it used to
+	// just check for a .git/index file's existence, which any fixture could
+	// fake without a real repo). A genuine repo + an untracked file is needed
+	// so countChangedFiles legitimately returns > 0.
+	root := initShipRepo(t)
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1716,7 +1815,50 @@ func TestCheckCode_LLM_ProviderFails_GracefulFallback(t *testing.T) {
 	}
 }
 
-// â”€â”€ PR creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// TestCountChangedFiles_MatchesRealGitStatus — regression test for a real
+// incident: countChangedFiles used to walk the entire working tree counting
+// every .go/.ts/.js/.py/.sql file that existed on disk, regardless of whether
+// it was actually changed. On a real ~1700-source-file project this reported
+// "1693 modified file(s)" in the Code/Ship checkpoint output when the real
+// change count (per `git status --short`) was in the single digits —
+// reproduced live across 2 separate forge ship runs (different LLM providers,
+// same misleading count both times). It must count exactly what
+// `git status --porcelain` reports: untracked + modified + staged paths,
+// honoring .gitignore.
+func TestCountChangedFiles_MatchesRealGitStatus(t *testing.T) {
+	t.Parallel()
+	skipIfNoGitShip(t)
+	root := initShipRepo(t)
+
+	// Happy path: a clean checkout reports zero changes.
+	if n := countChangedFiles(root); n != 0 {
+		t.Fatalf("expected 0 changed files on a clean checkout, got %d", n)
+	}
+
+	// Two untracked source files + one gitignored file. The gitignored file is
+	// the false-positive guard: the old file-extension walk would have counted
+	// it (it's a real .go file on disk); git status --porcelain must not.
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("ignored.go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.ts"), []byte("export {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ignored.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// .gitignore itself is also untracked, so the real count is 3 (.gitignore,
+	// a.go, b.ts) — ignored.go must NOT be among them.
+	if n := countChangedFiles(root); n != 3 {
+		t.Fatalf("expected 3 changed files (.gitignore, a.go, b.ts; ignored.go must be excluded), got %d", n)
+	}
+}
+
+// â”€â”€ PR creation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // TestCheckPR_GhNotFound_Warning â€” when gh CLI is not in PATH, checkPR returns
 // Status="warning" (never "fail") so the pipeline is never hard-blocked.
@@ -1724,7 +1866,7 @@ func TestCheckPR_GhNotFound_Warning(t *testing.T) {
 	t.Parallel()
 	// Use a temp dir that doesn't have gh; check by examining the result.
 	root := t.TempDir()
-	cp := checkPR(root, "test PR")
+	cp := checkPR(root, "test PR", "")
 
 	// In a typical CI environment, gh may or may not be installed.
 	// The invariant is: status must never be "fail".
@@ -2041,7 +2183,7 @@ func TestInteractiveGate_WarningMarker_IsTriangle(t *testing.T) {
 func TestCheckQAVerify_NoRunner(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	cp := checkQAVerify(root, "test feature", nil)
+	cp := checkQAVerify(root, "test feature", "", nil)
 	if cp.Status != "warning" {
 		t.Errorf("Status: want warning, got %q detail: %s", cp.Status, cp.Detail)
 	}

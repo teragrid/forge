@@ -73,13 +73,18 @@ func (r *SpecAuditResult) HasBlockingGaps() bool {
 
 // auditSpecVsCode checks the spec artefacts for the given description (or all
 // specs when description is empty) and returns the combined audit result.
+// specName, when non-empty, overrides the slug derived from description — it
+// must match whatever --name/-n resolved to elsewhere in the pipeline, or the
+// audit silently checks a directory the rest of the checkpoints never wrote to.
 // It never panics and returns an empty result when no .forge/specs/ directory
 // exists (i.e., the project has not run forge ship spec yet).
-func auditSpecVsCode(root, description string) SpecAuditResult {
+func auditSpecVsCode(root, description, specName string) SpecAuditResult {
 	specsDir := filepath.Join(root, ".forge", "specs")
 
 	var slugs []string
-	if description != "" {
+	if specName != "" {
+		slugs = []string{specName}
+	} else if description != "" {
 		slugs = []string{slugify(description)}
 	} else {
 		entries, err := os.ReadDir(specsDir)
