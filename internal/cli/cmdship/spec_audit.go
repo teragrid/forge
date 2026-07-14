@@ -82,11 +82,12 @@ func auditSpecVsCode(root, description, specName string) SpecAuditResult {
 	specsDir := filepath.Join(root, ".forge", "specs")
 
 	var slugs []string
-	if specName != "" {
+	switch {
+	case specName != "":
 		slugs = []string{specName}
-	} else if description != "" {
+	case description != "":
 		slugs = []string{slugify(description)}
-	} else {
+	default:
 		entries, err := os.ReadDir(specsDir)
 		if err != nil {
 			return SpecAuditResult{} // no .forge/specs/ — nothing to audit
