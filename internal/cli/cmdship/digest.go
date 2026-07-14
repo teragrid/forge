@@ -142,6 +142,40 @@ func buildDigestContext(root, slug string, upstreamCheckpoints []string, artefac
 	return b.String()
 }
 
+// checkpointArtefactFilenames maps a checkpoint's display name to the real
+// Markdown artefact file(s) its check* function writes to
+// .forge/specs/<slug>/, in preference order — the first one found is used.
+// Checkpoints with no essay-style artefact (Ship/Verify, QA-Verify) are
+// intentionally absent: their digest source falls back to cp.Detail, which
+// is the only content that exists for them (not a workaround — there is
+// nothing else to summarize).
+var checkpointArtefactFilenames = map[string][]string{
+	"spec":      {"spec.md"},
+	"arch":      {"arch.md"},
+	"breakdown": {"breakdown.md"},
+	"test":      {"test-stubs.md"},
+	"code":      {"code-plan.md"},
+}
+
+// checkpointArtefactContent reads the real artefact this checkpoint produced
+// (J6) so the digest reflects actual generated content instead of the
+// one-line checkpoint status message. Returns "" when the checkpoint has no
+// known artefact file or the file is absent/unreadable — callers should fall
+// back to cp.Detail in that case.
+func checkpointArtefactContent(root, slug, checkpointName string) string {
+	names, ok := checkpointArtefactFilenames[strings.ToLower(checkpointName)]
+	if !ok {
+		return ""
+	}
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join(root, ".forge", "specs", slug, name))
+		if err == nil && len(data) > 0 {
+			return string(data)
+		}
+	}
+	return ""
+}
+
 // makeDigestFromArtefact builds a CheckpointDigest by heuristically extracting
 // decisions, constraints, and accepted risks from a Markdown artefact.
 //

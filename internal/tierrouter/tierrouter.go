@@ -51,9 +51,14 @@ type TierSpec struct {
 }
 
 // DefaultTiers is the canonical escalation ladder.
+//
+// TierBalanced's AnthropicModel references llmprovider.AnthropicDefaultModel
+// (the single source of truth for the default Anthropic model id — J1/J2)
+// instead of its own duplicated literal, so a future default-model update
+// only needs to change one place.
 var DefaultTiers = []TierSpec{
 	{TierCheap, "claude-haiku-4-5-20251001", "gpt-4o-mini", "gemini-2.0-flash"},
-	{TierBalanced, "claude-sonnet-4-5-20250514", "gpt-4o", "gemini-2.5-flash-preview-05-20"},
+	{TierBalanced, llmprovider.AnthropicDefaultModel, "gpt-4o", "gemini-2.5-flash-preview-05-20"},
 	{TierPowerful, "claude-opus-4-8-20250514", "gpt-4.1", "gemini-2.5-pro-preview-06-05"},
 }
 

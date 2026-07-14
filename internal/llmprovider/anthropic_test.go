@@ -153,7 +153,7 @@ func TestAnthropicAdapter_Complete_OK(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content": []map[string]any{{"type": "text", "text": "hello from claude"}},
 			"usage":   map[string]any{"input_tokens": 12, "output_tokens": 4},
-			"model":   "claude-sonnet-4-5-20250514",
+			"model":   AnthropicDefaultModel,
 		})
 	}))
 	defer srv.Close()
@@ -176,7 +176,7 @@ func TestAnthropicAdapter_Complete_OK(t *testing.T) {
 	if resp.InputTokens != 12 || resp.OutputTokens != 4 {
 		t.Errorf("tokens = %d/%d, want 12/4", resp.InputTokens, resp.OutputTokens)
 	}
-	if resp.Model != "claude-sonnet-4-5-20250514" {
+	if resp.Model != AnthropicDefaultModel {
 		t.Errorf("model = %q", resp.Model)
 	}
 }

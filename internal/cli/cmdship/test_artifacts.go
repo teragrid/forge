@@ -84,15 +84,41 @@ func writeTestArtifacts(root, slug, feature, specMarkdown string, pipe *LLMPipe)
 	return writeTestArtifactsWithContext(root, slug, feature, specMarkdown, fw, pipe)
 }
 
-// allTestArtifactsExist returns true when all four G-006 artifacts are present.
+// expectedTestArtifactNames returns the artifact filenames this project's
+// detected stack should produce, mirroring the exact switch in
+// writeTestArtifactsWithContext (J5, fix-checkpoint-llm-quality-and-observability):
+// Go/Python/Java projects get their own convention, never the TypeScript/
+// Supabase-RLS filenames from an unrelated stack. ScanBaseline is
+// language-agnostic and always expected.
+func expectedTestArtifactNames(root, slug string) []string {
+	fw := detectTestFramework(root)
+	switch fw.Language {
+	case "go":
+		names := []string{slug + "_test.go"}
+		if fw.FuzzSupport {
+			names = append(names, slug+"_fuzz_test.go")
+		}
+		return append(names, slug+".scan.baseline.json")
+	case "python":
+		return []string{"test_" + slug + ".py", slug + ".scan.baseline.json"}
+	case "java":
+		return []string{slug + "Test.java", slug + ".scan.baseline.json"}
+	default:
+		// TypeScript / unknown — original G-006 convention.
+		return []string{
+			slug + ".test.ts",
+			slug + ".integration.test.ts",
+			slug + ".rls.test.ts",
+			slug + ".scan.baseline.json",
+		}
+	}
+}
+
+// allTestArtifactsExist returns true when all of this project's expected
+// artifacts (per its detected stack, J5) are present.
 func allTestArtifactsExist(root, slug string) bool { //nolint:unused // used in ship dry-run gate
 	testsDir := filepath.Join(root, "tests")
-	for _, name := range []string{
-		slug + ".test.ts",
-		slug + ".integration.test.ts",
-		slug + ".rls.test.ts",
-		slug + ".scan.baseline.json",
-	} {
+	for _, name := range expectedTestArtifactNames(root, slug) {
 		if _, err := os.Stat(filepath.Join(testsDir, name)); err != nil {
 			return false
 		}
@@ -100,16 +126,12 @@ func allTestArtifactsExist(root, slug string) bool { //nolint:unused // used in 
 	return true
 }
 
-// missingTestArtifacts lists the artifact filenames that are absent.
+// missingTestArtifacts lists the expected artifact filenames (per this
+// project's detected stack, J5) that are absent.
 func missingTestArtifacts(root, slug string) []string {
 	testsDir := filepath.Join(root, "tests")
 	var missing []string
-	for _, name := range []string{
-		slug + ".test.ts",
-		slug + ".integration.test.ts",
-		slug + ".rls.test.ts",
-		slug + ".scan.baseline.json",
-	} {
+	for _, name := range expectedTestArtifactNames(root, slug) {
 		if _, err := os.Stat(filepath.Join(testsDir, name)); err != nil {
 			missing = append(missing, name)
 		}

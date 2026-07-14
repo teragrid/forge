@@ -22,8 +22,14 @@
 // can run forge commands without setting any extra environment variable — the same
 // credential that powers their Claude Code session is reused automatically.
 //
-// Default model: claude-sonnet-4-5-20250514 (override via ANTHROPIC_MODEL or
-// Request.Model / forge.yml llm.model).
+// Default model: AnthropicDefaultModel (override via ANTHROPIC_MODEL or
+// Request.Model / forge.yml llm.model). AnthropicDefaultModel is the single
+// source of truth for the default Anthropic model id — see J1/J2
+// (fix-checkpoint-llm-quality-and-observability): a stale hardcoded model id
+// duplicated across 5 call sites previously caused every Anthropic call to
+// 404. Live model discovery (loadModels, mirroring CopilotProvider) and
+// automatic fallback-on-404 retry (dynamic-fault-tolerant-model-selection)
+// make this class of bug self-healing going forward.
 package llmprovider
 
 import (
@@ -35,22 +41,54 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/teragrid/forge/internal/errcode"
 )
 
 const (
-	anthropicAPIBase      = "https://api.anthropic.com/v1"
-	anthropicAPIVersion   = "2023-06-01"
-	anthropicDefaultModel = "claude-sonnet-4-5-20250514"
+	anthropicAPIBase    = "https://api.anthropic.com/v1"
+	anthropicAPIVersion = "2023-06-01"
+
+	// AnthropicDefaultModel is the single source of truth for the default
+	// Anthropic model id used when no explicit model is configured. Updated
+	// 2026-07-14: confirmed operational via `forge doctor --llm` returning
+	// HTTP 429 (rate-limited, not 404) — the prior id
+	// (claude-sonnet-4-5-20250514, added v1.7.1) was silently deprecated
+	// upstream and 404'd on every call. Every other package that previously
+	// hardcoded its own copy of this literal (anthropic_test.go, llmpipe.go,
+	// tierrouter.go) now references this constant instead (J1).
+	AnthropicDefaultModel = "claude-sonnet-5"
 )
+
+// anthropicKnownModels is the static fallback model list used when live
+// discovery (loadModels) is unreachable and no cached discovery result
+// exists — mirrors CopilotProvider's copilotKnownModels. Also used as the
+// fallback-retry ladder when the primary model 404s
+// (dynamic-fault-tolerant-model-selection AC2).
+var anthropicKnownModels = []string{
+	AnthropicDefaultModel,
+	"claude-opus-4-8-20250514",
+	"claude-haiku-4-5-20251001",
+	"claude-3-7-sonnet-20250219",
+	"claude-3-5-sonnet-20241022",
+	"claude-3-5-haiku-20241022",
+}
 
 // AnthropicAdapter implements Provider using the Anthropic Claude API.
 type AnthropicAdapter struct {
-	apiKey  string
-	model   string
+	apiKey string
+	model  string
+	// pinned is true when model came from an explicit ANTHROPIC_MODEL env var
+	// (as opposed to falling back to AnthropicDefaultModel) — mirrors
+	// Request.ModelPinned: an explicit pin disables silent fallback
+	// substitution on a 404 (dynamic-fault-tolerant-model-selection AC4).
+	pinned  bool
 	baseURL string       // empty → anthropicAPIBase; overridable in tests
 	client  *http.Client // nil → http.DefaultClient
+
+	cachedModels []string
+	modelsOnce   sync.Once
 }
 
 // newAnthropicProvider returns an AnthropicAdapter when an API key can be found,
@@ -61,10 +99,11 @@ func newAnthropicProvider() *AnthropicAdapter {
 		return nil
 	}
 	model := os.Getenv("ANTHROPIC_MODEL")
+	pinned := model != ""
 	if model == "" {
-		model = anthropicDefaultModel
+		model = AnthropicDefaultModel
 	}
-	return &AnthropicAdapter{apiKey: key, model: model}
+	return &AnthropicAdapter{apiKey: key, model: model, pinned: pinned}
 }
 
 // detectAnthropicKey returns the first Anthropic API key found from:
@@ -103,29 +142,42 @@ func readClaudeCodeAPIKey() string {
 
 func (a *AnthropicAdapter) Name() string { return "anthropic" }
 
+// Capabilities fetches the live model list from the Anthropic /v1/models
+// endpoint on first call (cached via sync.Once, mirroring CopilotProvider),
+// falling back to a fresh on-disk cache, then a stale on-disk cache, then the
+// hardcoded anthropicKnownModels list if discovery has never succeeded
+// (dynamic-fault-tolerant-model-selection AC5/AC6).
 func (a *AnthropicAdapter) Capabilities() Capabilities {
+	a.modelsOnce.Do(a.loadModels)
+	models := a.cachedModels
+	if len(models) == 0 {
+		models = anthropicKnownModels
+	}
 	return Capabilities{
 		Streaming: true,
 		MaxTokens: 200000,
-		Models: []string{
-			// Claude 4 family
-			"claude-opus-4-8-20250514",
-			"claude-sonnet-4-5-20250514",
-			"claude-haiku-4-5-20251001",
-			// Claude 3.7
-			"claude-3-7-sonnet-20250219",
-			// Claude 3.5
-			"claude-3-5-sonnet-20241022",
-			"claude-3-5-haiku-20241022",
-		},
+		Models:    models,
 	}
 }
 
 // APIKey returns the raw API key (for callers that need it directly).
 func (a *AnthropicAdapter) APIKey() string { return a.apiKey }
 
+// anthropicAttemptResult is the outcome of one Complete() attempt against a
+// single model.
+type anthropicAttemptResult struct {
+	resp      *Response
+	retryable bool // true only for a not_found_error (model gone) — safe to retry a different model
+	err       error
+}
+
 // Complete sends a chat request to the Anthropic Messages API and returns the
-// assistant's response.
+// assistant's response. On a not_found_error (model deprecated/unknown) it
+// automatically retries once against a different, currently-valid model —
+// mirroring CopilotProvider.Complete's attempt()/fallback-list structure —
+// unless the caller (or ANTHROPIC_MODEL/forge.yml) explicitly pinned a model,
+// in which case it fails loudly naming the dead model id instead of silently
+// substituting (dynamic-fault-tolerant-model-selection AC2-AC4).
 func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Response, error) {
 	if req == nil {
 		return nil, errcode.New(ErrInvalidInput, "request must not be nil", nil)
@@ -135,14 +187,61 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 			"anthropic: no API key — set ANTHROPIC_API_KEY or authenticate with Claude Code CLI", nil)
 	}
 
-	model := a.model
-	if model == "" {
-		model = anthropicDefaultModel
+	primaryModel := a.model
+	if primaryModel == "" {
+		primaryModel = AnthropicDefaultModel
 	}
+	pinned := a.pinned
 	if req.Model != "" {
-		model = req.Model
+		primaryModel = req.Model
+		pinned = req.ModelPinned
 	}
 
+	attempt := func(model string) anthropicAttemptResult {
+		resp, retryable, err := a.attemptComplete(ctx, req, model)
+		return anthropicAttemptResult{resp: resp, retryable: retryable, err: err}
+	}
+
+	first := attempt(primaryModel)
+	if !first.retryable {
+		return first.resp, first.err
+	}
+
+	if pinned {
+		return nil, fmt.Errorf(
+			"anthropic: model %q not found (HTTP 404) — this model is explicitly pinned "+
+				"(forge.yml llm.model / ANTHROPIC_MODEL), so forge will NOT silently substitute a "+
+				"different model. Remove the pin to enable auto-fallback, or update it to a "+
+				"currently-valid model id (e.g. %s): %w", primaryModel, AnthropicDefaultModel, first.err)
+	}
+
+	// Fallback: iterate the discovered + known-good model list, skipping the
+	// primary model (already tried) and any duplicates.
+	tried := map[string]bool{primaryModel: true}
+	lastErr := first.err
+	for _, fallback := range a.Capabilities().Models {
+		if tried[fallback] {
+			continue
+		}
+		tried[fallback] = true
+		res := attempt(fallback)
+		if !res.retryable {
+			if res.err == nil {
+				fmt.Fprintf(os.Stderr,
+					"forge: anthropic model %q unavailable (404) — fell back to %q\n", primaryModel, fallback)
+			}
+			return res.resp, res.err
+		}
+		lastErr = res.err
+	}
+	return nil, fmt.Errorf(
+		"anthropic: no available model; tried %q and all fallbacks — last error: %w", primaryModel, lastErr)
+}
+
+// attemptComplete sends one request with the given model. retryable is true
+// only when the response is classified as a not_found_error (AC1/AC2) — the
+// only failure mode safe to retry against a different model.
+func (a *AnthropicAdapter) attemptComplete(ctx context.Context, req *Request, model string) (resp *Response, retryable bool, err error) {
 	// Build Messages API request body.
 	type message struct {
 		Role    string `json:"role"`
@@ -169,7 +268,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic: marshal request: %w", err)
+		return nil, false, fmt.Errorf("anthropic: marshal request: %w", err)
 	}
 
 	baseURL := a.baseURL
@@ -178,7 +277,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/messages", bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("anthropic: create request: %w", err)
+		return nil, false, fmt.Errorf("anthropic: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", a.apiKey)
@@ -188,29 +287,20 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 	if client == nil {
 		client = http.DefaultClient
 	}
-	resp, err := client.Do(httpReq)
+	httpResp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic: http: %w", err)
+		return nil, false, fmt.Errorf("anthropic: http: %w", err)
 	}
-	defer resp.Body.Close() //nolint:errcheck
+	defer httpResp.Body.Close() //nolint:errcheck
 
-	respData, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
+	respData, err := io.ReadAll(io.LimitReader(httpResp.Body, 1<<20)) // 1 MB max
 	if err != nil {
-		return nil, fmt.Errorf("anthropic: read response: %w", err)
+		return nil, false, fmt.Errorf("anthropic: read response: %w", err)
 	}
 
-	switch resp.StatusCode {
-	case http.StatusOK:
-		// handled below
-	case http.StatusUnauthorized:
-		return nil, fmt.Errorf(
-			"anthropic: HTTP 401 — API key invalid or expired.\n"+
-				"Set ANTHROPIC_API_KEY or re-authenticate with the Claude Code CLI.\n"+
-				"(raw: %s)", string(respData))
-	case http.StatusTooManyRequests:
-		return nil, fmt.Errorf("anthropic: HTTP 429 — rate limit exceeded: %s", string(respData))
-	default:
-		return nil, fmt.Errorf("anthropic: API error %d: %s", resp.StatusCode, string(respData))
+	if httpResp.StatusCode != http.StatusOK {
+		cerr := classifyAnthropicError(httpResp.StatusCode, model, respData)
+		return nil, cerr.Code == ErrModelNotFound, cerr
 	}
 
 	// Parse Messages API response.
@@ -226,7 +316,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 		Model string `json:"model"`
 	}
 	if err := json.Unmarshal(respData, &ar); err != nil {
-		return nil, fmt.Errorf("anthropic: parse response: %w", err)
+		return nil, false, fmt.Errorf("anthropic: parse response: %w", err)
 	}
 
 	var content string
@@ -236,7 +326,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 		}
 	}
 	if content == "" {
-		return nil, fmt.Errorf("anthropic: empty response from API")
+		return nil, false, fmt.Errorf("anthropic: empty response from API")
 	}
 
 	return &Response{
@@ -244,5 +334,5 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 		InputTokens:  ar.Usage.InputTokens,
 		OutputTokens: ar.Usage.OutputTokens,
 		Model:        ar.Model,
-	}, nil
+	}, false, nil
 }

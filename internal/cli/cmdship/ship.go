@@ -701,21 +701,23 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 						specYAMLContext(ySpec), string(existing),
 					)
 				}
-				var reviewed string
-				var reviewErr error
-				if ySpec != nil {
-					// KB-enriched review when a YAML spec is present.
-					reviewed, reviewErr = pipe.InvokeWithKnowledge(
-						"ship:spec:review", "",
-						specReviewSystem, userPrompt, 2000,
-						"spec", "unit", "spec", []string{"test-design", "quality-gate"},
-					)
-				} else {
-					reviewed, reviewErr = pipe.Invoke(
+				reviewFn := func() (string, error) {
+					if ySpec != nil {
+						// KB-enriched review when a YAML spec is present.
+						return pipe.InvokeWithKnowledge(
+							"ship:spec:review", "",
+							specReviewSystem, userPrompt, 2000,
+							"spec", "unit", "spec", []string{"test-design", "quality-gate"},
+						)
+					}
+					return pipe.Invoke(
 						"ship:spec:review", "",
 						specReviewSystem, userPrompt, 2000,
 					)
 				}
+				// J8/J9: strip conversational preamble and detect truncation
+				// before overwriting an existing, presumably-good spec.md.
+				reviewed, complete, reviewErr := generateWithValidation(reviewFn)
 				if reviewErr != nil {
 					cp.Status = "ok"
 					if ySpec != nil {
@@ -727,6 +729,17 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 						cp.Detail = fmt.Sprintf("spec found: .forge/specs/%s/spec.md [LLM:%s — %s]",
 							slug, pipe.ProviderName(), llmErrNote(reviewErr))
 					}
+					appendFailure(root, "spec", description, cp.Detail+" | full: "+llmErrFull(reviewErr))
+					return cp
+				}
+				if reviewed != "" && !complete {
+					// J9: never overwrite a working spec.md with a truncated
+					// review — keep the existing file and log the failure.
+					cp.Status = "warning"
+					cp.Detail = fmt.Sprintf(
+						"spec review truncated/incomplete after retry (LLM:%s) — kept existing spec.md: "+
+							".forge/specs/%s/spec.md unchanged", pipe.ProviderName(), slug)
+					appendFailure(root, "spec", description, cp.Detail)
 					return cp
 				}
 				if reviewed != "" {
@@ -766,23 +779,37 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 					if recentSpecFailures != "" {
 						specGenSystem = recentSpecFailures + "\n" + specGenSystem
 					}
-					generated, genErr := pipe.InvokeWithKnowledge(
-						"ship:spec:generate-from-yaml", "",
-						specGenSystem,
-						fmt.Sprintf("Generate spec.md for feature: %s%s\n\n%s", description, wsSection, specYAMLContext(ySpec)),
-						2000,
-						"spec", "unit", "spec", []string{"test-design", "quality-gate"},
-					)
-					if genErr != nil { //nolint:gocritic // ifElseChain: clearer as if/else
+					genFn := func() (string, error) {
+						return pipe.InvokeWithKnowledge(
+							"ship:spec:generate-from-yaml", "",
+							specGenSystem,
+							fmt.Sprintf("Generate spec.md for feature: %s%s\n\n%s", description, wsSection, specYAMLContext(ySpec)),
+							2000,
+							"spec", "unit", "spec", []string{"test-design", "quality-gate"},
+						)
+					}
+					// J8/J9: strip preamble and detect truncation before writing.
+					generated, genComplete, genErr := generateWithValidation(genFn)
+					switch {
+					case genErr != nil:
 						specContent = specStub(description)
 						cp.Detail = fmt.Sprintf(
 							"spec.md stub created from spec.yml (%d cases) [LLM:%s — %s]: .forge/specs/%s/spec.md — edit before continuing",
 							len(ySpec.Cases), pipe.ProviderName(), llmErrNote(genErr), slug)
-					} else if generated != "" {
+						appendFailure(root, "spec", description, cp.Detail+" | full: "+llmErrFull(genErr))
+					case generated != "" && !genComplete:
+						// J9: never write a truncated/preamble-broken spec.md as if it succeeded.
+						specContent = specStub(description)
+						cp.Detail = fmt.Sprintf(
+							"spec.md generation truncated/incomplete after retry (LLM:%s) — stub created from spec.yml "+
+								"(%d cases): .forge/specs/%s/spec.md — edit before continuing",
+							pipe.ProviderName(), len(ySpec.Cases), slug)
+						appendFailure(root, "spec", description, cp.Detail)
+					case generated != "":
 						specContent = generated
 						cp.Detail = fmt.Sprintf("spec.md generated from spec.yml (%d cases) by %s: .forge/specs/%s/spec.md",
 							len(ySpec.Cases), pipe.ProviderName(), slug)
-					} else {
+					default:
 						specContent = specStub(description)
 						cp.Detail = fmt.Sprintf("spec.md stub created from spec.yml (%d cases): .forge/specs/%s/spec.md",
 							len(ySpec.Cases), slug)
@@ -814,22 +841,37 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				if recentSpecFailures != "" {
 					specGenSystem = recentSpecFailures + "\n" + specGenSystem
 				}
-				generated, err := pipe.Invoke(
-					"ship:spec:generate", "",
-					specGenSystem,
-					fmt.Sprintf("Generate a complete feature specification for: %s%s", description, wsSection),
-					2000,
-				)
-				if err != nil { //nolint:gocritic // ifElseChain: clearer as if/else
+				genFn := func() (string, error) {
+					return pipe.Invoke(
+						"ship:spec:generate", "",
+						specGenSystem,
+						fmt.Sprintf("Generate a complete feature specification for: %s%s", description, wsSection),
+						2000,
+					)
+				}
+				// J8/J9: strip preamble and detect truncation before writing.
+				generated, genComplete, genErr := generateWithValidation(genFn)
+				switch {
+				case genErr != nil:
 					specContent = specStub(description)
 					cp.Detail = fmt.Sprintf(
 						"spec stub created (LLM:%s — %s): .forge/specs/%s/spec.md — edit before continuing",
-						pipe.ProviderName(), llmErrNote(err), slug)
-				} else if generated != "" {
+						pipe.ProviderName(), llmErrNote(genErr), slug)
+					appendFailure(root, "spec", description, cp.Detail+" | full: "+llmErrFull(genErr))
+				case generated != "" && !genComplete:
+					// J9: the exact incident that motivated this fix — a raw LLM
+					// preamble sentence or a mid-Gherkin-block truncation must
+					// never be written to spec.md as if it succeeded.
+					specContent = specStub(description)
+					cp.Detail = fmt.Sprintf(
+						"spec generation truncated/incomplete after retry (LLM:%s) — stub created: "+
+							".forge/specs/%s/spec.md — edit before continuing", pipe.ProviderName(), slug)
+					appendFailure(root, "spec", description, cp.Detail)
+				case generated != "":
 					specContent = generated
 					cp.Detail = fmt.Sprintf("spec generated by %s: .forge/specs/%s/spec.md",
 						pipe.ProviderName(), slug)
-				} else {
+				default:
 					specContent = specStub(description)
 					cp.Detail = fmt.Sprintf("spec stub created: .forge/specs/%s/spec.md — edit before continuing", slug)
 				}
@@ -1868,8 +1910,18 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			}
 		}
 		// P1-L2: write checkpoint digest on success for downstream context compression.
+		// J6 (fix-checkpoint-llm-quality-and-observability): digest from the
+		// real generated artefact, not cp.Detail (the one-line status
+		// message) — confirmed dogfooding this that Detail-derived digests
+		// showed token_estimate:~19 and empty decisions/constraints even on a
+		// multi-KB, fully successful generation, making the digest useless
+		// for auditing whether a checkpoint actually engaged the LLM.
 		if cp.Status != "fail" && specSlug != "" {
-			dig := makeDigestFromArtefact(strings.ToLower(cp.Name), cp.Detail)
+			digestSource := checkpointArtefactContent(root, specSlug, cp.Name)
+			if digestSource == "" {
+				digestSource = cp.Detail
+			}
+			dig := makeDigestFromArtefact(strings.ToLower(cp.Name), digestSource)
 			writeCheckpointDigest(root, specSlug, dig)
 		}
 
