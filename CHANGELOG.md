@@ -4,6 +4,22 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.9] — 2026-07-14 — Checkpoints stop hallucinating and self-heal a dead default model
+
+### Fixed
+
+- **`forge ship arch` could invent infrastructure the target project doesn't use.** `checkArch`'s prompt only forwarded the raw `spec.md` text, never the workspace-context tech-stack summary `checkSpec` already collects — confirmed live on a real project (Next.js + Supabase, no cache layer, no APM vendor), where a generated `arch.md` invented Redis, DataDog, NextAuth.js, and S3/Glacier. `checkArch` now forwards that same context.
+- **`forge ship test` hardcoded Go regardless of the target project's language.** `generateTestStubs` always prompted "You are a senior Go QA engineer... write idiomatic Go tests," producing Go/`net-http` stubs on a TypeScript/Jest project. It now uses the detected language/framework, matching the pattern `writeTestArtifactsWithContext`/`detectTestFramework` already used elsewhere in the same checkpoint. The expected-artifact-filename list (previously hardcoded to TypeScript/Supabase-RLS conventions like `.rls.test.ts`/`.scan.baseline.json`, confirmed nonsensical running against this Go repo itself) is now convention-aware too.
+- **Checkpoint digests were computed from the wrong input.** The digest writer passed `cp.Detail` (the one-line checkpoint status message) into `makeDigestFromArtefact` instead of the real generated artefact, so `digests/*.digest.yaml` always showed a near-zero `token_estimate` and empty `decisions`/`constraints`/`risks_accepted` regardless of what actually happened — useless for auditing whether a checkpoint engaged the LLM meaningfully. Digests now read the real `spec.md`/`arch.md`/etc. content.
+- **`arch`/`spec` checkpoint failures left no audit trail.** `appendFailure` was already wired for `test`/`breakdown`/`qa-verify` but not these two, so an LLM error on arch/spec was undiscoverable except by reading the generated markdown by hand. Both now log to `.forge/learned/*-failures.jsonl` on failure, matching the existing checkpoints.
+- **LLM responses could be written to disk incomplete or with leaked preamble, with the checkpoint still reporting success.** Confirmed twice: a generated `spec.md` had a raw conversational sentence ("I'll review this feature specification and provide comprehensive improvements...") as its literal first line, and a separate `spec.md` was truncated mid-Gherkin-block with no error surfaced. Checkpoints now strip leaked preamble and detect truncated responses (unbalanced code fences / no terminal heading-or-punctuation) before writing, retrying once and falling through to the failure log rather than silently persisting a broken file.
+- **Anthropic's error handling couldn't distinguish a dead model id from a rate limit.** `Complete()`'s error switch branched on bare HTTP status codes only (401/429/default), with no JSON body parsing — a 404 (deprecated model) produced the exact same generic error string as every other failure. Errors are now classified from Anthropic's `{"type":"error","error":{"type":...}}` envelope into typed, actionable errors (`not_found`/`rate_limit`/`invalid_request`/`auth`).
+- **A dead hardcoded default Anthropic model id (`claude-sonnet-4-5-20250514`, added in 1.7.1) broke every checkpoint on any project without an explicit `model:` pin, with no recovery.** Root incident: a project's `forge.yml` set `llm.provider: anthropic` with no model override and inherited this now-deprecated id, 404ing on every call until manually diagnosed via `forge doctor --llm`. Anthropic now gets the same live model discovery Copilot already had (`loadModels`, cached 24h under `.forge/cache/models/anthropic.json`) plus automatic one-shot fallback to a known-good model on a `not_found_error` — unless the user explicitly pinned a model, in which case forge fails loudly naming the dead id instead of silently substituting.
+
+### Added
+
+- **Bonus regression fix found while adding test coverage for the above**: `checkSpec`'s `looksComplete` heuristic misclassified a document ending on a normal Markdown bullet (e.g. `- happy path`) as truncated. Fixed, with regression coverage.
+
 ## [1.7.8] — 2026-07-13 — Stale config no longer permanently defeats the Copilot model fallback
 
 ### Fixed
