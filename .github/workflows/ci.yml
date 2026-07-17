@@ -26,10 +26,6 @@ concurrency:
 permissions:
   contents: read
 
-# All steps use PowerShell (default on Windows self-hosted runner).
-# bash-style commands have been rewritten as pwsh equivalents.
-# TODO: revert runs-on to ubuntu-latest and restore bash steps when budget resets.
-
 env:
   GO_VERSION: '1.26'
   CGO_ENABLED: '0'
@@ -37,7 +33,7 @@ env:
 jobs:
   lint:
     name: lint (golangci-lint + gofmt + goimports)
-    runs-on: [self-hosted, Windows, x64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -48,26 +44,23 @@ jobs:
       - name: gofmt + goimports
         run: |
           go install golang.org/x/tools/cmd/goimports@latest
-          # gofmt exits non-zero on unparseable fixture stubs; try/catch suppresses
-          # the NativeCommandError that $ErrorActionPreference='Stop' would throw.
-          try { gofmt -s -w . 2>$null } catch {}
-          try { goimports -w -local github.com/teragrid/forge . 2>$null } catch {}
+          gofmt -s -w . || true
+          goimports -w -local github.com/teragrid/forge . || true
           # Check for real formatting differences (ignores bare CRLF checkout noise).
-          $diff = git diff --ignore-cr-at-eol -- '*.go'
-          if ($diff) {
-            Write-Host 'Formatting issues -- run gofmt -s -w . and goimports -w . then commit'
+          diff=$(git diff --ignore-cr-at-eol -- '*.go')
+          if [ -n "$diff" ]; then
+            echo 'Formatting issues -- run gofmt -s -w . and goimports -w . then commit'
             git diff --ignore-cr-at-eol --name-only -- '*.go'
             exit 1
-          }
-          exit 0
+          fi
       - name: golangci-lint
         run: |
           go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
           golangci-lint run --timeout=5m
 
   test:
-    name: test (go test) on self-hosted
-    runs-on: [self-hosted, Windows, x64]
+    name: test (go test)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -80,13 +73,14 @@ jobs:
       - name: install gotestsum
         run: go install gotest.tools/gotestsum@latest
       - name: run tests
-        # -race requires CGO / gcc; omitted here since self-hosted runner is Windows.
-        # Race detection runs in nightly.yml on GitHub-hosted ubuntu-latest.
+        # -race requires CGO / gcc, both available by default on ubuntu-latest.
+        # Kept off here anyway to match nightly.yml's dedicated race job and
+        # avoid doubling every PR's CI time; -race still runs there nightly.
         run: gotestsum --format pkgname -- -count=1 ./...
 
   vuln:
     name: govulncheck
-    runs-on: [self-hosted, Windows, x64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -101,8 +95,7 @@ jobs:
 
   build:
     name: cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: [self-hosted, Windows, x64]
-    # cross-OS tests moved to nightly.yml to avoid macOS/Windows minute costs on every PR
+    runs-on: ubuntu-latest
     needs: [lint, test]
     strategy:
       fail-fast: false
@@ -126,10 +119,11 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: |
-          $ext = if ($env:GOOS -eq 'windows') { '.exe' } else { '' }
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          $ver = $env:GITHUB_SHA.Substring(0, 7)
-          go build -ldflags "-s -w -X main.Version=$ver" -o "dist/forge-$env:GOOS-$env:GOARCH$ext" ./cmd/forge
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+          mkdir -p dist
+          ver="${GITHUB_SHA:0:7}"
+          go build -ldflags "-s -w -X main.Version=$ver" -o "dist/forge-$GOOS-$GOARCH$ext" ./cmd/forge
       - uses: actions/upload-artifact@v7
         with:
           name: forge-${{ matrix.goos }}-${{ matrix.goarch }}
