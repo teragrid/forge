@@ -207,8 +207,8 @@ func checkArch(root, description, specName string, pipe *LLMPipe) Checkpoint {
 			"For standard REST features, use resource-oriented paths (e.g. POST /api/v1/{resource}). " +
 			"The block will be extracted and saved as openapi.yaml automatically."
 
-		generateFn := func() (string, error) {
-			return pipe.InvokeWithKnowledge(
+		generateFn := func() (string, bool, error) {
+			return pipe.InvokeWithKnowledgeChecked(
 				"ship:arch:generate", "",
 				archGenSystem,
 				fmt.Sprintf("Feature: %s%s\n\nSpec:\n%s", description, wsSection, specMD),

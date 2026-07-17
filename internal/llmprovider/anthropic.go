@@ -313,7 +313,8 @@ func (a *AnthropicAdapter) attemptComplete(ctx context.Context, req *Request, mo
 			InputTokens  int `json:"input_tokens"`
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage"`
-		Model string `json:"model"`
+		Model      string `json:"model"`
+		StopReason string `json:"stop_reason"`
 	}
 	if err := json.Unmarshal(respData, &ar); err != nil {
 		return nil, false, fmt.Errorf("anthropic: parse response: %w", err)
@@ -334,5 +335,6 @@ func (a *AnthropicAdapter) attemptComplete(ctx context.Context, req *Request, mo
 		InputTokens:  ar.Usage.InputTokens,
 		OutputTokens: ar.Usage.OutputTokens,
 		Model:        ar.Model,
+		Truncated:    ar.StopReason == "max_tokens",
 	}, false, nil
 }

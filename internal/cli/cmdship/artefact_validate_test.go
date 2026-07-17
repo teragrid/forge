@@ -98,12 +98,12 @@ func TestLooksComplete_Empty_Incomplete(t *testing.T) {
 func TestGenerateWithValidation_RetriesOnceOnIncomplete(t *testing.T) {
 	t.Parallel()
 	calls := 0
-	invoke := func() (string, error) {
+	invoke := func() (string, bool, error) {
 		calls++
 		if calls == 1 {
-			return "# Spec\n\nThe rest was cut off and", nil // incomplete
+			return "# Spec\n\nThe rest was cut off and", false, nil // incomplete (heuristic)
 		}
-		return "# Spec\n\n## Acceptance Criteria\n- happy path", nil // complete on retry
+		return "# Spec\n\n## Acceptance Criteria\n- happy path", false, nil // complete on retry
 	}
 	content, complete, err := generateWithValidation(invoke)
 	if err != nil {
@@ -124,9 +124,9 @@ func TestGenerateWithValidation_LLMError_ReturnsErrImmediately(t *testing.T) {
 	t.Parallel()
 	calls := 0
 	boom := errors.New("boom")
-	invoke := func() (string, error) {
+	invoke := func() (string, bool, error) {
 		calls++
-		return "", boom
+		return "", false, boom
 	}
 	_, complete, err := generateWithValidation(invoke)
 	if err == nil {
@@ -137,5 +137,49 @@ func TestGenerateWithValidation_LLMError_ReturnsErrImmediately(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("an LLM/transport error should not be retried; got %d calls", calls)
+	}
+}
+
+// TestGenerateWithValidation_APITruncatedListItem_OverridesHeuristic is the
+// regression test for the confirmed production incident (2026-07-17
+// dogfooding on the Copilot provider): a generated spec.md was cut off
+// mid-word inside a list item —
+// "- **Cost awareness**: ...verification should be run minimally (e.g., 1-2
+// runs for posit" — and looksComplete's list-item branch waved it through as
+// a normal short list item (its documented, accepted blind spot: it cannot
+// tell "- happy path" from a genuinely truncated item without a dictionary).
+// The checkpoint still reported success and wrote the broken file.
+//
+// The fix: when the provider's own stop/finish reason says the completion
+// was cut off by MaxTokens, that signal is authoritative and must force
+// complete=false even when looksComplete's text-shape heuristic alone would
+// have accepted it.
+func TestGenerateWithValidation_APITruncatedListItem_OverridesHeuristic(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	truncatedListItem := "# Spec\n\n## Non-Functional Requirements\n" +
+		"- **Cost awareness**: Real LLM calls incur usage cost/quota against " +
+		"the Copilot provider; verification should be run minimally (e.g., 1-2 runs for posit"
+	invoke := func() (string, bool, error) {
+		calls++
+		// Every attempt returns the same truncated-mid-word list item with
+		// apiTruncated=true, simulating a provider that keeps hitting MaxTokens.
+		return truncatedListItem, true, nil
+	}
+	if looksComplete(truncatedListItem) != true {
+		t.Fatal("test setup invariant broken: this exact string must be the " +
+			"documented looksComplete false-negative (starts with '- ', heuristic alone accepts it) " +
+			"for this test to actually exercise the apiTruncated override")
+	}
+	_, complete, err := generateWithValidation(invoke)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if complete {
+		t.Error("apiTruncated=true must force complete=false even though the " +
+			"text-shape heuristic alone would accept this content")
+	}
+	if calls != 2 {
+		t.Errorf("expected exactly one retry (2 calls total), got %d", calls)
 	}
 }

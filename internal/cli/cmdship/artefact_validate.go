@@ -127,17 +127,26 @@ func lastNonEmptyLine(s string) string {
 	return ""
 }
 
-// generateWithValidation runs invoke, validates the result (J8/J9), and on
-// an incomplete response retries once before giving up. Returns the cleaned
-// (preamble-stripped) content and whether it is structurally complete; err is
-// only non-nil when invoke itself failed (an LLM/transport error, distinct
-// from a structurally-incomplete-but-successful response).
+// generateWithValidation runs invoke, validates the result (J8/J9/J11), and
+// on an incomplete response retries once before giving up. Returns the
+// cleaned (preamble-stripped) content and whether it is structurally
+// complete; err is only non-nil when invoke itself failed (an LLM/transport
+// error, distinct from a structurally-incomplete-but-successful response).
+//
+// invoke's second return value is the provider's own truncation signal (see
+// llmprovider.Response.Truncated) — apiTruncated == true is authoritative
+// and short-circuits straight to "incomplete" without needing the
+// looksComplete() heuristic to guess correctly. That heuristic has a known
+// blind spot: a markdown list item that gets cut off mid-word (e.g. "- **Cost
+// awareness**: ...for posit") still starts with "- ", so looksComplete alone
+// waves it through as a normal short list item. The API telling us it hit
+// MaxTokens doesn't have that ambiguity.
 //
 // Callers should treat (content=="" && err==nil) as "no content generated"
-// (unchanged existing behaviour), and (content!="" && !complete) as the new
-// J9 case: write a stub / log a failure instead of the broken content.
-func generateWithValidation(invoke func() (string, error)) (content string, complete bool, err error) {
-	generated, genErr := invoke()
+// (unchanged existing behaviour), and (content!="" && !complete) as the J9
+// case: write a stub / log a failure instead of the broken content.
+func generateWithValidation(invoke func() (string, bool, error)) (content string, complete bool, err error) {
+	generated, apiTruncated, genErr := invoke()
 	if genErr != nil {
 		return "", false, genErr
 	}
@@ -145,15 +154,18 @@ func generateWithValidation(invoke func() (string, error)) (content string, comp
 		return "", false, nil
 	}
 	cleaned, ok := validateArtefact(generated)
-	if ok {
+	if ok && !apiTruncated {
 		return cleaned, true, nil
 	}
 
-	// J9: retry once before giving up.
-	retryGenerated, retryErr := invoke()
+	// J9/J11: retry once before giving up.
+	retryGenerated, retryAPITruncated, retryErr := invoke()
 	if retryErr != nil || retryGenerated == "" {
 		return cleaned, false, nil
 	}
 	cleaned2, ok2 := validateArtefact(retryGenerated)
+	if retryAPITruncated {
+		ok2 = false
+	}
 	return cleaned2, ok2, nil
 }
