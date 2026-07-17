@@ -4,10 +4,13 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.11] — 2026-07-17 — Single-checkpoint runs stop paying for the whole pipeline
+
 ### Fixed
 
 - **J10: single-checkpoint subcommands (`forge ship spec|arch|test|breakdown|code|ship|qa-verify "<desc>"`) no longer silently execute the entire pipeline.** Every `check*` function used to run unconditionally in `runWithOptions` regardless of `opts.Names`; the requested-checkpoint filter was applied only to what got *reported*, after all the real LLM calls and file writes for every other checkpoint had already happened. Confirmed via dogfooding on the Copilot provider (2026-07-17): `forge ship spec "<desc>"` reported `[1/1] ✓ Spec` while actually generating `arch.md`, `breakdown.md`, `code-plan.md`, `test-stubs.md`, and `tasks.md` too — roughly 6x the LLM cost of what the command should have made, with no indication in the output. Each checkpoint now only runs when it's in `opts.Names` (or on a full-pipeline run).
 - **J11: truncated LLM artefacts could pass the J9 completeness check and get written to disk as if they succeeded.** `looksComplete()`'s Markdown-list-item branch accepts any line starting with `- `/`* `/a numbered prefix as a complete, intentional document ending — including a line that was actually cut off mid-word by hitting `MaxTokens` (e.g. `- **Cost awareness**: ...1-2 runs for posit`), since a bullet point that's merely short (`- happy path`) is structurally indistinguishable from one that's truncated without a dictionary. `llmprovider.Response` now carries a `Truncated` field populated from the provider's own stop/finish reason (Anthropic `stop_reason == "max_tokens"`, Copilot/OpenAI-compatible `finish_reason == "length"`) and propagated through `tierrouter.RouteResult`. `generateWithValidation` treats this as authoritative and forces `complete = false` regardless of what the text-shape heuristic alone would have concluded.
+- **`MockProvider.calls` (test helper) had an unsynchronized counter**, racy under any test exercising concurrent checkpoints (e.g. `runParallelArchDebate`'s 6-role parallel debate). Found while verifying the two fixes above under `-race`; CI's self-hosted runner doesn't run with `-race` so this was never caught. Now guarded by a mutex.
 
 ## [1.7.10] — 2026-07-15 — Checkpoints stop hallucinating and self-heal a dead default model
 
