@@ -39,6 +39,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/teragrid/forge/internal/config"
 	"github.com/teragrid/forge/internal/errcode"
@@ -94,6 +95,15 @@ type Response struct {
 	InputTokens  int
 	OutputTokens int
 	Model        string
+	// Truncated is true when the provider's own stop/finish reason indicates
+	// the completion was cut off by hitting MaxTokens (Anthropic stop_reason
+	// "max_tokens", OpenAI-compatible finish_reason "length") rather than
+	// finishing naturally. This is the authoritative truncation signal — more
+	// reliable than guessing from the shape of the returned text — and takes
+	// priority over cmdship's structural looksComplete() heuristic when set.
+	// Providers that don't parse a stop/finish reason leave this false, in
+	// which case callers fall back to the structural heuristic only.
+	Truncated bool
 }
 
 // Provider is the interface that all LLM backends implement.
@@ -353,7 +363,10 @@ type MockProvider struct {
 	// Fn, when set, is called instead of returning the canned Response. Useful
 	// for tests that need to inspect or record the incoming Request.
 	Fn func(*Request) (*Response, error)
-	// calls tracks the number of Complete invocations.
+	// calls tracks the number of Complete invocations. Guarded by mu — tests
+	// that exercise concurrent checkpoints (e.g. runParallelArchDebate's
+	// 6-role parallel debate) call Complete from multiple goroutines at once.
+	mu    sync.Mutex
 	calls int
 }
 
@@ -372,7 +385,9 @@ func (m *MockProvider) Complete(_ context.Context, req *Request) (*Response, err
 	if req == nil {
 		return nil, errcode.New(ErrInvalidInput, "request must not be nil", nil)
 	}
+	m.mu.Lock()
 	m.calls++
+	m.mu.Unlock()
 	if m.Err != nil {
 		return nil, m.Err
 	}
@@ -392,4 +407,8 @@ func (m *MockProvider) Complete(_ context.Context, req *Request) (*Response, err
 }
 
 // Calls returns the number of times Complete was invoked.
-func (m *MockProvider) Calls() int { return m.calls }
+func (m *MockProvider) Calls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}

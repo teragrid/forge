@@ -75,6 +75,10 @@ type RouteResult struct {
 	TokensOut int
 	// Escalated is true if the router had to escalate beyond T0.
 	Escalated bool
+	// Truncated mirrors llmprovider.Response.Truncated: true when the
+	// provider's own stop/finish reason says the completion was cut off by
+	// MaxTokens rather than finishing naturally.
+	Truncated bool
 }
 
 // Router routes LLM requests through tiers, cheapest first.
@@ -149,6 +153,7 @@ func (r *Router) Route(ctx context.Context, req llmprovider.Request, minTier str
 			TokensIn:  resp.InputTokens,
 			TokensOut: resp.OutputTokens,
 			Escalated: i > startIdx,
+			Truncated: resp.Truncated,
 		}, nil
 	}
 	return nil, fmt.Errorf("tierrouter: all tiers failed, last error: %w", lastErr)

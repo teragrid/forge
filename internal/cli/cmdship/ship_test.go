@@ -1952,6 +1952,62 @@ func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
 	}
 }
 
+// TestRunWithOptions_SingleCheckpoint_DoesNotRunOthers is the regression test
+// for a confirmed production incident (2026-07-17 dogfooding): running a
+// single-checkpoint subcommand — e.g. `forge ship spec "<desc>"`, which sets
+// opts.Names = []string{"spec"} — silently executed every other checkpoint's
+// real LLM calls and file writes too (arch.md, breakdown.md, code-plan.md,
+// test-stubs.md, tasks.md all appeared on disk), while the CLI only reported
+// the one requested checkpoint ("[1/1] âœ“ Spec"). The bug: every check*
+// function used to be called unconditionally before opts.Names was ever
+// consulted — the filtering only trimmed what got *displayed*, not what
+// actually ran.
+//
+// This asserts both sides of the fix: only the requested checkpoint appears
+// in the result, and the mock provider is invoked the number of times a
+// single spec-only run should need — not once per checkpoint in the
+// full pipeline.
+func TestRunWithOptions_SingleCheckpoint_DoesNotRunOthers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("# Spec: mock feature\n\n## What\nDoes a thing."),
+	}
+	res := RunWithOptions(RunOptions{
+		Root:        root,
+		Description: "single checkpoint mock feature",
+		Names:       []string{"spec"},
+		LLMPipe:     mockPipe(root, mock),
+	})
+
+	if len(res.Checkpoints) != 1 {
+		t.Fatalf("expected exactly 1 checkpoint in the result for Names=[spec], got %d: %+v",
+			len(res.Checkpoints), res.Checkpoints)
+	}
+	if got := strings.ToLower(res.Checkpoints[0].Name); got != "" && got != "spec" {
+		t.Errorf("expected the single checkpoint to be spec, got %q", res.Checkpoints[0].Name)
+	}
+
+	slug := slugify("single checkpoint mock feature")
+	specsDir := filepath.Join(root, ".forge", "specs", slug)
+	for _, unexpected := range []string{"arch.md", "openapi.yaml", "breakdown.md", "code-plan.md", "test-stubs.md", "tasks.md"} {
+		if _, err := os.Stat(filepath.Join(specsDir, unexpected)); err == nil {
+			t.Errorf("Names=[spec] must not generate %s — only the spec checkpoint was requested", unexpected)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(specsDir, "spec.md")); err != nil {
+		t.Errorf("expected spec.md to be written: %v", err)
+	}
+
+	// A spec-only run makes exactly one real Complete() call (spec generation
+	// via generateWithValidation's genFn; no retry needed since the mock
+	// response is structurally complete). Full pipeline needs many more.
+	if calls := mock.Calls(); calls != 1 {
+		t.Errorf("expected exactly 1 provider call for a spec-only run, got %d "+
+			"(a higher count means other checkpoints ran too)", calls)
+	}
+}
+
 // TestRunWithOptions_MockLLM_Idempotent â€” running the full pipeline twice with the
 // same MockProvider and root produces identical checkpoint counts and Ready values.
 func TestRunWithOptions_MockLLM_Idempotent(t *testing.T) {

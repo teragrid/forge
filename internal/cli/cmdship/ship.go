@@ -701,16 +701,16 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 						specYAMLContext(ySpec), string(existing),
 					)
 				}
-				reviewFn := func() (string, error) {
+				reviewFn := func() (string, bool, error) {
 					if ySpec != nil {
 						// KB-enriched review when a YAML spec is present.
-						return pipe.InvokeWithKnowledge(
+						return pipe.InvokeWithKnowledgeChecked(
 							"ship:spec:review", "",
 							specReviewSystem, userPrompt, 2000,
 							"spec", "unit", "spec", []string{"test-design", "quality-gate"},
 						)
 					}
-					return pipe.Invoke(
+					return pipe.InvokeChecked(
 						"ship:spec:review", "",
 						specReviewSystem, userPrompt, 2000,
 					)
@@ -779,8 +779,8 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 					if recentSpecFailures != "" {
 						specGenSystem = recentSpecFailures + "\n" + specGenSystem
 					}
-					genFn := func() (string, error) {
-						return pipe.InvokeWithKnowledge(
+					genFn := func() (string, bool, error) {
+						return pipe.InvokeWithKnowledgeChecked(
 							"ship:spec:generate-from-yaml", "",
 							specGenSystem,
 							fmt.Sprintf("Generate spec.md for feature: %s%s\n\n%s", description, wsSection, specYAMLContext(ySpec)),
@@ -841,8 +841,8 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				if recentSpecFailures != "" {
 					specGenSystem = recentSpecFailures + "\n" + specGenSystem
 				}
-				genFn := func() (string, error) {
-					return pipe.Invoke(
+				genFn := func() (string, bool, error) {
+					return pipe.InvokeChecked(
 						"ship:spec:generate", "",
 						specGenSystem,
 						fmt.Sprintf("Generate a complete feature specification for: %s%s", description, wsSection),
@@ -1805,62 +1805,100 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	// Suppress the "unused" warning for domainProfile when no checkpoint reads it yet.
 	_ = domainProfile
 
-	snapBefore("spec")
-	allCPs := []Checkpoint{
-		checkSpec(root, opts.Description, opts.SpecName, pipe),
+	// J10: only invoke the checkpoint(s) actually requested. A single-checkpoint
+	// subcommand (e.g. `forge ship spec "..."`) must not silently execute every
+	// other checkpoint's real LLM calls and file writes just because the
+	// reporting step filters them out afterward — that used to be exactly what
+	// happened here: every check* function ran unconditionally, and opts.Names
+	// only trimmed the *displayed* result, not the work already done.
+	runAll := len(opts.Names) == 0
+	want := make(map[string]bool, len(opts.Names))
+	for _, n := range opts.Names {
+		want[n] = true
+	}
+	if want["verify"] {
+		want["ship"] = true // G-003: deprecated alias for the same checkpoint
+	}
+	needs := func(name string) bool { return runAll || want[name] }
+
+	results := make(map[string]Checkpoint, 7)
+
+	if needs("spec") {
+		snapBefore("spec")
+		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe)
 	}
 
-	// P1 DAG: run arch and test in parallel — they are independent given spec.
-	// This is only meaningful for full-pipeline runs (len(opts.Names)==0), but we
-	// always build them in parallel to keep the allCPs index stable.
+	// P1 DAG: run arch and test in parallel when both are needed — they are
+	// independent given spec. Each still runs standalone (reading spec.md /
+	// prior artefacts from disk) when only one of them was requested.
+	runArch := needs("arch")
+	runTest := needs("test")
 	var archCP, testCP Checkpoint
 	var dagWG sync.WaitGroup
-	dagWG.Add(2)
-	snapBefore("arch")
-	go func() {
-		defer dagWG.Done()
-		archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
-	}()
-	snapBefore("test")
-	go func() {
-		defer dagWG.Done()
-		testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
-	}()
+	if runArch {
+		dagWG.Add(1)
+		snapBefore("arch")
+		go func() {
+			defer dagWG.Done()
+			archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+		}()
+	}
+	if runTest {
+		dagWG.Add(1)
+		snapBefore("test")
+		go func() {
+			defer dagWG.Done()
+			testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
+		}()
+	}
 	dagWG.Wait()
-	allCPs = append(allCPs, archCP, testCP)
-
-	snapBefore("breakdown")
-	allCPs = append(allCPs, checkBreakdown(root, opts.Description, opts.SpecName, pipe))
-	snapBefore("code")
-	allCPs = append(allCPs, checkCode(root, opts.Description, opts.SpecName, pipe))
-	snapBefore("ship")
-	allCPs = append(allCPs,
-		checkVerify(root, opts.Description, opts.SpecName, pipe),
-		checkQAVerify(root, opts.Description, opts.SpecName, pipe),
-	)
-	// PR checkpoint: appended only for full-pipeline runs with --pr.
-	if opts.CreatePR && len(opts.Names) == 0 {
-		allCPs = append(allCPs, checkPR(root, opts.Description, opts.SpecName))
+	if runArch {
+		results["arch"] = archCP
+	}
+	if runTest {
+		results["test"] = testCP
 	}
 
-	checkpointIndex := map[string]int{
-		"spec":      0,
-		"arch":      1,
-		"test":      2,
-		"breakdown": 3,
-		"code":      4,
-		"ship":      5, // G-003: primary name
-		"verify":    5, // G-003: deprecated alias
-		"qa-verify": 6,
+	if needs("breakdown") {
+		snapBefore("breakdown")
+		results["breakdown"] = checkBreakdown(root, opts.Description, opts.SpecName, pipe)
+	}
+	if needs("code") {
+		snapBefore("code")
+		results["code"] = checkCode(root, opts.Description, opts.SpecName, pipe)
+	}
+	if needs("ship") {
+		snapBefore("ship")
+		results["ship"] = checkVerify(root, opts.Description, opts.SpecName, pipe)
+	}
+	if needs("qa-verify") {
+		results["qa-verify"] = checkQAVerify(root, opts.Description, opts.SpecName, pipe)
+	}
+	// PR checkpoint: appended only for full-pipeline runs with --pr.
+	if opts.CreatePR && runAll {
+		results["pr"] = checkPR(root, opts.Description, opts.SpecName)
+	}
+
+	canonicalOrder := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify", "pr"}
+	knownCheckpoint := map[string]bool{
+		"spec": true, "arch": true, "test": true, "breakdown": true,
+		"code": true, "ship": true, "verify": true, "qa-verify": true,
 	}
 
 	var selected []Checkpoint
-	if len(opts.Names) == 0 {
-		selected = allCPs
+	if runAll {
+		for _, n := range canonicalOrder {
+			if cp, ok := results[n]; ok {
+				selected = append(selected, cp)
+			}
+		}
 	} else {
 		for _, n := range opts.Names {
-			idx, ok := checkpointIndex[n]
-			if !ok {
+			lookup := n
+			if n == "verify" {
+				lookup = "ship" // G-003: deprecated alias
+			}
+			if !knownCheckpoint[n] {
 				selected = append(selected, Checkpoint{
 					Name:   n,
 					Status: "fail",
@@ -1868,7 +1906,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				})
 				continue
 			}
-			selected = append(selected, allCPs[idx])
+			selected = append(selected, results[lookup])
 		}
 	}
 

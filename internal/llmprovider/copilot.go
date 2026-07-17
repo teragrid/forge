@@ -408,6 +408,7 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 				Message struct {
 					Content string `json:"content"`
 				} `json:"message"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Usage struct {
 				PromptTokens     int `json:"prompt_tokens"`
@@ -426,6 +427,7 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 			InputTokens:  cr.Usage.PromptTokens,
 			OutputTokens: cr.Usage.CompletionTokens,
 			Model:        cr.Model,
+			Truncated:    cr.Choices[0].FinishReason == "length",
 		}, false, nil
 	}
 

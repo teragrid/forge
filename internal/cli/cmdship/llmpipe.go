@@ -128,8 +128,20 @@ func (p *LLMPipe) SetComplexityTier(ct ComplexityTier) {
 // Returns ("", nil) when called on a nil *LLMPipe (no provider configured).
 // model may be "" to let the provider choose its default.
 func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (string, error) {
+	content, _, err := p.InvokeChecked(operation, model, system, user, maxTokens)
+	return content, err
+}
+
+// InvokeChecked is Invoke plus the provider's own truncation signal
+// (llmprovider.Response.Truncated / tierrouter.RouteResult.Truncated): true
+// when the completion was cut off by hitting maxTokens rather than finishing
+// naturally. Callers that write LLM output to disk as a checkpoint artefact
+// (see generateWithValidation) should treat truncated == true as authoritative
+// — it comes from the API's own stop/finish reason, not a guess from the
+// shape of the returned text.
+func (p *LLMPipe) InvokeChecked(operation, model, system, user string, maxTokens int) (content string, truncated bool, err error) {
 	if p == nil {
-		return "", nil
+		return "", false, nil
 	}
 	sys := p.rewriter.Rewrite(system).Text
 	usr := p.rewriter.Rewrite(user).Text
@@ -147,29 +159,30 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 	// P1: use the tier router when available to select the right model tier
 	// based on complexity (SetComplexityTier must be called before Invoke).
 	var (
-		content      string
 		respModel    string
 		inputTokens  int
 		outputTokens int
 	)
 	if p.router != nil {
-		result, err := p.router.Route(ctx, *req, p.minTier)
-		if err != nil {
-			return "", err
+		result, routeErr := p.router.Route(ctx, *req, p.minTier)
+		if routeErr != nil {
+			return "", false, routeErr
 		}
 		content = result.Response
 		respModel = result.ModelUsed
 		inputTokens = result.TokensIn
 		outputTokens = result.TokensOut
+		truncated = result.Truncated
 	} else {
-		resp, err := p.provider.Complete(ctx, req)
-		if err != nil {
-			return "", err
+		resp, respErr := p.provider.Complete(ctx, req)
+		if respErr != nil {
+			return "", false, respErr
 		}
 		content = resp.Content
 		respModel = resp.Model
 		inputTokens = resp.InputTokens
 		outputTokens = resp.OutputTokens
+		truncated = resp.Truncated
 	}
 
 	// Best-effort ledger append — a write failure never blocks the pipeline.
@@ -180,7 +193,7 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 		CostUSD:      estimateCost(respModel, inputTokens, outputTokens),
 		Operation:    operation,
 	})
-	return content, nil
+	return content, truncated, nil
 }
 
 // InvokeWithKnowledge enriches the system prompt with relevant knowledge-base
@@ -192,12 +205,18 @@ func (p *LLMPipe) Invoke(operation, model, system, user string, maxTokens int) (
 // AppendDocsBudgeted ensures the total prompt stays within the available input
 // capacity (total context window − output budget − current prompt estimate).
 func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, maxTokens int, checkpoint, family, tmpl string, tags []string) (string, error) {
+	content, _, err := p.InvokeWithKnowledgeChecked(operation, model, system, user, maxTokens, checkpoint, family, tmpl, tags)
+	return content, err
+}
+
+// InvokeWithKnowledgeChecked is InvokeWithKnowledge plus the truncation
+// signal — see InvokeChecked.
+func (p *LLMPipe) InvokeWithKnowledgeChecked(operation, model, system, user string, maxTokens int, checkpoint, family, tmpl string, tags []string) (content string, truncated bool, err error) {
 	if p == nil {
-		return "", nil
+		return "", false, nil
 	}
 	// P1: use layered KB (project > user > embedded) when root is known.
 	var idx *knowledge.Index
-	var err error
 	if p.root != "" {
 		idx, err = knowledge.LoadLayered(p.root)
 	} else {
@@ -205,7 +224,7 @@ func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, max
 	}
 	if err != nil {
 		// Graceful degradation: log nothing (no PII risk), proceed without KB.
-		return p.Invoke(operation, model, system, user, maxTokens)
+		return p.InvokeChecked(operation, model, system, user, maxTokens)
 	}
 	entries := knowledge.Select(idx, checkpoint, family, tmpl, tags)
 
@@ -221,7 +240,7 @@ func (p *LLMPipe) InvokeWithKnowledge(operation, model, system, user string, max
 	}
 
 	enriched := knowledge.AppendDocsBudgeted(system, entries, kbBudget)
-	return p.Invoke(operation, model, enriched, user, maxTokens)
+	return p.InvokeChecked(operation, model, enriched, user, maxTokens)
 }
 
 // ProviderName returns the active provider name or "none" for a nil receiver.
