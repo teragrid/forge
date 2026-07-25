@@ -27,6 +27,10 @@
 //	                      by default; set HookConfig.Strict to elevate to "fail").
 //	PhasePostPipeline   — runs once after all checkpoints pass; used for
 //	                      learning extraction, review routing, and KB updates.
+//	                      Failures here are always advisory-only (see the
+//	                      "post-pipeline failures are advisory only" comment
+//	                      at the call site in ship.go) — there is no
+//	                      checkpoint left to fail.
 //
 // Default hooks balanced across all 7 forge ship checkpoints:
 //
@@ -39,6 +43,14 @@
 //	task-completion-gate      — post-checkpoint (code): all tasks marked done in tasks.md
 //	security-hygiene-gate     — post-checkpoint (code): secret + sandbox path scan
 //	qa-coverage-gate          — post-checkpoint (qa-verify): AC items referenced in tests
+//	four-stage-testing-gate   — post-checkpoint (qa-verify): testing-pipeline.md evidence
+//	                            present for all 4 stages. Advisory (never fails the
+//	                            checkpoint) unless HookConfig.StrictTesting is set —
+//	                            via .forge/hooks.yaml's "strict-testing: true" or the
+//	                            `forge ship --strict-testing` flag. See testing_pipeline.go.
+//	four-stage-testing-reminder — post-pipeline: always prints the 4-stage testing
+//	                            pipeline checklist to stderr after a successful run,
+//	                            regardless of StrictTesting. Pure reminder, never blocks.
 package cmdship
 
 import (
@@ -77,6 +89,10 @@ type HookContext struct {
 	Pipe *LLMPipe
 	// Result is the checkpoint result; nil during PhasePreCheckpoint.
 	Result *Checkpoint
+	// StrictTesting mirrors HookConfig.StrictTesting for this run — resolved
+	// once in runWithOptions (file OR --strict-testing flag) and copied into
+	// every HookContext so a handler doesn't need its own config lookup.
+	StrictTesting bool
 }
 
 // HookResult is what a hook handler returns.
@@ -85,6 +101,13 @@ type HookResult struct {
 	Passed bool
 	// Message is the human-readable explanation (empty when Passed=true).
 	Message string
+	// HookName is set by runHooks (not the handler) to the originating
+	// Hook.Name — lets a caller distinguish which specific hook failed
+	// without every Handler needing to know its own registered name. Used
+	// by ship.go to escalate a four-stage-testing-gate failure via
+	// HookConfig.StrictTesting without also escalating unrelated
+	// same-checkpoint hook failures that only HookConfig.Strict governs.
+	HookName string
 }
 
 // Hook is a single quality gate attached to the pipeline.
@@ -108,6 +131,14 @@ type HookConfig struct {
 	// Strict causes post-checkpoint hook failures to escalate from "warning"
 	// to "fail" (stops the pipeline). Default: false.
 	Strict bool
+	// StrictTesting escalates four-stage-testing-gate specifically (missing
+	// .forge/specs/<slug>/testing-pipeline.md evidence) from advisory-only to
+	// a blocking checkpoint failure. Deliberately independent of Strict —
+	// enabling it must not also make every other hook in defaultHooks()
+	// blocking. Default: false (advisory). Set via .forge/hooks.yaml's
+	// "strict-testing: true" line, or overridden per-run by the
+	// `forge ship --strict-testing` flag (RunOptions.StrictTesting).
+	StrictTesting bool
 }
 
 // loadHookConfig reads .forge/hooks.yaml if it exists.
@@ -118,10 +149,17 @@ func loadHookConfig(root string) HookConfig {
 	if err != nil {
 		return HookConfig{}
 	}
-	// Minimal YAML parsing: only support "disabled:" and "strict:" lines.
+	// Minimal YAML parsing: only support "disabled:", "strict:" and
+	// "strict-testing:" lines. Checked before "strict:" so a hyphenated key
+	// is never mistaken for the plain one (HasPrefix("strict-testing: true",
+	// "strict: true") is false anyway — different prefix — but the explicit
+	// ordering keeps this file's intent obvious as more keys get added).
 	cfg := HookConfig{}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "strict-testing: true") {
+			cfg.StrictTesting = true
+		}
 		if strings.HasPrefix(line, "strict: true") {
 			cfg.Strict = true
 		}
@@ -619,6 +657,9 @@ func defaultHooks() []Hook {
 		specCodeAlignmentGateQA,   // qa-verify — same check, runs first (zero tokens)
 		manualTestPlanGate,        // qa-verify — 6-role manual test plan completeness
 		qaCoverageGate,            // qa-verify
+		fourStageTestingGate,      // qa-verify — local/pre-push/staging/production evidence
+		// Post-pipeline (once, after all checkpoints pass)
+		fourStageTestingReminder,
 	}
 }
 
@@ -641,6 +682,7 @@ func runHooks(phase HookPhase, ctx HookContext, hooks []Hook, cfg HookConfig) []
 		}
 		res := h.Handler(ctx)
 		if !res.Passed {
+			res.HookName = h.Name
 			failed = append(failed, res)
 		}
 	}

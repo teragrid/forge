@@ -4,6 +4,12 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.12] — 2026-07-25 — The 4-stage testing pipeline: advisory by default, `--strict-testing` to enforce
+
+### Added
+
+- **New `--strict-testing` flag and the 4-stage testing pipeline reminder.** `forge ship`'s checkpoints (including `qa-verify`) prove a feature was specced, coded, and passed its own LLM-generated test suite — none of that proves a human, or an agent driving a real browser, actually exercised the running app anywhere past the generated stubs. After every successful run, `forge ship` now prints a reminder (to stderr, so `--json` output stays uncorrupted) covering 4 stages: local (automated + manual run against the live app), pre-push/CI, staging (manual retest of the actual changed behavior after deploy), and production (read-only smoke check after promotion). This is advisory-only by default across every project — it never blocks the pipeline. Pass `--strict-testing` (or set `strict-testing: true` in `.forge/hooks.yaml` to require it project-wide) to turn it into a real gate: the `qa-verify` checkpoint then fails unless `.forge/specs/<slug>/testing-pipeline.md` documents all 4 stages. Deliberately independent of the pre-existing `strict: true` hook setting — enabling `--strict-testing` does not also turn unrelated hooks like `manual-test-plan-gate` into blocking gates. See `docs/verbs/ship.md`.
+
 ## [1.7.11] — 2026-07-17 — Single-checkpoint runs stop paying for the whole pipeline
 
 ### Fixed

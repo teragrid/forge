@@ -112,6 +112,46 @@ forge ship --tag v1.2.3
 | `--no-branch` | false | Do not create or switch to a feature branch; run on current branch |
 | `--tag <version>` | — | After a clean pipeline, tag and push a release |
 | `--skip-checkpoint <name>` | — | Skip a named checkpoint (e.g. `qa-verify` when no test runner is configured) |
+| `--strict-testing` | false | Enforce the 4-stage testing pipeline (local → pre-push/CI → staging → production) as a blocking `qa-verify` gate instead of an advisory reminder — see below |
+
+## The 4-stage testing pipeline (`--strict-testing`)
+
+`forge ship`'s checkpoints prove a feature was specced, coded, and passed
+its own generated test suite — they don't prove anyone actually ran the
+app. After a successful run, `forge ship` always prints a reminder (to
+stderr, so it never corrupts `--json` output) covering 4 stages beyond the
+pipeline itself:
+
+1. **Local** — automated tests + a manual run against the app on your machine.
+2. **Pre-push / CI** — lint, type-check, and the full unit/integration suite.
+3. **Staging** — deploy, then manually retest the actual changed behavior.
+4. **Production** — a read-only smoke check after promotion (no live mutations).
+
+By default this is **advisory only** — it never blocks `forge ship`. To make
+it a real gate, either pass `--strict-testing` for a single run, or add
+`strict-testing: true` to `.forge/hooks.yaml` to require it on every run in
+that project. Once enabled, the `qa-verify` checkpoint fails unless
+`.forge/specs/<slug>/testing-pipeline.md` exists and mentions all 4 stages
+(case-insensitive keyword match on "local", "pre-push", "staging",
+"production" — any heading/prose containing those words counts):
+
+```markdown
+## Local
+Ran `go test ./...` and clicked through the feature on localhost.
+
+## Pre-push
+CI green: lint, vet, full test suite.
+
+## Staging
+Deployed and manually retested the exact reported bug on staging.
+
+## Production
+Read-only smoke check on prod after promotion — no live mutations.
+```
+
+`--strict-testing` only escalates this specific gate — it does not turn any
+other `forge ship` hook (e.g. `manual-test-plan-gate`) into a blocking one;
+use `.forge/hooks.yaml`'s pre-existing `strict: true` for that.
 
 ## Deprecated aliases
 

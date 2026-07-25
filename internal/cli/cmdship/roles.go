@@ -348,6 +348,13 @@ type RunOptions struct {
 	// budget multipliers and steering overrides (e.g. "banking", "healthcare").
 	// "" defaults to the "default" profile.
 	DomainProfileName string
+	// StrictTesting, when true, forces HookConfig.StrictTesting on for this
+	// run regardless of .forge/hooks.yaml — escalates the qa-verify
+	// four-stage-testing-gate from advisory to blocking. Set by
+	// `forge ship --strict-testing`. OR'd with the file's own
+	// "strict-testing: true" (either source enables it; there is no way to
+	// force it off from the CLI when the file already has it on).
+	StrictTesting bool
 }
 
 // ── Concern catalog ───────────────────────────────────────────────────────────

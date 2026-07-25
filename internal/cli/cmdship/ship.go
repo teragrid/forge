@@ -234,6 +234,7 @@ func New() *cobra.Command {
 		resume         bool   // --resume: resume from first incomplete checkpoint (G-002)
 		rootDir        string // --root: project root (default: cwd); primarily for testing
 		noBranch       bool   // --no-branch: skip automatic feature-branch creation
+		strictTesting  bool   // --strict-testing: enforce the qa-verify 4-stage testing-pipeline.md gate
 	)
 
 	// bindFlags attaches shared flags to a subcommand or the parent.
@@ -251,6 +252,7 @@ func New() *cobra.Command {
 		c.Flags().StringVarP(&rootDir, "root", "r", "", "project root (default: cwd)")
 		c.Flags().BoolVarP(&resume, "resume", "R", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
 		c.Flags().BoolVarP(&noBranch, "no-branch", "B", false, "skip automatic feature-branch creation; work on the current branch")
+		c.Flags().BoolVar(&strictTesting, "strict-testing", false, "enforce the 4-stage testing pipeline (local/pre-push/staging/production): qa-verify fails without .forge/specs/<slug>/testing-pipeline.md evidence. Advisory-only by default.")
 		c.Flags().StringVarP(&specName, "name", "n", "",
 			"name of the spec directory in .forge/specs/ (overrides slug derived from description; applies to all checkpoints)")
 	}
@@ -351,13 +353,14 @@ func New() *cobra.Command {
 		// Self-debate: active when --yolo on the full pipeline.
 		// Single-checkpoint subcommands don't debate (no spec context available).
 		runOpts := RunOptions{
-			Root:        root,
-			Description: description,
-			SpecName:    specName,
-			Names:       names,
-			Gate:        gate,
-			CreatePR:    pr,
-			DryRun:      dryRun,
+			Root:          root,
+			Description:   description,
+			SpecName:      specName,
+			Names:         names,
+			Gate:          gate,
+			CreatePR:      pr,
+			DryRun:        dryRun,
+			StrictTesting: strictTesting,
 		}
 		if yolo && len(names) == 0 {
 			runOpts.DebateOpts = &DebateOptions{
@@ -1765,6 +1768,10 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		hooks = defaultHooks()
 	}
 	hookCfg := loadHookConfig(root)
+	// --strict-testing (or the programmatic RunOptions.StrictTesting) can only
+	// turn strict testing ON for this run — it never overrides an existing
+	// "strict-testing: true" in .forge/hooks.yaml back to false.
+	hookCfg.StrictTesting = hookCfg.StrictTesting || opts.StrictTesting
 
 	// P1: load domain profile for per-checkpoint budget/steering overrides.
 	domainProfile := LoadDomainProfile(root, opts.DomainProfileName)
@@ -1935,12 +1942,25 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				SpecName:       opts.SpecName,
 				Pipe:           pipe,
 				Result:         &cp,
+				StrictTesting:  hookCfg.StrictTesting,
 			}
 			if failures := runHooks(PhasePostCheckpoint, hookCtx, hooks, hookCfg); len(failures) > 0 {
+				// four-stage-testing-gate only ever fails when StrictTesting
+				// is on (see testing_pipeline.go), so its failure must
+				// escalate the checkpoint even when the unrelated global
+				// hookCfg.Strict is off — but escalating THIS way must not
+				// also promote some other, unrelated same-checkpoint hook
+				// failure (e.g. manual-test-plan-gate) that only
+				// hookCfg.Strict is supposed to govern. Check by hook name,
+				// not just "StrictTesting is on somewhere in this run".
+				strictTestingFailure := false
 				for _, f := range failures {
 					cp.Detail += " | HOOK[" + f.Message + "]"
+					if f.HookName == fourStageTestingGate.Name {
+						strictTestingFailure = true
+					}
 				}
-				if hookCfg.Strict && cp.Status != "fail" {
+				if (hookCfg.Strict || (hookCfg.StrictTesting && strictTestingFailure)) && cp.Status != "fail" {
 					cp.Status = "fail"
 				} else if cp.Status == "ok" {
 					cp.Status = "warning"
@@ -2097,11 +2117,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	// ── Post-pipeline hooks (learning extraction, review routing) ────────────
 	if len(hooks) > 0 {
 		hookCtx := HookContext{
-			Phase:       PhasePostPipeline,
-			Root:        root,
-			Description: opts.Description,
-			SpecName:    opts.SpecName,
-			Pipe:        pipe,
+			Phase:         PhasePostPipeline,
+			Root:          root,
+			Description:   opts.Description,
+			SpecName:      opts.SpecName,
+			Pipe:          pipe,
+			StrictTesting: hookCfg.StrictTesting,
 		}
 		runHooks(PhasePostPipeline, hookCtx, hooks, hookCfg) // post-pipeline failures are advisory only
 	}
