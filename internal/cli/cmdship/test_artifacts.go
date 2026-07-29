@@ -368,20 +368,55 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 			if specMD != "" {
 				ctx = "Feature spec:\n" + specMD + "\n\n"
 			}
-			if gen, err := pipe.Invoke("ship:test:unit", "",
-				"You are a senior TypeScript QA engineer writing failing unit test stubs for TDD. "+
-					"Tests MUST compile but MUST fail at runtime. Use Jest.",
-				ctx+"Generate failing unit test stubs for feature: "+feature, 2000); err == nil && gen != "" {
+			// Framework name always comes from the already-detected fw context,
+			// never a hardcoded literal — this project's `fw.TestRunner` is
+			// "jest", but a Vitest project must not get Jest-flavored stubs
+			// (or vice versa). Previously only the unit/integration prompts
+			// named a framework at all (hardcoded "Jest"/"Jest + supertest"),
+			// and the RLS prompt named none — which is exactly how a real run
+			// on this Jest project got a Vitest-flavored `rls.test.ts` back
+			// (root-caused 2026-07-24: LLM defaults to Vitest imports absent
+			// an explicit instruction).
+			runner := fw.TestRunner
+			if runner == "" {
+				runner = "Jest"
+			}
+			runnerTitle := strings.ToUpper(runner[:1]) + runner[1:]
+
+			unitFn := func() (string, bool, error) {
+				return pipe.InvokeChecked("ship:test:unit", "",
+					"You are a senior TypeScript QA engineer writing failing unit test stubs for TDD. "+
+						"Tests MUST compile but MUST fail at runtime. Use "+runnerTitle+" — import test "+
+						"functions (describe/it/expect/etc.) from \""+runner+"\", never a different test framework.",
+					ctx+"Generate failing unit test stubs for feature: "+feature,
+					// 6000: 2000 reliably truncated a real unit test suite — same
+					// undersized-budget root cause as ship:spec:generate/ship:arch:generate
+					// (see ship.go). Wrapped in generateWithValidation below so a
+					// truncated response is caught rather than written as-is.
+					6000)
+			}
+			if gen, complete, err := generateWithValidation(unitFn); err == nil && complete && gen != "" {
 				unitContent = gen
 			}
-			if gen, err := pipe.Invoke("ship:test:integration", "",
-				"You are writing failing integration test stubs (Jest + supertest) for TDD. Tests MUST fail.",
-				ctx+"Generate failing integration test stubs for feature: "+feature, 2000); err == nil && gen != "" {
+
+			integFn := func() (string, bool, error) {
+				return pipe.InvokeChecked("ship:test:integration", "",
+					"You are writing failing integration test stubs ("+runnerTitle+" + supertest) for TDD. "+
+						"Tests MUST fail. Import test functions from \""+runner+"\", never a different test framework.",
+					ctx+"Generate failing integration test stubs for feature: "+feature, 6000)
+			}
+			if gen, complete, err := generateWithValidation(integFn); err == nil && complete && gen != "" {
 				integContent = gen
 			}
-			if gen, err := pipe.Invoke("ship:test:rls", "",
-				"You are writing Row-Level Security test stubs for Supabase. Tests MUST fail.",
-				ctx+"Generate failing RLS test stubs for feature: "+feature, 1500); err == nil && gen != "" {
+
+			rlsFn := func() (string, bool, error) {
+				return pipe.InvokeChecked("ship:test:rls", "",
+					"You are writing Row-Level Security test stubs for Supabase, using "+runnerTitle+" as the "+
+						"test runner — import test functions (describe/it/expect/beforeAll/etc.) from \""+runner+
+						"\", never a different test framework. Tests MUST fail.",
+					ctx+"Generate failing RLS test stubs for feature: "+feature, 4000)
+			}
+			if gen, complete, err := generateWithValidation(rlsFn); err == nil && complete && gen != "" {
 				rlsContent = gen
 			}
 		}
@@ -537,11 +572,17 @@ func llmGoStub(pipe *LLMPipe, _ string, feature, specMD string, isBugFix bool) s
 	if isBugFix {
 		bugFixHint = " Include two //Regression: labeled test stubs that FAIL on pre-fix code and PASS after the fix."
 	}
-	gen, err := pipe.Invoke("ship:test:go", "",
-		"You are a senior Go QA engineer writing failing test stubs for TDD. "+
-			"Tests MUST compile but must call t.Skip(). Use standard library testing only."+bugFixHint,
-		ctx+"Generate failing Go test stubs for feature: "+feature, 2000)
-	if err != nil || gen == "" {
+	genFn := func() (string, bool, error) {
+		return pipe.InvokeChecked("ship:test:go", "",
+			"You are a senior Go QA engineer writing failing test stubs for TDD. "+
+				"Tests MUST compile but must call t.Skip(). Use standard library testing only."+bugFixHint,
+			ctx+"Generate failing Go test stubs for feature: "+feature,
+			// 6000: was 2000 — same undersized-budget root cause as the
+			// TypeScript stub generators above and ship:spec:generate.
+			6000)
+	}
+	gen, complete, err := generateWithValidation(genFn)
+	if err != nil || !complete || gen == "" {
 		return ""
 	}
 	return gen

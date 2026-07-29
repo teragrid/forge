@@ -4,6 +4,19 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.13] — 2026-07-29 — Every checkpoint's generated content is now verified, not just spec/arch
+
+### Fixed
+
+- **`test`/`breakdown` checkpoints, and the TS/Go test-stub generators, wrote truncated or preamble-leaked LLM output straight to disk with no check at all.** 1.7.10/1.7.11 added truncation/preamble detection (`generateWithValidation`) to `spec.md`/`arch.md` only; `generateTestStubs`, `generateBreakdown`, and the Jest/Go stub generators (`writeTestArtifactsWithContext`, `llmGoStub`) still called the provider directly and trusted whatever came back. All five now route through `generateWithValidation` and fail the checkpoint (logging to `.forge/learned/*-failures.jsonl`) instead of persisting a broken file.
+- **Every one of those generation budgets was undersized enough that the retry inside `generateWithValidation` failed identically, every time.** Token-ledger evidence: the breakdown checkpoint landed at *exactly* its configured budget on every real run observed (3000 on 2026-07-13/14, 6000 on 2026-07-23, twice in a row including the retry) — i.e. it has never once finished under its own budget. Raised: spec generate/review 2000→8000, arch generate 3000→6000, test-stub generate 3000→5000, breakdown generate 3000(→6000)→12000, TS unit/integration stubs 2000→6000, RLS stubs 1500→4000, Go stubs 2000→6000.
+- **A cut-off response was discarded and fully re-asked from scratch on retry, roughly doubling both input and output cost per truncation** — the expensive side of Claude pricing thrown away on the exact runs that were already failing. `AnthropicAdapter` now continues a `Truncated` response (1.7.11's authoritative stop-reason signal) via the standard assistant-prefill technique (replaying the truncated text as the assistant's prior turn) instead of re-asking, keeping 100% of the already-paid output.
+- **RLS test stubs were generated with no test-framework instruction at all**, and the unit/integration prompts hardcoded "Jest" regardless of the target project — a real run on this (Jest) repo got Vitest-flavored `rls.test.ts` back. All three stub prompts now name the actually-detected test runner explicitly.
+
+### Added
+
+- **Generated `spec.md`/`arch.md` now flag their own hallucinated file-path references.** `findUnverifiedFileReferences` scans backtick-wrapped, path-shaped tokens (the convention every spec/arch prompt already uses for file paths) and checks each against the real filesystem; `appendUnverifiedPathsWarning` appends a visible `⚠ Unverified file references` callout listing any that don't exist, so a reviewer sees the flag inline instead of needing to separately grep the repo. Scoped to file paths only (not DB columns/tables or invented infra) — a cheap structural check, not a second LLM call.
+
 ## [1.7.12] — 2026-07-25 — The 4-stage testing pipeline: advisory by default, `--strict-testing` to enforce
 
 ### Added

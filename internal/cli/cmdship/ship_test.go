@@ -2031,6 +2031,116 @@ func TestRunWithOptions_MockLLM_Idempotent(t *testing.T) {
 	}
 }
 
+// Single-checkpoint runs must not execute other checkpoints.
+//
+// Root cause (2026-07-20): runWithOptions used to build ALL 7 checkpoints
+// unconditionally regardless of opts.Names, filtering down to the requested
+// one only when selecting which result to *display*. A bare `forge ship arch`
+// or `forge ship ship` therefore silently ran checkSpec's LLM-backed spec.md
+// review pass (among others) too - paying for up to 7 checkpoints per single
+// requested one, and (observed directly) letting checkSpec's review
+// overwrite an existing spec.md with regenerated, sometimes-hallucinated
+// content even when the caller only asked for `arch` or `ship`. It also
+// explains the `ship` checkpoint's own hygiene gate failing on cache files
+// written by checkTest/checkBreakdown/checkQAVerify - checkpoints nobody
+// requested - moments before checkVerify's clean-check ran.
+
+// 1. Happy path - requesting only "arch" must not touch an existing spec.md.
+func TestRunWithOptions_SingleCheckpoint_DoesNotRewriteUnrequestedSpec(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := "single-cp-guard"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const original = "# Original Spec\n\nThis must not change.\n"
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// If checkSpec were (incorrectly) invoked, its review pass would
+	// overwrite spec.md with this distinctive mock content.
+	mock := &llmprovider.MockProvider{
+		Response: mockResponse("# MOCK REGENERATED CONTENT - checkSpec should never have run\n"),
+	}
+	res := RunWithOptions(RunOptions{
+		Root:     root,
+		SpecName: slug,
+		Names:    []string{"arch"},
+		LLMPipe:  mockPipe(root, mock),
+	})
+
+	if len(res.Checkpoints) != 1 || !strings.EqualFold(res.Checkpoints[0].Name, "arch") {
+		t.Fatalf("expected exactly 1 checkpoint (arch), got %+v", res.Checkpoints)
+	}
+
+	got, err := os.ReadFile(filepath.Join(specDir, "spec.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("spec.md was rewritten by an unrequested checkpoint (checkSpec ran despite Names=[\"arch\"]):\n%s", got)
+	}
+
+	// arch checkpoint itself must have actually run for real.
+	if _, err := os.Stat(filepath.Join(specDir, "arch.md")); err != nil {
+		t.Errorf("expected arch.md to be created by the requested arch checkpoint: %v", err)
+	}
+}
+
+// 2. Cost - requesting only "ship" must not invoke checkTest/checkBreakdown/
+// checkQAVerify (each of which would call the mock LLM and create its own
+// artefact if it ran).
+func TestRunWithOptions_SingleCheckpoint_ShipDoesNotRunUnrequestedCheckpoints(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := "single-cp-ship-guard"
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"), []byte("# Spec\n\nAcceptance criteria here.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mock := &llmprovider.MockProvider{Response: mockResponse("mock content that would create sibling artefacts")}
+	res := RunWithOptions(RunOptions{
+		Root:     root,
+		SpecName: slug,
+		Names:    []string{"ship"},
+		LLMPipe:  mockPipe(root, mock),
+	})
+
+	if len(res.Checkpoints) != 1 || !strings.EqualFold(res.Checkpoints[0].Name, "ship") {
+		t.Fatalf("expected exactly 1 checkpoint (ship), got %+v", res.Checkpoints)
+	}
+
+	// None of these are artefacts the "ship" checkpoint itself writes - their
+	// presence would mean the corresponding checkpoint ran unrequested.
+	for _, unexpected := range []string{"arch.md", "breakdown.md", "test-stubs.md"} {
+		if _, err := os.Stat(filepath.Join(specDir, unexpected)); err == nil {
+			t.Errorf("%s exists - an unrequested checkpoint ran during a Names=[\"ship\"] invocation", unexpected)
+		}
+	}
+}
+
+// 3. Regression guard - a full-pipeline run (Names empty) must still execute
+// and report all 7 checkpoints, unaffected by the single-checkpoint guard.
+func TestRunWithOptions_FullPipeline_StillRunsAllCheckpoints(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mock := &llmprovider.MockProvider{Response: mockResponse("")}
+	res := RunWithOptions(RunOptions{
+		Root:        root,
+		Description: "full pipeline still works",
+		LLMPipe:     mockPipe(root, mock),
+	})
+	if len(res.Checkpoints) != 7 {
+		t.Fatalf("expected 7 checkpoints on a full-pipeline run, got %d", len(res.Checkpoints))
+	}
+}
+
 // â”€â”€ testTimestampGuard unit tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // These tests exercise the working-tree-scoped TDD gate directly.

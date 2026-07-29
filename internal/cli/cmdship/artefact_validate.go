@@ -26,7 +26,12 @@
 // per the spec's NFR ("Preamble/truncation detection is cheap").
 package cmdship
 
-import "strings"
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
 
 // validateArtefact strips conversational preamble from raw and reports
 // whether the result looks structurally complete. Callers should write only
@@ -82,6 +87,19 @@ func looksComplete(s string) bool {
 	if strings.HasSuffix(last, "```") {
 		return true
 	}
+	// An odd number of single backticks on the last line means an inline code
+	// span was opened and never closed — the clearest same-line signal that
+	// generation stopped mid-token (e.g. "...Return: `{platform, external_
+	// account_id, oauth_" cut off inside a backtick-wrapped example). Checked
+	// before the heading/list-item/terminal-punctuation shortcuts below,
+	// which would otherwise false-positive on exactly this shape (root-caused
+	// 2026-07-23: a numbered list item — "2. Return: `{...`" — cut off
+	// mid-word inside an unclosed inline code span was accepted as complete
+	// because the line's *prefix* matched isListItem, even though the line's
+	// own content was plainly truncated).
+	if strings.Count(last, "`")%2 != 0 {
+		return false
+	}
 	lastTrimmed := strings.TrimSpace(last)
 	if strings.HasPrefix(lastTrimmed, "#") {
 		return true // ends on a heading — acceptable terminal shape
@@ -90,8 +108,11 @@ func looksComplete(s string) bool {
 		return true // ends on a complete Markdown list item — a normal,
 		// intentional document ending (e.g. "- happy path"), not a truncation
 		// signal; a genuinely cut-off list item ends mid-word instead, which
-		// this check does not attempt to distinguish (out of scope for a
-		// cheap structural check per the spec's NFR).
+		// this check does not attempt to distinguish in general (out of scope
+		// for a cheap structural check per the spec's NFR) — the unclosed-
+		// backtick check above catches the common case where the cut-off
+		// happens inside an inline code span, which is the shape actually
+		// observed to recur.
 	}
 	runes := []rune(last)
 	switch runes[len(runes)-1] {
@@ -168,4 +189,71 @@ func generateWithValidation(invoke func() (string, bool, error)) (content string
 		ok2 = false
 	}
 	return cleaned2, ok2, nil
+}
+
+// filePathRefPattern matches backtick-wrapped, path-shaped tokens: at least
+// one directory separator followed by a filename with an extension, e.g.
+// `src/app/api/x/route.ts` or `internal/cli/cmdship/ship.go`. Restricting to
+// backtick-wrapped tokens (inline code spans, the convention every spec/arch
+// prompt is instructed to use for file paths) keeps false positives low —
+// ordinary prose sentences don't get flagged.
+var filePathRefPattern = regexp.MustCompile("`((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z0-9]{1,6})`")
+
+// findUnverifiedFileReferences scans generated Markdown for backtick-wrapped
+// file-path-shaped references and returns the ones that do not exist on disk
+// under root, deduplicated and in first-seen order.
+//
+// Root cause this addresses: LLM-generated spec/arch content has repeatedly
+// (confirmed 3 separate times in one session, 2026-07-20) invented plausible-
+// looking but nonexistent file paths (e.g. a project's real
+// `src/app/api/integrations/facebook/callback/route.ts` rendered by the model
+// as `src/app/api/auth/facebook/callback/route.ts`) and been trusted as fact
+// by whoever read the artefact next. This is a cheap, structural check — not
+// a second LLM call — that surfaces the mismatch instead of silently trusting
+// it; it does not attempt to also verify DB column/table names or invented
+// infrastructure, which need repo-specific knowledge this check doesn't have.
+func findUnverifiedFileReferences(root, content string) []string {
+	if root == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var unverified []string
+	for _, m := range filePathRefPattern.FindAllStringSubmatch(content, -1) {
+		candidate := m[1]
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		// Paths under .forge/ are artefacts this checkpoint (or a sibling
+		// one) is about to create, not existing code — never flag those.
+		if strings.HasPrefix(candidate, ".forge/") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(candidate))); os.IsNotExist(err) {
+			unverified = append(unverified, candidate)
+		}
+	}
+	return unverified
+}
+
+// appendUnverifiedPathsWarning appends a visible callout listing any
+// unverified file-path references (see findUnverifiedFileReferences) to the
+// end of a generated artefact, so a human reviewer sees the flag inline
+// rather than needing to separately grep the repo to catch a hallucinated
+// path. Returns content unchanged when there is nothing to flag.
+func appendUnverifiedPathsWarning(root, content string) string {
+	unverified := findUnverifiedFileReferences(root, content)
+	if len(unverified) == 0 {
+		return content
+	}
+	var b strings.Builder
+	b.WriteString(content)
+	if !strings.HasSuffix(content, "\n") {
+		b.WriteString("\n")
+	}
+	b.WriteString("\n---\n\n> **⚠ Unverified file references (automated check):** the following paths mentioned above were not found in this repository — verify before relying on them, they may be hallucinated:\n")
+	for _, p := range unverified {
+		b.WriteString("> - `" + p + "`\n")
+	}
+	return b.String()
 }
