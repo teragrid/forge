@@ -17,6 +17,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 - **Generated `spec.md`/`arch.md` now flag their own hallucinated file-path references.** `findUnverifiedFileReferences` scans backtick-wrapped, path-shaped tokens (the convention every spec/arch prompt already uses for file paths) and checks each against the real filesystem; `appendUnverifiedPathsWarning` appends a visible `⚠ Unverified file references` callout listing any that don't exist, so a reviewer sees the flag inline instead of needing to separately grep the repo. Scoped to file paths only (not DB columns/tables or invented infra) — a cheap structural check, not a second LLM call.
 
+### Fixed (dev tooling)
+
+- **The pre-push hook's own QA gate (stage 12) ran the P8 `forge ship` scenarios (QA-22–33) twice, once for real.** Stage 13 already re-runs the identical cases with `FORGE_NO_LLM=1` to stub out the provider; stage 12 ran them first with no such guard, and `forge ship --dry-run` does **not** actually skip LLM calls when a provider is detected (`--dry-run` only skips the interactive credential prompt) — so on any machine where a provider is auto-detected, stage 12 fired a real, chained multi-checkpoint LLM run that was slow and intermittently flaky for reasons unrelated to the code being pushed. `scripts/forge-qa-real.sh` gained a `SKIP_SHIP_QA` flag to skip P8 entirely; the pre-push hook now sets it for stage 12, leaving P8 coverage solely to stage 13's stubbed run. Note: the underlying `--dry-run` behavior (documented as "no LLM calls" but not enforced as such) is a separate, real gap, tracked but not fixed here.
+
 ## [1.7.12] — 2026-07-25 — The 4-stage testing pipeline: advisory by default, `--strict-testing` to enforce
 
 ### Added
