@@ -204,6 +204,9 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 
 	first := attempt(primaryModel)
 	if !first.retryable {
+		if first.err == nil {
+			first.resp = a.continueOnMaxTokens(ctx, req, primaryModel, first.resp)
+		}
 		return first.resp, first.err
 	}
 
@@ -229,6 +232,7 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 			if res.err == nil {
 				fmt.Fprintf(os.Stderr,
 					"forge: anthropic model %q unavailable (404) — fell back to %q\n", primaryModel, fallback)
+				res.resp = a.continueOnMaxTokens(ctx, req, fallback, res.resp)
 			}
 			return res.resp, res.err
 		}
@@ -238,32 +242,41 @@ func (a *AnthropicAdapter) Complete(ctx context.Context, req *Request) (*Respons
 		"anthropic: no available model; tried %q and all fallbacks — last error: %w", primaryModel, lastErr)
 }
 
+// anthropicMessage is one turn in a Messages API request.
+type anthropicMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // attemptComplete sends one request with the given model. retryable is true
 // only when the response is classified as a not_found_error (AC1/AC2) — the
 // only failure mode safe to retry against a different model.
 func (a *AnthropicAdapter) attemptComplete(ctx context.Context, req *Request, model string) (resp *Response, retryable bool, err error) {
-	// Build Messages API request body.
-	type message struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-	type requestBody struct {
-		Model     string    `json:"model"`
-		MaxTokens int       `json:"max_tokens"`
-		System    string    `json:"system,omitempty"`
-		Messages  []message `json:"messages"`
-	}
-
 	maxTokens := req.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 8096
+	}
+	return a.sendMessages(ctx, model, maxTokens, req.SystemPrompt,
+		[]anthropicMessage{{Role: "user", Content: req.UserPrompt}})
+}
+
+// sendMessages sends one Messages API request with an explicit message list
+// (as opposed to attemptComplete's single-user-turn shape), so callers can
+// append an assistant-prefill turn to continue a truncated response without
+// duplicating the request-building/HTTP/parsing logic.
+func (a *AnthropicAdapter) sendMessages(ctx context.Context, model string, maxTokens int, system string, messages []anthropicMessage) (resp *Response, retryable bool, err error) {
+	type requestBody struct {
+		Model     string             `json:"model"`
+		MaxTokens int                `json:"max_tokens"`
+		System    string             `json:"system,omitempty"`
+		Messages  []anthropicMessage `json:"messages"`
 	}
 
 	body := requestBody{
 		Model:     model,
 		MaxTokens: maxTokens,
-		System:    req.SystemPrompt,
-		Messages:  []message{{Role: "user", Content: req.UserPrompt}},
+		System:    system,
+		Messages:  messages,
 	}
 
 	raw, err := json.Marshal(body)
@@ -337,4 +350,59 @@ func (a *AnthropicAdapter) attemptComplete(ctx context.Context, req *Request, mo
 		Model:        ar.Model,
 		Truncated:    ar.StopReason == "max_tokens",
 	}, false, nil
+}
+
+// continueOnMaxTokens asks the model to finish a response that was cut off
+// by the token budget, using the standard Anthropic "assistant prefill"
+// technique: the truncated text is replayed as the assistant's own prior
+// turn, and the model continues writing from exactly that point rather than
+// starting over.
+//
+// Root cause this fixes: checkSpec/checkArch (forge's own ship pipeline)
+// request completions with MaxTokens set well below what the prompted
+// document shape (a full Given/When/Then spec, or a 6-section ADR plus a
+// complete OpenAPI 3.1 contract) realistically needs. The downstream
+// structural-completeness check (artefact_validate.go's looksComplete) then
+// retries once — but at the *same* MaxTokens, so a genuinely
+// budget-truncated response fails identically on retry, making "truncated
+// after retry" a near-deterministic outcome for those two checkpoints
+// instead of a rare flake.
+//
+// Cost matters here as much as reliability — forge ship's whole point is to
+// keep LLM spend down. An earlier version of this fix re-asked the full
+// question from scratch at 2x the budget on every truncation: that pays for
+// the entire document twice (input prompt/KB sent twice, and the already-
+// generated output thrown away and regenerated), roughly doubling both input
+// and output cost on every truncation. Output tokens are the expensive side
+// of Claude pricing, so silently discarding a full paid-for generation is the
+// worst place to add retries. Continuation instead keeps 100% of the first
+// (already paid) output and only pays for input once more (the original
+// prompt plus the truncated text, replayed as context) and output for
+// whatever text was actually still missing — typically a small fraction of a
+// full regeneration, not another whole document.
+func (a *AnthropicAdapter) continueOnMaxTokens(ctx context.Context, req *Request, model string, first *Response) *Response {
+	if first == nil || !first.Truncated || req.MaxTokens <= 0 || first.Content == "" {
+		return first
+	}
+
+	maxTokens := req.MaxTokens
+	messages := []anthropicMessage{
+		{Role: "user", Content: req.UserPrompt},
+		{Role: "assistant", Content: first.Content},
+	}
+	cont, retryable, err := a.sendMessages(ctx, model, maxTokens, req.SystemPrompt, messages)
+	if retryable || err != nil || cont == nil {
+		return first // continuation failed outright — surface the original truncated response
+	}
+
+	fmt.Fprintf(os.Stderr,
+		"forge: anthropic response hit max_tokens=%d — continued generation instead of re-asking from scratch\n",
+		req.MaxTokens)
+	return &Response{
+		Content:      first.Content + cont.Content,
+		InputTokens:  first.InputTokens + cont.InputTokens,
+		OutputTokens: first.OutputTokens + cont.OutputTokens,
+		Model:        cont.Model,
+		Truncated:    cont.Truncated,
+	}
 }
