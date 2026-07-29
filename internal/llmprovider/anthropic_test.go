@@ -274,7 +274,7 @@ func TestAnthropicAdapter_Complete_NoKey(t *testing.T) {
 
 func TestAnthropicAdapter_Complete_SurfacesTruncated(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"content":     []map[string]any{{"type": "text", "text": "complete answer."}},
@@ -379,7 +379,7 @@ func TestAnthropicAdapter_Complete_ContinuesOnMaxTokens(t *testing.T) {
 func TestAnthropicAdapter_Complete_ContinuationStillTruncated_ReturnsConcatenated(t *testing.T) {
 	t.Parallel()
 	var requests int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
 		// Every attempt (original + continuation) is still cut off.
@@ -418,7 +418,7 @@ func TestAnthropicAdapter_Complete_ContinuationStillTruncated_ReturnsConcatenate
 func TestAnthropicAdapter_Complete_NoContinuationWhenMaxTokensZero(t *testing.T) {
 	t.Parallel()
 	var requests int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -446,7 +446,7 @@ func TestAnthropicAdapter_Complete_NoContinuationWhenMaxTokensZero(t *testing.T)
 func TestAnthropicAdapter_Complete_NoContinuationOnOtherStopReasons(t *testing.T) {
 	t.Parallel()
 	var requests int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
