@@ -33,7 +33,14 @@
 #   10. forge lint                     — Forge convention violations
 #   11. forge check                    — pre-flight: typecheck + lint + test fast path
 #   12. forge qa suite                 — real-command integration (init, scan, skill,
-#                                       mcp, audit, test spec, spend, context, doctor)
+#                                       mcp, audit, test spec, spend, context, doctor).
+#                                       Runs with SKIP_SHIP_QA=1 — the P8 ship-pipeline
+#                                       cases (QA-22..33) it would otherwise also run are
+#                                       identical to stage 13's, minus stage 13's
+#                                       FORGE_NO_LLM=1 stub; running them here too against
+#                                       a real provider is pure duplication and was a
+#                                       source of intermittent, unrelated-to-the-diff
+#                                       failures (root-caused 2026-07-29).
 #   13. forge ship dry-run scenarios  — ship pipeline smoke tests (QA-22 – QA-33)
 #
 # Stages 9-11 are ADVISORY when the forge binary is not on PATH (warn + skip).
@@ -255,7 +262,7 @@ else
   fi
   if [[ ! -f "$QA_SCRIPT" ]]; then
     warn "scripts/forge-qa-real.sh not found — skipping qa suite"
-  elif QA_OUT=$(bash "$QA_SCRIPT" 2>&1); then
+  elif QA_OUT=$(SKIP_SHIP_QA=1 bash "$QA_SCRIPT" 2>&1); then
     echo "$QA_OUT" | sed 's/^/      /'
     pass "forge qa real-command suite"
   else
