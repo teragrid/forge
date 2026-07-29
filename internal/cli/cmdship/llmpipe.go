@@ -425,20 +425,33 @@ func generateTestStubs(root, description, specName string, pipe *LLMPipe) (strin
 	}
 	userPrompt.WriteString(testInstruction)
 
-	content, err := pipe.InvokeWithKnowledge(
-		"ship:test:generate", "",
-		fmt.Sprintf("You are a senior %s QA engineer generating test stubs for a TDD workflow. %s",
-			langLabel, tddHint),
-		userPrompt.String(),
-		3000,
-		"test", "testing", lang,
-		[]string{"openapi", "tdd", "test-stubs"},
-	)
+	genFn := func() (string, bool, error) {
+		return pipe.InvokeWithKnowledgeChecked(
+			"ship:test:generate", "",
+			fmt.Sprintf("You are a senior %s QA engineer generating test stubs for a TDD workflow. %s",
+				langLabel, tddHint),
+			userPrompt.String(),
+			// 5000: was 3000 — a stub suite covering happy/boundary/negative
+			// cases per OpenAPI operation routinely exceeds that. See the
+			// ship:spec:review budget comment (ship.go) for the same
+			// undersized-budget root cause.
+			5000,
+			"test", "testing", lang,
+			[]string{"openapi", "tdd", "test-stubs"},
+		)
+	}
+	// J8/J9: this write path previously had no truncation/preamble check at
+	// all (unlike spec.md/arch.md) — a cut-off or preamble-prefixed response
+	// would be written to test-stubs.md as if it succeeded.
+	content, complete, err := generateWithValidation(genFn)
 	if err != nil {
 		return "", err
 	}
 	if content == "" {
 		return "", nil
+	}
+	if !complete {
+		return "", fmt.Errorf("test stub generation truncated/incomplete after retry")
 	}
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return content, nil // content available but can't write; not a hard error
@@ -518,20 +531,44 @@ func generateBreakdown(root, description, specName string, pipe *LLMPipe) (strin
 	}
 	userPrompt.WriteString(breakdownInstruction)
 
-	content, err := pipe.InvokeWithKnowledge(
-		"ship:breakdown:generate", "",
-		"You are a delivery lead decomposing a feature spec into an atomic task list "+
-			"for a development team. Each task should be completable in ≤ 1 day.",
-		userPrompt.String(),
-		3000,
-		"breakdown", "", "dab",
-		[]string{"openapi", "task-decomposition"},
-	)
+	genFn := func() (string, bool, error) {
+		return pipe.InvokeWithKnowledgeChecked(
+			"ship:breakdown:generate", "",
+			"You are a delivery lead decomposing a feature spec into an atomic task list "+
+				"for a development team. Each task should be completable in ≤ 1 day.",
+			userPrompt.String(),
+			// 12000: was 6000 (before that, 3000) — a task-by-task breakdown
+			// (ID/title/description/effort/dependencies/AC per task) for a
+			// non-trivial feature routinely exceeds that; the token ledger
+			// shows this call landing at *exactly* the configured budget on
+			// every real run observed (3000 on 2026-07-13/14, 6000 on
+			// 2026-07-23, twice in a row including the generateWithValidation
+			// retry) — i.e. this checkpoint has never once finished under its
+			// own budget, only ever been cut off by it. Note: the
+			// AnthropicAdapter.continueOnMaxTokens continuation (see
+			// anthropic.go) did not visibly engage on the 2026-07-23 runs
+			// (no "continued generation" stderr message, and output_tokens
+			// landed at exactly the budget rather than the budget plus a
+			// partial continuation) — left as an open question for this call
+			// path specifically; raising the base budget is the safe fix
+			// regardless of whether that's resolved.
+			12000,
+			"breakdown", "", "dab",
+			[]string{"openapi", "task-decomposition"},
+		)
+	}
+	// J8/J9: this write path previously had no truncation/preamble check at
+	// all (unlike spec.md/arch.md) — a cut-off or preamble-prefixed response
+	// would be written to breakdown.md as if it succeeded.
+	content, complete, err := generateWithValidation(genFn)
 	if err != nil {
 		return "", err
 	}
 	if content == "" {
 		return "", nil
+	}
+	if !complete {
+		return "", fmt.Errorf("breakdown generation truncated/incomplete after retry")
 	}
 	if err := os.MkdirAll(specsDir, 0o755); err != nil {
 		return content, nil

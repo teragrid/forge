@@ -26,6 +26,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/teragrid/forge/internal/llmprovider"
 )
 
 // ── AC-001 + AC-002: TestFrameworkContext & detectTestFramework ───────────────
@@ -246,6 +248,49 @@ func TestWriteTestArtifactsWithContext_TypeScript_NoGoStubs(t *testing.T) {
 	if paths.GoTest != "" {
 		if _, err := os.Stat(paths.GoTest); err == nil {
 			t.Error("Go _test.go must NOT be generated for TypeScript project")
+		}
+	}
+}
+
+// TestWriteTestArtifactsWithContext_RLSPromptNamesDetectedFramework guards
+// against the exact defect found dogfooding on ai-marketing-platfrom
+// (2026-07-24): the RLS stub prompt named no test framework at all (unlike
+// the unit/integration prompts, which hardcoded "Jest" as a literal string
+// instead of using the already-detected fw.TestRunner) — so on a real Jest
+// project, the LLM defaulted to inventing `import ... from "vitest"` in
+// rls.test.ts. All three prompts must explicitly name the *detected*
+// framework, not a hardcoded one.
+func TestWriteTestArtifactsWithContext_RLSPromptNamesDetectedFramework(t *testing.T) {
+	root, slug := testRoot(t, "ts")
+	fw := detectTestFramework(root)
+	if fw.TestRunner != "jest" {
+		t.Fatalf("test setup: expected jest detection, got %q", fw.TestRunner)
+	}
+
+	var rlsSystemPrompt, unitSystemPrompt, integSystemPrompt string
+	mock := &llmprovider.MockProvider{
+		Fn: func(req *llmprovider.Request) (*llmprovider.Response, error) {
+			switch {
+			case strings.Contains(req.UserPrompt, "RLS test stubs"):
+				rlsSystemPrompt = req.SystemPrompt
+				return &llmprovider.Response{Content: "// rls stub\n"}, nil
+			case strings.Contains(req.UserPrompt, "integration test stubs"):
+				integSystemPrompt = req.SystemPrompt
+				return &llmprovider.Response{Content: "// integration stub\n"}, nil
+			default:
+				unitSystemPrompt = req.SystemPrompt
+				return &llmprovider.Response{Content: "// unit stub\n"}, nil
+			}
+		},
+	}
+
+	writeTestArtifactsWithContext(root, slug, "my feature", "", fw, mockPipe(root, mock))
+
+	for name, prompt := range map[string]string{
+		"RLS": rlsSystemPrompt, "unit": unitSystemPrompt, "integration": integSystemPrompt,
+	} {
+		if !strings.Contains(strings.ToLower(prompt), "jest") {
+			t.Errorf("%s prompt must explicitly name the detected framework (jest); got: %q", name, prompt)
 		}
 	}
 }

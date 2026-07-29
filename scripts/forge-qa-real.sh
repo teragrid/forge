@@ -22,7 +22,17 @@ set -euo pipefail
 
 FORGE_BIN="${FORGE_BIN:-forge}"
 SKIP_MCP="${SKIP_MCP:-0}"
-SHIP_QA_ONLY="${SHIP_QA_ONLY:-0}"  # 1 = run only P8 forge ship scenarios (used by pre-push [13/13])
+SHIP_QA_ONLY="${SHIP_QA_ONLY:-0}"    # 1 = run only P8 forge ship scenarios (used by pre-push [13/13])
+SKIP_SHIP_QA="${SKIP_SHIP_QA:-0}"    # 1 = skip P8 forge ship scenarios (used by pre-push [12/13], since
+                                      # [13/13] re-runs the identical QA-22..33 cases with FORGE_NO_LLM=1
+                                      # right after — running them here too against a real, undetected-cost
+                                      # LLM provider is pure duplication and the source of a real flake:
+                                      # QA-24/26/27 invoke the *full* 6-checkpoint pipeline (forge ship
+                                      # --dry-run without FORGE_NO_LLM does NOT skip LLM calls — it only
+                                      # skips the interactive credential prompt — so a real provider found
+                                      # via Detect() fires real, chained API calls across every checkpoint),
+                                      # which is slow/rate-limit-sensitive enough to fail intermittently for
+                                      # reasons that have nothing to do with the code being pushed.
 QA_DIR=""
 _CREATED_DIR=0
 
@@ -400,6 +410,8 @@ if [[ "${SHIP_QA_ONLY}" == "1" ]]; then
   "$FORGE_BIN" init --minimal 2>/dev/null || true
 fi
 
+if [[ "${SKIP_SHIP_QA}" != "1" ]]; then
+
 # ────────────────────────────────────────────────────────────────────────────
 # P8: forge ship dry-run scenarios (QA-22 – QA-33)
 # ────────────────────────────────────────────────────────────────────────────
@@ -479,6 +491,8 @@ if [[ "$FROM_BAD_EXIT" -ne 0 ]] || echo "$FROM_BAD_OUT" | grep -qiE "unknown|inv
 else
   qa_fail "QA-33  ship --from badcheckpoint (accepted without error — should have rejected)"
 fi
+
+fi  # end SKIP_SHIP_QA skip (P8)
 
 # ────────────────────────────────────────────────────────────────────────────
 # Summary
