@@ -4,6 +4,20 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.7.14] — 2026-08-02 — Copilot stops silently drifting to a dead default model; `forge llm` for one-command provider switching
+
+### Fixed
+
+- **`CopilotProvider`'s hardcoded default model (`claude-sonnet-4-5-20250514`) had gone dead** on GitHub's Copilot backend. GitHub's Copilot API does not error on an unknown model id — it silently substitutes a different one (observed live: a request for the dead snapshot came back HTTP 200 from `gpt-4.1` instead), so the existing HTTP-400 model-unavailable fallback never even triggered. The practical symptom: `gpt-4.1`'s non-streaming output through this proxy got cut short (`finish_reason: "length"`) well under the requested token budget on real prompts, and 1.7.13's `generateWithValidation` correctly flagged the result as truncated — the checkpoint failure was real, but the actual defect was one layer upstream of the validator, in what model got requested in the first place.
+- `resolveModel()` now resolves the default model dynamically from the live `GET /models` catalog on first use — preferring an enabled, picker-enabled Anthropic "sonnet"-family model, tie-broken by highest version number (the API's response order is not sorted by version, e.g. `claude-sonnet-4.6` can appear before `claude-sonnet-5`) — instead of trusting a hardcoded constant that inevitably drifts stale as GitHub rotates model ids. Falls back to a refreshed static list only when the `/models` endpoint itself is unreachable (true offline/air-gap case). Explicit overrides (`FORGE_COPILOT_MODEL` env var, or `forge.yml`'s `llm.model`) always take priority over this resolution and are never second-guessed.
+- Added `"stream": false` explicitly to the Copilot chat-completion request body, matching the provider's own declared `Capabilities().Streaming = false` (`Complete()` only ever parses a single JSON response object, never SSE frames).
+
+### Added
+
+- **New `forge llm` command** — one place to discover and switch which LLM backend `forge ship`/`spec`/`arch`/etc. use, instead of three separate `forge config set llm.provider` + `forge config set llm.model` + `forge doctor --llm` steps and guessing model ids from memory:
+  - `forge llm list` — every known provider (anthropic, openai, gemini, azure, bedrock, ollama, copilot), whether each is currently usable given present credentials, which one `forge ship` would actually pick right now, and — for Copilot specifically — the full live model catalog (vendor, enabled/picker-enabled state) with the resolved default marked.
+  - `forge llm use <provider> [model]` — writes `forge.yml`'s `llm.provider` (and `llm.model`, or clears it when omitted so the provider resolves its own default) and immediately makes one real, minimal completion call to confirm the new configuration actually works — surfacing a bad/stale model id or missing credentials at switch time with a clear, actionable error, rather than discovering it on the next real `forge ship` run. For Copilot, an explicitly-given model is validated against the live catalog before anything is written, since (per the Fixed section above) the API itself won't reject an unknown id.
+
 ## [1.7.13] — 2026-07-29 — Every checkpoint's generated content is now verified, not just spec/arch
 
 ### Fixed
