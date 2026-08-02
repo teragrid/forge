@@ -53,6 +53,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/cmdinsights"
 	"github.com/teragrid/forge/internal/cli/cmdlearn"
 	"github.com/teragrid/forge/internal/cli/cmdlint"
+	"github.com/teragrid/forge/internal/cli/cmdllm"
 	"github.com/teragrid/forge/internal/cli/cmdmcp"
 	"github.com/teragrid/forge/internal/cli/cmdmetrics"
 	"github.com/teragrid/forge/internal/cli/cmdmigrate"
@@ -257,6 +258,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		// ── Project & Configuration ───────────────────────────────────────────
 		inGroup(cmdinit.New(version), groupConfig),
 		inGroup(cmdconfig.New(), groupConfig),
+		inGroup(cmdllm.New(), groupConfig),
 		inGroup(cmdcontext.New(), groupConfig),
 		inGroup(cmdask.New(), groupConfig),
 		inGroup(cmddocs.New(), groupConfig),

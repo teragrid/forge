@@ -43,7 +43,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,50 +54,82 @@ import (
 )
 
 const (
-	copilotAPIBase      = "https://api.githubcopilot.com"
-	copilotDefaultModel = "claude-sonnet-4-5-20250514"
+	copilotAPIBase = "https://api.githubcopilot.com"
+	// copilotDefaultModel is the last-resort static default, used only when
+	// the live /models endpoint is unreachable (air-gap, token not yet
+	// valid, network outage) and no explicit model was configured — see
+	// resolveModel(). GitHub periodically rotates/retires model snapshot
+	// IDs (root-caused 2026-08-02: the previous hardcoded default,
+	// "claude-sonnet-4-5-20250514", had gone dead — GitHub's Copilot API
+	// does not error on an unknown model id, it silently substitutes a
+	// different one (observed: fell back to "gpt-4.1-2025-04-14", whose
+	// non-streaming output was cut short — finish_reason "length" — well
+	// under the requested token budget on real prompts), so a stale
+	// hardcoded ID doesn't fail loudly, it silently degrades output
+	// quality). resolveModel() prefers the live list whenever it's
+	// reachable specifically to avoid depending on this constant staying
+	// fresh; this value only matters in the true offline fallback path.
+	copilotDefaultModel = "claude-sonnet-5"
 )
 
 // copilotKnownModels is the static fallback used when the /models endpoint is
-// unreachable (air-gap, token not yet valid, etc.). Versioned IDs are preferred
-// for stability; the live /models endpoint is the authoritative source.
+// unreachable (air-gap, token not yet valid, etc.). Snapshot of currently
+// live, enabled model ids as of 2026-08-02 (see copilotDefaultModel's
+// comment for why this list drifting out of date is expected and
+// tolerated — the live /models endpoint is the authoritative source and is
+// preferred whenever reachable). Refresh via `forge llm list --refresh`
+// (prints the live catalog) if this ever needs updating by hand.
 var copilotKnownModels = []string{
-	"claude-sonnet-4-5-20250514",
-	"claude-opus-4-8-20250514",
-	"claude-3-7-sonnet-20250219",
-	"claude-3-5-sonnet-20241022",
+	"claude-sonnet-5",
+	"claude-sonnet-4.6",
+	"claude-sonnet-4.5",
+	"claude-opus-4.5",
+	"claude-haiku-4.5",
+	"gpt-5.4",
+	"gpt-5.4-mini",
+	"gpt-4.1-2025-04-14",
 	"gpt-4.1",
-	"gpt-4o",
-	"gpt-4o-mini",
-	"o4-mini",
-	"o3-mini",
+}
+
+// CopilotModelInfo is the subset of GET /models metadata resolveModel needs
+// to pick a good default — richer than the plain []string Capabilities()
+// exposes (which only needs IDs).
+type CopilotModelInfo struct {
+	ID            string
+	Vendor        string
+	Enabled       bool // policy.state == "enabled" (or no policy gate at all)
+	PickerEnabled bool // model_picker_enabled
 }
 
 // CopilotProvider implements Provider using the GitHub Copilot Chat API.
 // Any GitHub account with an active Copilot subscription can use this provider.
 type CopilotProvider struct {
-	token        string
-	model        string
-	baseURL      string // overridable in tests
-	client       *http.Client
-	cachedModels []string
-	modelsOnce   sync.Once
+	token   string
+	model   string // explicit override (FORGE_COPILOT_MODEL); empty means "resolve dynamically"
+	baseURL string // overridable in tests
+	client  *http.Client
+
+	cachedModels     []string
+	cachedModelInfos []CopilotModelInfo
+	modelsOnce       sync.Once
+
+	resolvedDefault    string
+	resolvedDefaultSet bool
+	resolveOnce        sync.Once
 }
 
 // newCopilotProvider returns a CopilotProvider when a GitHub token is available,
-// nil otherwise.
+// nil otherwise. model is left empty when FORGE_COPILOT_MODEL is unset —
+// resolveModel() fills it in lazily from the live model catalog on first use
+// rather than baking in a possibly-stale default at construction time.
 func newCopilotProvider() *CopilotProvider {
 	token := detectGitHubToken()
 	if token == "" {
 		return nil
 	}
-	model := os.Getenv("FORGE_COPILOT_MODEL")
-	if model == "" {
-		model = copilotDefaultModel
-	}
 	return &CopilotProvider{
 		token:   token,
-		model:   model,
+		model:   os.Getenv("FORGE_COPILOT_MODEL"),
 		baseURL: copilotAPIBase,
 		client:  &http.Client{},
 	}
@@ -133,7 +167,12 @@ func (c *CopilotProvider) loadModels() {
 
 	var body struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID                 string `json:"id"`
+			Vendor             string `json:"vendor"`
+			ModelPickerEnabled bool   `json:"model_picker_enabled"`
+			Policy             *struct {
+				State string `json:"state"`
+			} `json:"policy"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &body); err != nil {
@@ -141,15 +180,113 @@ func (c *CopilotProvider) loadModels() {
 	}
 
 	models := make([]string, 0, len(body.Data))
+	infos := make([]CopilotModelInfo, 0, len(body.Data))
 	for _, m := range body.Data {
-		if m.ID != "" {
-			models = append(models, m.ID)
+		if m.ID == "" {
+			continue
 		}
+		models = append(models, m.ID)
+		// No policy block at all means the model isn't behind an
+		// account/org enable-toggle — treat as enabled by default (matches
+		// e.g. the exec-agent-* / embedding entries in the live catalog,
+		// which carry no "policy" key and are usable as-is).
+		enabled := m.Policy == nil || m.Policy.State == "enabled"
+		infos = append(infos, CopilotModelInfo{
+			ID:            m.ID,
+			Vendor:        m.Vendor,
+			Enabled:       enabled,
+			PickerEnabled: m.ModelPickerEnabled,
+		})
 	}
 	if len(models) > 0 {
 		c.cachedModels = models
+		c.cachedModelInfos = infos
 	}
 }
+
+// resolveModel returns the model id to use for a request that left
+// req.Model empty: an explicit FORGE_COPILOT_MODEL override if set,
+// otherwise a live-catalog-derived default (cached for the lifetime of this
+// provider instance via resolveOnce), falling back to the static
+// copilotDefaultModel constant only when the live /models call itself is
+// unreachable. See copilotDefaultModel's doc comment for why preferring
+// live data over any hardcoded constant matters here.
+func (c *CopilotProvider) resolveModel() string {
+	if c.model != "" {
+		return c.model
+	}
+	c.resolveOnce.Do(func() {
+		c.modelsOnce.Do(c.loadModels)
+		c.resolvedDefault = pickDefaultModel(c.cachedModelInfos, copilotDefaultModel)
+		c.resolvedDefaultSet = true
+	})
+	return c.resolvedDefault
+}
+
+// pickDefaultModel chooses a sensible default from a live GET /models
+// catalog: prefer an enabled, picker-enabled Anthropic "sonnet"-family
+// model (forge's own generation prompts are tuned against Claude, and
+// "sonnet" is the quality/cost sweet spot vs. "opus"/"haiku"), then any
+// enabled+picker-enabled Anthropic model, then any enabled+picker-enabled
+// model regardless of vendor, then just the first live entry. Returns
+// fallback unchanged when infos is empty (live fetch failed/unreachable).
+func pickDefaultModel(infos []CopilotModelInfo, fallback string) string {
+	if len(infos) == 0 {
+		return fallback
+	}
+	usable := func(m CopilotModelInfo) bool { return m.Enabled && m.PickerEnabled }
+
+	// bestByVersion returns the highest-version match (by modelVersionRank)
+	// among infos passing keep, or "" if none match.
+	bestByVersion := func(keep func(CopilotModelInfo) bool) string {
+		best, bestRank := "", -1.0
+		for _, m := range infos {
+			if !keep(m) {
+				continue
+			}
+			if rank := modelVersionRank(m.ID); best == "" || rank > bestRank {
+				best, bestRank = m.ID, rank
+			}
+		}
+		return best
+	}
+
+	if id := bestByVersion(func(m CopilotModelInfo) bool {
+		return usable(m) && strings.EqualFold(m.Vendor, "Anthropic") && strings.Contains(strings.ToLower(m.ID), "sonnet")
+	}); id != "" {
+		return id
+	}
+	if id := bestByVersion(func(m CopilotModelInfo) bool {
+		return usable(m) && strings.EqualFold(m.Vendor, "Anthropic")
+	}); id != "" {
+		return id
+	}
+	if id := bestByVersion(usable); id != "" {
+		return id
+	}
+	return infos[0].ID
+}
+
+// modelVersionRank extracts a comparable version number from a Copilot
+// model id's trailing digits/dots (e.g. "claude-sonnet-4.6" → 4.6,
+// "claude-sonnet-5" → 5, "gpt-5.6-luna" → 5.6, ignoring the trailing
+// non-numeric codename), so pickDefaultModel prefers the newest matching
+// model instead of whichever happens to appear first in the API's response
+// order (observed to not be strictly newest-last or newest-first).
+// Returns 0 for ids with no trailing version number.
+func modelVersionRank(id string) float64 {
+	m := modelVersionPattern.FindStringSubmatch(id)
+	if m == nil {
+		return 0
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+var modelVersionPattern = regexp.MustCompile(`(\d+(?:\.\d+)?)(?:-[a-zA-Z]+)?$`)
 
 // detectGitHubToken returns a GitHub OAuth token from the environment or
 // config files, in priority order:
@@ -317,6 +454,30 @@ func (c *CopilotProvider) Capabilities() Capabilities {
 	}
 }
 
+// LiveModels returns the rich GET /models catalog (id/vendor/enabled/
+// picker-enabled) for `forge llm list` to render, plus whether it came from
+// a live network fetch (true) or the static copilotKnownModels fallback
+// (false, when the endpoint was unreachable). Unlike Capabilities().Models
+// (plain IDs, kept minimal for the generic Provider interface), this is
+// Copilot-specific and exported directly on *CopilotProvider.
+func (c *CopilotProvider) LiveModels() (infos []CopilotModelInfo, live bool) {
+	c.modelsOnce.Do(c.loadModels)
+	if len(c.cachedModelInfos) > 0 {
+		return c.cachedModelInfos, true
+	}
+	fallback := make([]CopilotModelInfo, 0, len(copilotKnownModels))
+	for _, id := range copilotKnownModels {
+		fallback = append(fallback, CopilotModelInfo{ID: id, Enabled: true, PickerEnabled: true})
+	}
+	return fallback, false
+}
+
+// ResolvedModel exposes resolveModel() for `forge llm list` to show which
+// model an unconfigured (no FORGE_COPILOT_MODEL / forge.yml llm.model)
+// request would actually use, without spending a real completion call to
+// find out.
+func (c *CopilotProvider) ResolvedModel() string { return c.resolveModel() }
+
 // Complete sends a chat completion request to the GitHub Copilot API.
 // On HTTP 400 with a model-availability error, it automatically retries with
 // the next model from copilotKnownModels (unless req.Model is explicitly set).
@@ -325,7 +486,7 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 		return nil, errcode.New(ErrInvalidInput, "request must not be nil", nil)
 	}
 
-	primaryModel := c.model
+	primaryModel := c.resolveModel()
 	if req.Model != "" {
 		primaryModel = req.Model
 	}
@@ -339,6 +500,11 @@ func (c *CopilotProvider) Complete(ctx context.Context, req *Request) (*Response
 		Model     string        `json:"model"`
 		Messages  []chatMessage `json:"messages"`
 		MaxTokens int           `json:"max_tokens,omitempty"`
+		// Stream is explicitly false (not omitempty — always present in the
+		// request body) so the API never has to guess a default for it;
+		// Capabilities() declares Streaming: false and Complete() below only
+		// ever parses a single-JSON-object response, never SSE frames.
+		Stream bool `json:"stream"`
 	}
 
 	messages := make([]chatMessage, 0, 2)

@@ -41,8 +41,13 @@ func TestCopilotProvider_GHToken(t *testing.T) {
 	if p.token != "ghp_test_token" {
 		t.Errorf("token = %q, want %q", p.token, "ghp_test_token")
 	}
-	if p.model != copilotDefaultModel {
-		t.Errorf("model = %q, want %q", p.model, copilotDefaultModel)
+	// model is left empty at construction when FORGE_COPILOT_MODEL is unset —
+	// resolveModel() fills it in lazily from the live catalog (or
+	// copilotDefaultModel as a last resort) on first use, rather than baking
+	// in a possibly-stale default here. See TestCopilotProvider_ResolveModel*
+	// for the resolution behavior itself.
+	if p.model != "" {
+		t.Errorf("model = %q, want empty (unresolved until first use)", p.model)
 	}
 }
 
@@ -275,6 +280,205 @@ func TestDetect_CopilotPickedUp(t *testing.T) {
 	}
 	if p.Name() != "github-copilot" {
 		t.Errorf("Detect() provider = %q, want %q", p.Name(), "github-copilot")
+	}
+}
+
+// -- pickDefaultModel / resolveModel (2026-08-02: stale-default regression) --
+//
+// Regression coverage for a real incident: the previous hardcoded
+// copilotDefaultModel ("claude-sonnet-4-5-20250514") had gone dead on
+// GitHub's Copilot backend. Unlike the /chat/completions HTTP-400 case
+// already covered above, an unknown *default* model doesn't error at all —
+// the API silently substitutes a different model (observed: gpt-4.1, whose
+// non-streaming output got cut short well under the requested token budget
+// on real prompts) and returns HTTP 200, so the existing fallback-on-400
+// path never even triggers. pickDefaultModel/resolveModel close this gap by
+// preferring the live /models catalog over any hardcoded constant whenever
+// it's reachable.
+
+func TestPickDefaultModel_PrefersEnabledAnthropicSonnet(t *testing.T) {
+	infos := []CopilotModelInfo{
+		{ID: "gpt-4.1", Vendor: "Azure OpenAI", Enabled: true, PickerEnabled: true},
+		{ID: "claude-opus-4.5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+	}
+	got := pickDefaultModel(infos, "fallback")
+	if got != "claude-sonnet-5" {
+		t.Errorf("pickDefaultModel() = %q, want %q (enabled Anthropic sonnet preferred)", got, "claude-sonnet-5")
+	}
+}
+
+// TestPickDefaultModel_PrefersHighestVersion_NotFirstInResponseOrder locks a
+// real observed shape: GitHub's /models response order is not sorted by
+// version (e.g. "claude-sonnet-4.6" appeared before "claude-sonnet-5" in a
+// real catalog snapshot on 2026-08-02). Picking the first match in response
+// order would silently default to an older Sonnet even when a newer one is
+// available and enabled.
+func TestPickDefaultModel_PrefersHighestVersion_NotFirstInResponseOrder(t *testing.T) {
+	infos := []CopilotModelInfo{
+		{ID: "claude-sonnet-4.6", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+		{ID: "claude-sonnet-4.5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+	}
+	got := pickDefaultModel(infos, "fallback")
+	if got != "claude-sonnet-5" {
+		t.Errorf("pickDefaultModel() = %q, want %q (highest version, regardless of catalog order)", got, "claude-sonnet-5")
+	}
+}
+
+func TestModelVersionRank(t *testing.T) {
+	cases := []struct {
+		id   string
+		want float64
+	}{
+		{"claude-sonnet-5", 5},
+		{"claude-sonnet-4.6", 4.6},
+		{"gpt-5.6-luna", 5.6},
+		{"claude-opus-4.8-fast", 4.8},
+		{"text-embedding-3-small", 3},
+		{"no-version-here", 0},
+	}
+	for _, c := range cases {
+		if got := modelVersionRank(c.id); got != c.want {
+			t.Errorf("modelVersionRank(%q) = %v, want %v", c.id, got, c.want)
+		}
+	}
+}
+
+func TestPickDefaultModel_SkipsDisabledSonnet_FallsBackToEnabledAnthropic(t *testing.T) {
+	infos := []CopilotModelInfo{
+		// Present in the catalog but gated off for this account — must not be picked.
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: false, PickerEnabled: true},
+		{ID: "claude-opus-4.5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+	}
+	got := pickDefaultModel(infos, "fallback")
+	if got != "claude-opus-4.5" {
+		t.Errorf("pickDefaultModel() = %q, want %q (falls back to any enabled Anthropic model)", got, "claude-opus-4.5")
+	}
+}
+
+func TestPickDefaultModel_NoAnthropicAvailable_FallsBackToAnyEnabled(t *testing.T) {
+	infos := []CopilotModelInfo{
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: false, PickerEnabled: true},
+		{ID: "gpt-5.4", Vendor: "Azure OpenAI", Enabled: true, PickerEnabled: true},
+	}
+	got := pickDefaultModel(infos, "fallback")
+	if got != "gpt-5.4" {
+		t.Errorf("pickDefaultModel() = %q, want %q (falls back to any enabled model)", got, "gpt-5.4")
+	}
+}
+
+func TestPickDefaultModel_NothingEnabled_FallsBackToFirstEntry(t *testing.T) {
+	infos := []CopilotModelInfo{
+		{ID: "claude-opus-5", Vendor: "Anthropic", Enabled: false, PickerEnabled: true},
+		{ID: "gpt-5.5", Vendor: "Azure OpenAI", Enabled: false, PickerEnabled: true},
+	}
+	got := pickDefaultModel(infos, "fallback")
+	if got != "claude-opus-5" {
+		t.Errorf("pickDefaultModel() = %q, want %q (first entry when nothing is usable)", got, "claude-opus-5")
+	}
+}
+
+func TestPickDefaultModel_PickerDisabled_TreatedAsUnusable(t *testing.T) {
+	infos := []CopilotModelInfo{
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: true, PickerEnabled: false},
+		{ID: "gpt-5.4", Vendor: "Azure OpenAI", Enabled: true, PickerEnabled: true},
+	}
+	got := pickDefaultModel(infos, "fallback")
+	if got != "gpt-5.4" {
+		t.Errorf("pickDefaultModel() = %q, want %q (picker-disabled Anthropic model skipped)", got, "gpt-5.4")
+	}
+}
+
+func TestPickDefaultModel_EmptyCatalog_ReturnsStaticFallback(t *testing.T) {
+	got := pickDefaultModel(nil, "static-fallback")
+	if got != "static-fallback" {
+		t.Errorf("pickDefaultModel(nil) = %q, want the static fallback unchanged", got)
+	}
+}
+
+// mockRichModelsServer is like mockModelsServer but includes vendor/policy/
+// model_picker_enabled, the fields pickDefaultModel actually needs.
+func mockRichModelsServer(t *testing.T, infos []CopilotModelInfo) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/models" {
+			http.NotFound(w, r)
+			return
+		}
+		type policy struct {
+			State string `json:"state"`
+		}
+		type model struct {
+			ID                 string  `json:"id"`
+			Vendor             string  `json:"vendor"`
+			ModelPickerEnabled bool    `json:"model_picker_enabled"`
+			Policy             *policy `json:"policy,omitempty"`
+		}
+		data := make([]model, 0, len(infos))
+		for _, info := range infos {
+			m := model{ID: info.ID, Vendor: info.Vendor, ModelPickerEnabled: info.PickerEnabled}
+			state := "disabled"
+			if info.Enabled {
+				state = "enabled"
+			}
+			m.Policy = &policy{State: state}
+			data = append(data, m)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestCopilotProvider_ResolveModel_UsesLiveCatalogWhenNoOverride(t *testing.T) {
+	srv := mockRichModelsServer(t, []CopilotModelInfo{
+		{ID: "gpt-4.1", Vendor: "Azure OpenAI", Enabled: true, PickerEnabled: true},
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+	})
+	p := &CopilotProvider{token: "ghp_test", baseURL: srv.URL, client: srv.Client()} // model left empty: no override
+	if got := p.resolveModel(); got != "claude-sonnet-5" {
+		t.Errorf("resolveModel() = %q, want %q (live catalog preferred over static default)", got, "claude-sonnet-5")
+	}
+}
+
+func TestCopilotProvider_ResolveModel_ExplicitOverrideWinsOverLiveCatalog(t *testing.T) {
+	srv := mockRichModelsServer(t, []CopilotModelInfo{
+		{ID: "claude-sonnet-5", Vendor: "Anthropic", Enabled: true, PickerEnabled: true},
+	})
+	p := &CopilotProvider{token: "ghp_test", model: "gpt-4o", baseURL: srv.URL, client: srv.Client()}
+	if got := p.resolveModel(); got != "gpt-4o" {
+		t.Errorf("resolveModel() = %q, want explicit override %q (must not fetch or override it)", got, "gpt-4o")
+	}
+}
+
+func TestCopilotProvider_ResolveModel_FallsBackToStaticWhenCatalogUnreachable(t *testing.T) {
+	p := &CopilotProvider{token: "ghp_test", baseURL: "http://127.0.0.1:1", client: &http.Client{}}
+	if got := p.resolveModel(); got != copilotDefaultModel {
+		t.Errorf("resolveModel() = %q, want static fallback %q when /models is unreachable", got, copilotDefaultModel)
+	}
+}
+
+func TestCopilotProvider_ResolveModel_CachedAcrossCalls(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []map[string]any{
+			{"id": "claude-sonnet-5", "vendor": "Anthropic", "model_picker_enabled": true, "policy": map[string]string{"state": "enabled"}},
+		}})
+	}))
+	t.Cleanup(srv.Close)
+
+	p := &CopilotProvider{token: "ghp_test", baseURL: srv.URL, client: srv.Client()}
+	for i := 0; i < 3; i++ {
+		if got := p.resolveModel(); got != "claude-sonnet-5" {
+			t.Errorf("call %d: resolveModel() = %q, want %q", i, got, "claude-sonnet-5")
+		}
+	}
+	if calls != 1 {
+		t.Errorf("/models called %d times, want exactly 1 (resolveOnce should cache)", calls)
 	}
 }
 
