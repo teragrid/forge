@@ -267,6 +267,24 @@ func DetectOrPrompt(r io.Reader, w io.Writer) (Provider, error) {
 	return nil, err
 }
 
+// KnownProviderNames returns the stable provider names accepted by
+// forge.yml's llm.provider / `forge config set llm.provider` / `forge llm
+// use`, in the same order Detect()'s env-var auto-detection tries them.
+// Exported for `forge llm list` to enumerate what's switchable without
+// duplicating this list.
+func KnownProviderNames() []string {
+	return []string{"anthropic", "openai", "gemini", "azure", "bedrock", "ollama", "copilot"}
+}
+
+// DetectByName builds a Provider for an explicit name using the same
+// credential detection detectByName (unexported) uses internally for
+// forge.yml's llm.provider layer — exported so `forge llm list` can check,
+// per known provider, whether its credentials are currently available
+// without needing forge.yml itself to already name that provider. Returns
+// nil when the named provider's credentials are unavailable, exactly like
+// the unexported detectByName.
+func DetectByName(name string) Provider { return detectByName(name) }
+
 // detectByName initialises a provider by explicit name, using the same
 // credential env-vars as the auto-detection path. Returns nil when the
 // provider's credentials are unavailable.
