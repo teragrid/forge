@@ -99,6 +99,23 @@ The repo already ships `.vscode/settings.json` — open it in VS Code and Forge 
 forge skill install --for all   # writes expert-role files for Copilot, Claude, Cursor, Windsurf
 ```
 
+### No API key? Run the pipeline from the chat you're already in
+
+Forge is two planes. The **deterministic plane** — quality gates, artefact
+validation, scan, lint, audit and token ledgers — runs locally and needs no
+network. Only the **reasoning plane** needs a model. Agent mode points that
+half at the AI you already pay for, instead of at a second subscription:
+
+```bash
+forge ship "add rate limiting" --agent-mode   # runs, then pauses with a prompt (exit 78)
+forge agent submit --file answer.md           # your AI answers it
+forge ship --agent-mode                       # replays, runs the gates, continues
+```
+
+Your AI supplies the text a provider would have. It never decides whether a
+checkpoint passed — forge does, using exactly the same gates it uses with an
+API key. Run `forge agent loop` for the full protocol.
+
 For the full agent reference — exact command syntax, MCP tool specs, exit codes, CI patterns, error recovery — see **[docs/AI_AGENT_GUIDE.md](docs/AI_AGENT_GUIDE.md)**.
 
 ---
@@ -381,6 +398,8 @@ You don't need to memorise all of these. Start with `forge scan all` and `forge 
 | Command | What it does |
 |---|---|
 | `forge ship [<feature>] [--dry-run]` | Run the full 6-stage quality gate; auto-creates `feature/<slug>` branch when on a protected branch |
+| `forge ship <feature> --agent-mode` | Same pipeline, no API key: pauses at each reasoning step and lets your own AI chat answer |
+| `forge agent status\|prompt\|submit` | Drive a paused agent-mode run — see what's owed, read the prompt, answer it |
 | `forge scan all` | Run every quality and security check at once |
 | `forge scan secrets` | Look for API keys hardcoded in files |
 | `forge scan prompt-injection` | Check if your AI app can be manipulated by users |

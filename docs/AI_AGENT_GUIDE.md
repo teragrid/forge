@@ -32,6 +32,7 @@ Forge is a single-binary CLI (`forge`) that wraps these capabilities:
 | Security scanning | `scan secrets`, `scan prompt-injection`, `scan supply-chain`, `scan all` |
 | Convention linting | `lint`, `clean` |
 | Quality gate / ship pipeline | `ship`, `check` |
+| Ship without an API key | `ship --agent-mode`, `agent status/prompt/submit/loop` |
 | Test generation & execution | `test spec`, `test run`, `test unit`, `test e2e` |
 | Bug diagnosis & patching | `bugfix` |
 | LLM spend control | `spend set`, `spend status` |
@@ -534,6 +535,36 @@ Checkpoint names and exit codes:
 | `code` | code quality below threshold |
 | `ship` | secrets present, lint failures, or security violations |
 
+### Ship without an API key (agent mode)
+
+Forge is two planes. The **deterministic plane** — checkpoints, quality gates,
+artefact validation, scan, lint, audit and token ledgers — runs locally in Go
+and needs no network. Only the **reasoning plane** (specs, architecture,
+breakdown) needs a model. Agent mode points that half at *you*, the agent
+already in the conversation, instead of at a paid API key.
+
+```bash
+forge ship "<feature>" --agent-mode      # run until reasoning is needed, then pause
+forge agent prompt                       # re-read the pending turn (idempotent)
+forge agent submit --file answer.md      # answer it
+forge ship --agent-mode                  # replay, run the gates, continue
+```
+
+Exit **78** means "your turn" — the pipeline is healthy and waiting on you. It
+is not a failure; every real failure is still exit 1.
+
+```bash
+forge ship "<feature>" --agent-mode --json    # turn as {"status":"agent_turn_required",...}
+forge agent status                            # what run is in flight, what is owed
+forge agent loop                              # the full driver protocol
+forge agent sessions                          # concurrent runs
+forge ship --agent-mode --session feature-b   # isolate parallel conversations
+```
+
+You supply the text a provider would have returned. **You never decide whether
+a checkpoint passed** — forge does, using exactly the same gates it uses with
+an API key. Do not report a gate as green that forge has not reported as green.
+
 ### Testing
 
 ```bash
@@ -845,6 +876,7 @@ spend:
 | `0` | Success. For scanners: no findings. For `ship --dry-run`: all checks pass. |
 | `1` | Failure. Findings present, stage failed, or validation error. |
 | `2` | Fatal. Binary misconfigured, missing required dependency, or I/O error. |
+| `78` | `ship --agent-mode` only: **your turn.** The pipeline is healthy and paused waiting for you to answer a prompt. Answer it, then re-run — do not treat this as a failure or abort the run. |
 
 To force scanners to always exit 0 (advisory mode):
 

@@ -38,6 +38,8 @@ package cmdship
 import (
 	"fmt"
 	"strings"
+
+	"github.com/teragrid/forge/internal/agentbridge"
 )
 
 // ── Severity ──────────────────────────────────────────────────────────────────
@@ -355,6 +357,12 @@ type RunOptions struct {
 	// "strict-testing: true" (either source enables it; there is no way to
 	// force it off from the CLI when the file already has it on).
 	StrictTesting bool
+	// AgentBridge, when non-nil, switches the reasoning plane from a paid
+	// provider to the host agent (`forge ship --agent-mode`). It takes
+	// priority over LLMPipe and over provider auto-detection: an API key
+	// present in the environment is deliberately ignored, because a user who
+	// asked for agent mode asked not to be billed.
+	AgentBridge *agentbridge.Bridge
 }
 
 // ── Concern catalog ───────────────────────────────────────────────────────────

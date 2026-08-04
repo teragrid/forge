@@ -44,6 +44,6 @@ func init() {
 
 func main() {
 	if err := cli.NewRootCommand(Version).Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }

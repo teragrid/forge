@@ -27,6 +27,7 @@ import (
 	"github.com/teragrid/forge/internal/cli/banner"
 	"github.com/teragrid/forge/internal/cli/cmdadd"
 	"github.com/teragrid/forge/internal/cli/cmdadopt"
+	"github.com/teragrid/forge/internal/cli/cmdagent"
 	"github.com/teragrid/forge/internal/cli/cmdagents"
 	"github.com/teragrid/forge/internal/cli/cmdask"
 	"github.com/teragrid/forge/internal/cli/cmdaudit"
@@ -249,6 +250,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 		inGroup(cmdoptimize.New(), groupOps),
 
 		// ── AI & Automation ───────────────────────────────────────────────────
+		inGroup(cmdagent.New(), groupAI),
 		inGroup(cmdcompanion.New(), groupAI),
 		inGroup(cmdskill.New(), groupAI),
 		inGroup(cmdagents.New(), groupAI),
@@ -323,4 +325,23 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	registerAliases(root)
 
 	return root
+}
+
+// ExitCode maps a command error to the process exit status.
+//
+// Almost everything is exit 1 — forge does not carve up failures by kind,
+// because a script that has to distinguish "lint failed" from "scan failed"
+// should read --json, not a number. The one exception is a paused agent-mode
+// run: `forge ship --agent-mode` stopping to ask its driver a question is not
+// a failure at all, and a driver loop that cannot tell "your turn" from "the
+// change is broken" will either abort a healthy run or retry a broken one.
+func ExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case cmdship.IsAgentTurn(err):
+		return cmdship.ExitAgentTurn
+	default:
+		return 1
+	}
 }

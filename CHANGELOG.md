@@ -4,6 +4,39 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-08-04 — Two planes: run the whole ship pipeline from your own AI chat, with no API key
+
+### Added
+
+- **`forge ship --agent-mode` — the deterministic half of forge no longer depends on buying a second LLM subscription.** Until now `forge ship` needed `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / a Copilot token to do anything at all, which meant a user already paying for a model inside a chat window (Claude Code, Copilot Chat, Cursor) had to buy a redundant one to use forge. But only part of forge ever needed a model. Forge is really two planes fused into one binary:
+  - the **deterministic plane** — the checkpoint state machine, quality gates, `validateArtefact`, spec manifest, traceability, scan/lint, and the audit + token ledgers. All of it runs locally in Go, needs no network, and is the only thing in forge that can truthfully say whether a checkpoint passed;
+  - the **reasoning plane** — writing a spec, debating an architecture, decomposing a breakdown. Only this half needs a model.
+
+  Agent mode points the second half at the AI chat the user is already in, and leaves the first half exactly where it was. `forge ship "<feature>" --agent-mode` runs every deterministic step it can, and when it reaches a step that needs reasoning it prints the compiled prompt as a `FORGE AGENT TURN` block and exits **78** (`cmdship.ExitAgentTurn`). The host agent answers, runs `forge agent submit --file <path>`, and re-runs `forge ship --agent-mode`; forge replays the answer at the point it was asked for, runs the same gates against it, and either advances or hands over the next turn.
+
+- **The host agent supplies text, never verdicts.** This is what separates agent mode from a prose "skill" that merely describes the forge workflow — an imitated quality gate is one the model grades itself on. A submitted answer re-enters the pipeline through the same path a provider response takes, so it gets the same preamble stripping, the same truncation detection, and the same checkpoint hooks. An artefact that would have been rejected coming from Anthropic is rejected coming from your chat window.
+
+- **New `internal/agentbridge` package** — the plane boundary itself, wired in at forge's single LLM choke point (`LLMPipe.InvokeChecked`), so every checkpoint that can call a provider is covered by construction rather than one at a time. Prompts are scrubbed by `secretrewriter` *before* the bridge sees them: a deferred turn is written to disk and read back by a human-facing chat window, which is at least as exposed as an API request.
+
+- **New `forge agent` verb** — the host agent's side of the loop: `status`, `prompt`, `submit --file <p>` / `submit -`, `sessions`, `reset --yes`, and `loop` (prints the driver protocol for pasting into a chat). `forge agent prompt` is deliberately idempotent and stateless — a chat whose context was compacted mid-run can recover the full question, budget and submit command without remembering anything from the previous turn.
+
+- **`--session <name>`** on both `forge ship --agent-mode` and `forge agent`, so two conversations driving two features concurrently can never answer each other's turns.
+
+- **Replay is content-addressed, with a positional fallback.** Answers are keyed primarily by a sha256 over the operation name plus both prompt halves, so an unchanged question always replays. A pure content address is not sufficient on its own, and the reason is specific: prompts embed repository state, and the host agent writes files *between* turns, so the prompt for turn N legitimately changes once turn N's own artefact lands on disk — keying on the hash alone would re-ask that question forever. The store therefore also keeps an ordinal key (the Nth call to a given operation) and falls back to it, counting the event as drift so it is visible in `forge agent status` rather than silent. `--strict-replay` turns the fallback off for callers that would rather re-ask than replay a stale answer.
+
+- **`forge skill install` now embeds the agent-mode driver loop** at the top of every generated persona file (Copilot instructions, `CLAUDE.md`, `.cursor/rules`, `.windsurfrules`), pointing the assistant at the enforced path first and keeping the existing prose methodology below it as the fallback for when the binary is not installed — with an explicit instruction to *say* which of the two it used, because a gate the model evaluated itself is weaker evidence than one forge evaluated. The protocol body is embedded verbatim from `cmdagent.DriverProtocol()` rather than restated, and a test fails the build if a future edit hand-writes it instead — two copies of a protocol drift, and the copy on disk is the one that outlives the binary that enforces it.
+
+### Fixed
+
+- **An unanswered agent turn could be silently replaced by a different question, misfiling the answer.** Re-running `forge ship --agent-mode` without answering is normal — it is how a driver that lost its place recovers — but the pipeline can legitimately arrive at a *different* prompt the second time, because a checkpoint that failed to generate its artefact may still have scaffolded a stub, moving the next run from the generate path onto the review path. Since `forge agent submit` records against whatever is pending at submit time, that would file a freshly generated spec as if it were a review. A pending turn now stands until it is answered or the session is reset, while already-answered turns still replay normally so the run can reach it.
+
+### Changed
+
+- **Agent mode ignores a detected API key rather than quietly using it.** `RunOptions.AgentBridge` takes priority over both `RunOptions.LLMPipe` and provider auto-detection. A user who asked not to be billed must not be billed because forge found a key lying around in the environment.
+- **Agent mode runs the arch/test DAG serially.** Those two checkpoints normally run in parallel, but the bridge is driven from one goroutine and there is nothing to compute past a pause anyway — continuing would only queue up work to be redone on the next replay.
+- **`forge ship`'s no-provider tip now names agent mode** instead of only telling users to go buy a key.
+- **`main()` maps errors to exit status through the new `cli.ExitCode`.** Everything is still exit 1 except a paused agent-mode run: a driver loop that cannot tell "your turn" from "the change is broken" will either abort a healthy run or retry a broken one.
+
 ## [1.7.14] — 2026-08-02 — Copilot stops silently drifting to a dead default model; `forge llm` for one-command provider switching
 
 ### Fixed

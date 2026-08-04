@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/cli/cmdagent"
 	"github.com/teragrid/forge/internal/cli/cmdskill"
 )
 
@@ -548,5 +549,75 @@ func TestValidPlatforms_ContainsExpected(t *testing.T) {
 		if !set[want] {
 			t.Errorf("ValidPlatforms missing %q", want)
 		}
+	}
+}
+
+// ── Skill files must point at the enforced path, not just describe it ─────────
+
+// A generated skill made only of prose teaches an AI to imitate the forge
+// workflow, and an imitated quality gate is one the model grades itself on.
+// Every installed skill must therefore carry the agent-mode driver loop, which
+// runs the real pipeline and leaves the verdicts in Go.
+func TestInstall_EverySkillCarriesTheAgentModeLoop(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmd(t, "install", "--root", dir, "--for", "all"); err != nil {
+		t.Fatalf("install --for all: %v", err)
+	}
+
+	var checked int
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, ".mdc") &&
+			!strings.HasSuffix(path, "windsurfrules") {
+			return err
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		body := string(data)
+		// Only the top-level persona files carry the loop; the per-task
+		// prompt files (forge-scan, forge-bugfix, …) are scoped narrower.
+		if !strings.Contains(body, "Forge") || !strings.Contains(body, "Your Role") &&
+			!strings.Contains(body, "Forge Expert Instructions") {
+			return nil
+		}
+		checked++
+		for _, want := range []string{
+			"forge ship \"<feature>\" --agent-mode",
+			"forge agent submit --file",
+			"Never report a gate as passing",
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s is missing the agent-mode loop marker %q", path, want)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	if checked == 0 {
+		t.Fatal("no persona skill files were inspected — the check would pass vacuously")
+	}
+}
+
+// The driver protocol lives in exactly one place. If a future edit restates it
+// inside the skill templates instead of embedding it, the copy on disk will
+// drift away from the binary that enforces it — silently, and only for users
+// who installed the skill before the change.
+func TestInstall_DriverProtocolIsEmbeddedNotRestated(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if _, err := runCmd(t, "install", "--root", dir, "--for", "claude"); err != nil {
+		t.Fatalf("install --for claude: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(data), cmdagent.DriverProtocol()) {
+		t.Fatal("CLAUDE.md does not contain cmdagent.DriverProtocol() verbatim — " +
+			"the skill has been rewritten by hand and will drift from the binary")
 	}
 }

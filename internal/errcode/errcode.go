@@ -112,6 +112,8 @@ var reservedRanges = []struct {
 	{6600, 6649, "cli/metrics"},
 	// forge companion: zero-setup AI pairing.
 	{6650, 6699, "cli/companion"},
+	// forge agent: host-agent bridge for `forge ship --agent-mode` (no API key).
+	{6900, 6999, "cli/agent"},
 	{9000, 9099, "internal/test"},
 }
 
