@@ -43,6 +43,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/agentbridge"
 	"github.com/teragrid/forge/internal/audit"
 	"github.com/teragrid/forge/internal/cli/cmdclean"
 	"github.com/teragrid/forge/internal/cli/cmdscan"
@@ -105,7 +106,22 @@ var (
 	ErrSpecAuditFailed = errcode.RegisterWithRemedy(errcode.Code(3201), "spec audit: incomplete tasks or authz gaps detected", "review .forge/specs/<slug>/spec.md and add missing ACs, then retry")
 	ErrBranchFailed    = errcode.RegisterWithRemedy(errcode.Code(3203), "feature branch operation failed", "git status  # resolve merge conflicts, then forge ship --no-branch")
 	ErrQAVerifyFailed  = errcode.RegisterWithRemedy(errcode.Code(3204), "QA-verify: test suite or MCP probe failed", "go test ./... -count=1  # fix failing tests, then forge ship qa-verify")
+	// ErrAgentTurn is a pause, not a failure: agent mode reached a prompt the
+	// host agent has not answered yet. It surfaces as exit code 78
+	// (ExitAgentTurn) so a driving script can distinguish "your turn" from
+	// "the change is broken", which exit 1 cannot express.
+	ErrAgentTurn = errcode.RegisterWithRemedy(errcode.Code(3220),
+		"agent mode: host-agent turn required",
+		"forge agent prompt  # read the turn, then: forge agent submit --file <path>")
 )
+
+// ExitAgentTurn is the process exit code for a paused agent-mode run.
+//
+// 78 is chosen from the sysexits.h convention (EX_CONFIG, "configuration
+// error") purely because it is outside the range forge already uses and is
+// not a shell-reserved value (126/127/128+n). Its meaning here is forge's
+// own: the pipeline is healthy and waiting on the host agent.
+const ExitAgentTurn = 78
 
 // Gate is called after each checkpoint runs (0-based idx, total count, completed cp).
 // Return true to proceed to the next checkpoint; false stops the pipeline.
@@ -235,6 +251,9 @@ func New() *cobra.Command {
 		rootDir        string // --root: project root (default: cwd); primarily for testing
 		noBranch       bool   // --no-branch: skip automatic feature-branch creation
 		strictTesting  bool   // --strict-testing: enforce the qa-verify 4-stage testing-pipeline.md gate
+		agentMode      bool   // --agent-mode: reasoning plane = host agent, no API key
+		agentSession   string // --session: which agent-mode conversation this run belongs to
+		strictReplay   bool   // --strict-replay: never replay an answer by position when the prompt changed
 	)
 
 	// bindFlags attaches shared flags to a subcommand or the parent.
@@ -255,6 +274,12 @@ func New() *cobra.Command {
 		c.Flags().BoolVar(&strictTesting, "strict-testing", false, "enforce the 4-stage testing pipeline (local/pre-push/staging/production): qa-verify fails without .forge/specs/<slug>/testing-pipeline.md evidence. Advisory-only by default.")
 		c.Flags().StringVarP(&specName, "name", "n", "",
 			"name of the spec directory in .forge/specs/ (overrides slug derived from description; applies to all checkpoints)")
+		c.Flags().BoolVar(&agentMode, "agent-mode", false,
+			"drive the pipeline from your own AI chat instead of an API key: forge pauses at each reasoning step, hands you the prompt, and resumes once you submit the answer")
+		c.Flags().StringVar(&agentSession, "session", agentbridge.DefaultSession,
+			"agent-mode session name — keeps concurrent features from answering each other's turns")
+		c.Flags().BoolVar(&strictReplay, "strict-replay", false,
+			"agent-mode: re-ask a prompt whose text changed instead of replaying the answer recorded at the same position")
 	}
 
 	// runCheckpoint is the shared body: run only the named checkpoint(s).
@@ -369,11 +394,39 @@ func New() *cobra.Command {
 				DryRun:    dryRun,
 			}
 		}
+
+		// Agent mode: swap the reasoning plane from a paid provider to the
+		// host agent. The deterministic plane is untouched — same checkpoints,
+		// same gates, same artefact validation.
+		var bridge *agentbridge.Bridge
+		if agentMode || os.Getenv("FORGE_AGENT_MODE") == "1" {
+			var bErr error
+			bridge, bErr = agentbridge.Open(root, agentSession)
+			if bErr != nil {
+				return errcode.New(ErrAgentTurn, "open agent bridge", bErr)
+			}
+			bridge.StrictReplay = strictReplay
+			bridge.SetFeature(description, specName)
+			runOpts.AgentBridge = bridge
+			// Interactive y/N gates would block a chat-driven run between
+			// turns, and the host agent has no stdin to answer them with.
+			runOpts.Gate = nil
+			yolo = true
+		}
 		// G-004: --yes && --json → NDJSON event stream. --json alone → single JSON object (backward compat).
 		if yolo && asJSON {
 			runOpts.EventWriter = cmd.OutOrStdout()
 		}
 		res := RunWithOptions(runOpts)
+
+		// A paused run is not a failed run. The pause is checked before the
+		// result is rendered so the host agent gets the turn block instead of
+		// a wall of checkpoint output ending in a misleading "failed" — the
+		// checkpoint did not fail, it never got its answer.
+		if turn, paused := bridge.Pending(); paused && bridge.Paused() {
+			return renderAgentTurn(cmd, turn, agentSession, asJSON)
+		}
+
 		res.Yolo = yolo
 		res.Interactive = gate != nil
 		res.DebateEnabled = runOpts.DebateOpts != nil
@@ -1774,7 +1827,14 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	// leaves it nil so auto-detection runs via llmprovider.DetectOrPrompt (or
 	// silent dry-run when --dry-run is active).
 	pipe := opts.LLMPipe
-	if pipe == nil {
+	switch {
+	case opts.AgentBridge != nil:
+		// Agent mode wins over an injected pipe and over auto-detection: the
+		// user explicitly asked for the host agent to do the reasoning, and
+		// silently billing a detected API key instead would be the exact
+		// surprise this mode exists to prevent.
+		pipe = newLLMPipeAgent(root, opts.AgentBridge)
+	case pipe == nil:
 		pipe = newLLMPipeInteractive(root, opts.DryRun)
 	}
 
@@ -1847,35 +1907,62 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	results := make(map[string]Checkpoint, 7)
 
+	// Agent mode serialises the run and stops at the first pause. Both are
+	// consequences of the host agent being a single conversation:
+	//   - the bridge is driven from one goroutine, so the arch/test DAG below
+	//     must not fan out;
+	//   - once a turn is owed there is nothing further to compute until it is
+	//     answered, so continuing would only queue up work to be redone on
+	//     the next replay.
+	agentPaused := func() bool { return opts.AgentBridge.Paused() }
+	serial := opts.AgentBridge != nil
+
 	if needs("spec") {
 		snapBefore("spec")
+		pipe.SetCheckpoint("spec")
 		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe)
 	}
 
 	// P1 DAG: run arch and test in parallel when both are needed — they are
 	// independent given spec. Each still runs standalone (reading spec.md /
 	// prior artefacts from disk) when only one of them was requested.
-	runArch := needs("arch")
-	runTest := needs("test")
+	runArch := needs("arch") && !agentPaused()
+	runTest := needs("test") && !agentPaused()
 	var archCP, testCP Checkpoint
 	var dagWG sync.WaitGroup
-	if runArch {
-		dagWG.Add(1)
-		snapBefore("arch")
-		go func() {
-			defer dagWG.Done()
+	switch {
+	case serial:
+		if runArch {
+			snapBefore("arch")
+			pipe.SetCheckpoint("arch")
 			archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
-		}()
-	}
-	if runTest {
-		dagWG.Add(1)
-		snapBefore("test")
-		go func() {
-			defer dagWG.Done()
+		}
+		if runTest && !agentPaused() {
+			snapBefore("test")
+			pipe.SetCheckpoint("test")
 			testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
-		}()
+		} else {
+			runTest = false
+		}
+	default:
+		if runArch {
+			dagWG.Add(1)
+			snapBefore("arch")
+			go func() {
+				defer dagWG.Done()
+				archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+			}()
+		}
+		if runTest {
+			dagWG.Add(1)
+			snapBefore("test")
+			go func() {
+				defer dagWG.Done()
+				testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
+			}()
+		}
+		dagWG.Wait()
 	}
-	dagWG.Wait()
 	if runArch {
 		results["arch"] = archCP
 	}
@@ -1883,19 +1970,23 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		results["test"] = testCP
 	}
 
-	if needs("breakdown") {
+	if needs("breakdown") && !agentPaused() {
 		snapBefore("breakdown")
+		pipe.SetCheckpoint("breakdown")
 		results["breakdown"] = checkBreakdown(root, opts.Description, opts.SpecName, pipe)
 	}
-	if needs("code") {
+	if needs("code") && !agentPaused() {
 		snapBefore("code")
+		pipe.SetCheckpoint("code")
 		results["code"] = checkCode(root, opts.Description, opts.SpecName, pipe)
 	}
-	if needs("ship") {
+	if needs("ship") && !agentPaused() {
 		snapBefore("ship")
+		pipe.SetCheckpoint("ship")
 		results["ship"] = checkVerify(root, opts.Description, opts.SpecName, pipe)
 	}
-	if needs("qa-verify") {
+	if needs("qa-verify") && !agentPaused() {
+		pipe.SetCheckpoint("qa-verify")
 		results["qa-verify"] = checkQAVerify(root, opts.Description, opts.SpecName, pipe)
 	}
 	// PR checkpoint: appended only for full-pipeline runs with --pr.

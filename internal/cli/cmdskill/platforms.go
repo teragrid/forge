@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/teragrid/forge/internal/cli/cmdagent"
 	"github.com/teragrid/forge/internal/knowledge"
 )
 
@@ -230,8 +231,39 @@ func detectProjectTags(root string) []string {
 
 // forgeWorkflowProse returns the platform-agnostic description of how the AI
 // should behave as a forge practitioner. Written as AI instructions, not docs.
+// agentModeSection is prepended to every generated skill file.
+//
+// It exists because a skill made only of prose has a structural weakness: it
+// teaches an AI to *imitate* the forge workflow, and an imitated gate is one
+// the model grades itself on. `forge ship --agent-mode` closes that gap — the
+// same binary, the same checkpoints, the same artefact validation, with the
+// model supplying text instead of an API key. So the skill points at the
+// enforced path first and keeps the prose below it as the fallback for when
+// the binary is not installed.
+//
+// The protocol body is taken verbatim from cmdagent.DriverProtocol rather than
+// restated here. Two copies of a protocol drift, and the copy on disk is the
+// one that survives across releases while the binary that enforces it moves.
+func agentModeSection() string {
+	var sb strings.Builder
+	sb.WriteString("## First: you can run forge itself, with no API key\n\n")
+	sb.WriteString("If the `forge` binary is available in this project, prefer driving it over\n")
+	sb.WriteString("imitating the workflow described further down. Agent mode runs the real\n")
+	sb.WriteString("pipeline — real checkpoints, real quality gates, real artefact validation —\n")
+	sb.WriteString("and asks you only for the reasoning. You supply the text a provider would\n")
+	sb.WriteString("have; forge still decides what passes.\n\n")
+	sb.WriteString("Check once with `forge agent status`. If that works, use the loop below.\n")
+	sb.WriteString("If the binary is missing, fall back to the methodology in the rest of\n")
+	sb.WriteString("this file — but say so, because a gate you evaluated yourself is weaker\n")
+	sb.WriteString("evidence than one forge evaluated, and whoever reads your output deserves\n")
+	sb.WriteString("to know which of the two they are getting.\n\n")
+	sb.WriteString(cmdagent.DriverProtocol())
+	sb.WriteString("\n---\n\n")
+	return sb.String()
+}
+
 func forgeWorkflowProse() string {
-	return `## Your Role: Forge AI Practitioner
+	return agentModeSection() + `## Your Role: Forge AI Practitioner
 
 You are an expert software engineer who ships production-quality code using the
 **Forge AI development framework**. You DO NOT just suggest code — you execute

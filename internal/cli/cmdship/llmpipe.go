@@ -37,12 +37,16 @@ package cmdship
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/teragrid/forge/internal/errcode"
+
+	"github.com/teragrid/forge/internal/agentbridge"
 	"github.com/teragrid/forge/internal/contextbudgeter"
 	"github.com/teragrid/forge/internal/knowledge"
 	"github.com/teragrid/forge/internal/llmprovider"
@@ -65,6 +69,16 @@ type LLMPipe struct {
 	minTier string
 	// root is the project root used for layered knowledge-base loading.
 	root string
+	// bridge, when non-nil, puts the pipe in agent mode: the reasoning plane
+	// is the host agent (the model the user is already talking to) instead of
+	// a paid provider API. Every prompt is resolved from the bridge's replay
+	// store or deferred back to the host as a pending turn — the provider is
+	// never dialled. See internal/agentbridge for the full contract.
+	bridge *agentbridge.Bridge
+	// checkpoint names the checkpoint currently executing, so a deferred turn
+	// can tell the host agent where in the pipeline it is standing. Set by the
+	// run loop; empty is tolerated.
+	checkpoint string
 }
 
 // newLLMPipe detects the active LLM provider from the environment and returns
@@ -146,6 +160,17 @@ func (p *LLMPipe) InvokeChecked(operation, model, system, user string, maxTokens
 	sys := p.rewriter.Rewrite(system).Text
 	usr := p.rewriter.Rewrite(user).Text
 
+	// Agent mode: the host agent is the reasoning plane. Resolve from the
+	// replay store or defer the turn — either way, no provider is dialled.
+	//
+	// Secret scrubbing happens above this branch, not below it, and that
+	// ordering is load-bearing: a deferred turn is written to disk and read
+	// back by a human-facing chat window, which is at least as exposed as an
+	// API request. The prompt the host agent sees is the scrubbed one.
+	if p.bridge != nil {
+		return p.invokeViaBridge(operation, model, sys, usr, maxTokens)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
@@ -194,6 +219,78 @@ func (p *LLMPipe) InvokeChecked(operation, model, system, user string, maxTokens
 		Operation:    operation,
 	})
 	return content, truncated, nil
+}
+
+// ── Agent mode (the two-plane boundary) ───────────────────────────────────────
+
+// invokeViaBridge serves a completion from the host agent instead of a paid
+// provider.
+//
+// A hit replays the recorded answer and the pipeline proceeds exactly as if a
+// provider had returned it — same validation, same gates, same ledger. A miss
+// records the prompt as a pending turn and returns ErrAgentTurn, which the
+// run loop treats as a pause rather than a checkpoint failure.
+//
+// Truncation is always reported false: the host agent has no stop-reason to
+// report, so there is no authoritative truncation signal to pass on. The
+// structural checks in validateArtefact still run and still catch a cut-off
+// artefact — they just do it without a provider's help.
+func (p *LLMPipe) invokeViaBridge(operation, model, system, user string, maxTokens int) (string, bool, error) {
+	content, err := p.bridge.Lookup(operation, p.checkpoint, model, system, user, maxTokens)
+	if err != nil {
+		if errors.Is(err, agentbridge.ErrTurnRequired) {
+			return "", false, errcode.New(ErrAgentTurn,
+				"host-agent turn required for "+operation, err)
+		}
+		return "", false, errcode.New(ErrAgentTurn, "agent bridge: "+operation, err)
+	}
+
+	// Record the replayed call in the token ledger so `forge spend` and
+	// `forge metrics` still describe the run. Tokens are estimated (the host
+	// agent reports no usage) and cost is zero by construction — that zero is
+	// the entire point of this mode, and showing it beats omitting the call.
+	_ = p.ledger.Append(tokenledger.Entry{
+		Model:        llmprovider.HostProviderName,
+		InputTokens:  contextbudgeter.EstimateTokens(system) + contextbudgeter.EstimateTokens(user),
+		OutputTokens: contextbudgeter.EstimateTokens(content),
+		CostUSD:      0,
+		Operation:    operation,
+	})
+	return content, false, nil
+}
+
+// SetCheckpoint records which checkpoint is executing, so a deferred agent
+// turn can tell the host agent where in the pipeline it is standing. No-op
+// outside agent mode and on a nil pipe.
+func (p *LLMPipe) SetCheckpoint(name string) {
+	if p == nil {
+		return
+	}
+	p.checkpoint = name
+}
+
+// Bridge returns the agent bridge, or nil when not in agent mode.
+func (p *LLMPipe) Bridge() *agentbridge.Bridge {
+	if p == nil {
+		return nil
+	}
+	return p.bridge
+}
+
+// newLLMPipeAgent builds a pipe whose reasoning plane is the host agent.
+//
+// The tier router is deliberately left nil: tier escalation exists to trade
+// money for capability across a vendor's model ladder, and there is no ladder
+// here — one host answers everything.
+func newLLMPipeAgent(root string, bridge *agentbridge.Bridge) *LLMPipe {
+	return &LLMPipe{
+		provider: llmprovider.NewHostProvider(),
+		rewriter: secretrewriter.New(),
+		ledger:   tokenledger.New(filepath.Join(root, tokenledger.DefaultPath)),
+		router:   nil,
+		root:     root,
+		bridge:   bridge,
+	}
 }
 
 // InvokeWithKnowledge enriches the system prompt with relevant knowledge-base
@@ -254,7 +351,10 @@ func (p *LLMPipe) ProviderName() string {
 // shipMessage returns the top-level status message for a ship run.
 func shipMessage(pipe *LLMPipe) string {
 	if pipe == nil {
-		return "tip: set ANTHROPIC_API_KEY or OPENAI_API_KEY to unlock AI-driven spec generation, arch docs, and code plans"
+		return "tip: no API key? run `forge ship --agent-mode` to drive the pipeline from your own AI chat instead"
+	}
+	if pipe.bridge != nil {
+		return "reasoning plane: host agent (no API key in use) — session " + pipe.bridge.SessionName()
 	}
 	return "LLM provider: " + pipe.ProviderName()
 }

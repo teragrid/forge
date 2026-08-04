@@ -29,6 +29,7 @@ import (
 	// CLI verb packages
 	_ "github.com/teragrid/forge/internal/cli/cmdadd"
 	_ "github.com/teragrid/forge/internal/cli/cmdadopt"
+	_ "github.com/teragrid/forge/internal/cli/cmdagent"
 	_ "github.com/teragrid/forge/internal/cli/cmdagents"
 	_ "github.com/teragrid/forge/internal/cli/cmdask"
 	_ "github.com/teragrid/forge/internal/cli/cmdaudit"

@@ -523,6 +523,7 @@ applyTo: "**"
 
 This project uses the **Forge AI development framework**. Apply Forge best practices in all responses.
 
+%s
 ## Forge project conventions
 
 - All AI changes go through `+"`"+`forge ship`+"`"+` or a Forge checkpoint command.
@@ -557,7 +558,7 @@ resp, err := p.Complete(ctx, &llmprovider.Request{...})
 ## Skill: %s
 
 Managed by `+"`"+`forge skill`+"`"+`. Run `+"`"+`forge skill list`+"`"+` to see all installed files.
-`, name)
+`, agentModeSection(), name)
 	return skillFileInternal{
 		SkillFile: SkillFile{
 			RelPath:     filepath.Join(".github", "instructions", name+".instructions.md"),
