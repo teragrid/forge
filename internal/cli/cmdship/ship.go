@@ -1055,6 +1055,7 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 		} else {
 			cp.Detail = fmt.Sprintf("%d test file(s) found; missing artifacts: %s", len(testFiles), strings.Join(missing, ", "))
 		}
+		applyReachability(root, testFiles, &cp)
 		if pipe != nil {
 			if _, err := generateTestStubs(root, description, slug, pipe); err != nil {
 				cp.Detail += fmt.Sprintf(" [LLM:%s — %s]", pipe.ProviderName(), llmErrNote(err))
@@ -1079,7 +1080,29 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 	if pipe == nil {
 		cp.Detail += " (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)"
 	}
+	applyReachability(root, findTestFiles(root), &cp)
 	return cp
+}
+
+// applyReachability annotates the Test checkpoint with whether the project's
+// runner will actually execute the test files on disk.
+//
+// It downgrades an "ok" checkpoint to "warning" when files are unreachable,
+// but never fails the pipeline: making it blocking would break every project
+// whose runner config forge cannot parse, and 1.7.12 already set the precedent
+// that a new testing gate lands advisory first. Advisory is still a large
+// improvement over the previous behaviour, which was to count the files and
+// call it green — a report that was not merely incomplete but actively
+// misleading, since an uncollected test looks exactly like a passing one.
+func applyReachability(root string, files []string, cp *Checkpoint) {
+	rep := verifyTestsReachable(root, files)
+	if rep.Checked == 0 {
+		return // nothing JS/TS to check — stay silent rather than add noise
+	}
+	if len(rep.Orphans) > 0 && cp.Status == "ok" {
+		cp.Status = "warning"
+	}
+	cp.Detail += " | " + rep.Summary()
 }
 
 // testTimestampGuard returns production .go files that are dirty in the working

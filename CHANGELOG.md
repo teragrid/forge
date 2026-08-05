@@ -4,6 +4,30 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.8.1] — 2026-08-05 — The Test checkpoint no longer calls tests green that no runner will ever execute
+
+### Fixed
+
+- **`forge ship test` wrote test files into a path no runner collects, counted them, and reported the checkpoint green.** Writing a test and running a test are different things, and on a real project they came apart. Given the common split-config Jest setup:
+
+  ```js
+  // jest.config.js
+  testPathIgnorePatterns: ['/node_modules/', '\\.(integration|e2e)\\.']
+  // jest.integration.config.js
+  testMatch: ['<rootDir>/tests/**/integration/*.test.ts']
+  ```
+
+  forge writes `tests/<slug>.integration.test.ts`. The default config **ignores** it for having `.integration.` in the name; the integration config **does not match** it for not living under an `integration/` directory. The file exists, the checkpoint is green, and the test has never run once — not in CI, not locally, not ever. It does not even appear as uncovered in a coverage report, because a test no runner collects is not a gap in the report; it is absent from the report's universe. That is worse than having no test at all: a missing test is visibly missing, while a test that silently never runs is indistinguishable from a passing one. Confirmed live on a project where an entire generated integration suite had zero executions and nobody noticed.
+
+- **New reachability check (`internal/cli/cmdship/test_reachability.go`)**, run at the Test checkpoint against every JS/TS test file on disk, in three tiers of descending trust — because the answer is only worth having if forge is honest about where it came from:
+  1. **Ask the runner.** `jest --listTests` / `vitest list` enumerate exactly what will be collected. This is the resolver that actually runs in CI, not a reimplementation of it. Only a runner already installed in `node_modules/.bin` is used — forge never resolves a package from the network to answer a read-only question about the working tree, and never installs one as a side effect.
+  2. **Read the configs.** With no runner installed, `testPathIgnorePatterns` / `testMatch` / `testRegex` are parsed from every `jest.*.config.*`, `vitest.*.config.*`, and any inline `"jest"` block in `package.json`. The union of all configs decides reachability, since a split unit/integration setup is the normal case rather than an edge case.
+  3. **Say so.** When neither works, the checkpoint reports the artefacts as *unverified* instead of implying they are wired up. `ReachabilityReport.OK()` returns false for an undetermined report, so "unknown" can never be rendered as "fine" at a call site.
+
+  Unreachable files downgrade an `ok` Test checkpoint to `warning` with the offending paths named. It is deliberately **advisory, never blocking**: making it fail the pipeline would strand every project whose config forge cannot parse, and 1.7.12 already set the precedent that a new testing gate lands advisory first. Go and Python projects are skipped entirely — `go test ./...` and pytest collect by convention rather than configuration, so there is no equivalent dead zone to fall into and a check would only produce noise.
+
+- **A false green inside the new check itself, caught by its own tests before release.** These config fields hold *regexes*, so at the source level they are double-escaped: `'\\.(integration|e2e)\\.'` is the JS spelling of `\.(integration|e2e)\.`. Compiling the raw source text yields `\\.` — "a literal backslash, then any character" — which matches nothing in a real path. Every ignore rule would have looked inert, nothing would have appeared excluded, and the dead zone would have been reported as reachable: a false green produced by the very check written to prevent false greens. String literals are now unescaped before compilation, with single-backslash regex escapes (`\d`, `\.`) left intact.
+
 ## [1.8.0] — 2026-08-04 — Two planes: run the whole ship pipeline from your own AI chat, with no API key
 
 ### Added
