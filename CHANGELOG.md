@@ -4,6 +4,19 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-08-05 — Re-release of 1.8.2 under a correct version signal
+
+No code changes from 1.8.2. This release exists to fix the version number, which was wrong in a way that matters to consumers.
+
+1.8.2 changed a default so that `four-stage-testing-gate` blocks by default. That fails pipelines which previously passed, and [BREAKING.md](BREAKING.md) classifies *"changing the default value of a config key in a way that silently alters behaviour"* as a breaking change. Shipping it as a **patch** told every `^1.8.0` / `~1.8.1` consumer it was a safe automatic upgrade — the opposite of what it was. A version number is a machine-readable promise, and that one was false.
+
+Re-releasing as a **minor** restores the signal. Note what this does and does not fix:
+
+- **Fixed going forward:** consumers pinned to `~1.8.1` (patch-only) no longer pick this up automatically.
+- **Not fixed:** anyone on `^1.8.0` who already upgraded to 1.8.2. npm publishes are permanent and 1.8.2 cannot be recalled. If your pipeline went red at `qa-verify`, see the 1.8.2 notes below — the failure message names both opt-outs.
+
+The behaviour, the opt-outs, and the reasoning are unchanged and documented under [1.8.2](#182--2026-08-05--the-4-stage-testing-gate-is-on-by-default) below. `1.8.2` is left in this changelog rather than renamed, because it was published and rewriting released history would be a second false signal on top of the first.
+
 ## [1.8.2] — 2026-08-05 — The 4-stage testing gate is on by default
 
 > **Read this before upgrading.** This release changes a default in a way that will fail pipelines that previously passed. It ships as a patch version, so `^1.8.0` / `~1.8.1` consumers receive it automatically. If a green `forge ship` suddenly fails at qa-verify with `four-stage-testing-gate`, that is this change, and the failure message names both ways to opt out.
