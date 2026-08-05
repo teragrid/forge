@@ -346,7 +346,9 @@ func TestRunWithOptions_DebateOpts_AllCheckpointsHaveDebate(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	res := RunWithOptions(RunOptions{
-		Root: root,
+		// Pipeline mechanics, not the 1.8.2 four-stage testing gate.
+		NoStrictTesting: true,
+		Root:            root,
 		DebateOpts: &DebateOptions{
 			Feature:   "payments",
 			MaxRounds: 3,

@@ -49,7 +49,10 @@ func TestLoadHookConfig_StrictAndStrictTestingIndependent(t *testing.T) {
 	if err := os.MkdirAll(forgeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Only the plain "strict: true" is set — StrictTesting must stay false.
+	// Only the plain "strict: true" is set. The two gates are independent, so
+	// turning Strict on must not be the thing that turns StrictTesting on —
+	// and, since 1.8.2, must not turn it off either: StrictTesting keeps its
+	// own default regardless of what Strict says.
 	if err := os.WriteFile(filepath.Join(forgeDir, "hooks.yaml"), []byte("strict: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -58,16 +61,42 @@ func TestLoadHookConfig_StrictAndStrictTestingIndependent(t *testing.T) {
 	if !cfg.Strict {
 		t.Fatal("expected Strict=true")
 	}
-	if cfg.StrictTesting {
-		t.Fatal("plain 'strict: true' must not also enable StrictTesting — they are independent gates")
+	if !cfg.StrictTesting {
+		t.Fatal("'strict: true' must not disturb StrictTesting, which defaults on — they are independent gates")
+	}
+}
+
+// TestLoadHookConfig_StrictTestingCanBeTurnedOff covers the half of the config
+// parser that did not exist before 1.8.2. While the default was false the file
+// could only ever turn the gate ON, so "strict-testing: false" was never read.
+// With the default inverted, failing to read it would leave a project with no
+// way to opt out at all — turning a default into a mandate.
+func TestLoadHookConfig_StrictTestingCanBeTurnedOff(t *testing.T) {
+	root := t.TempDir()
+	forgeDir := filepath.Join(root, ".forge")
+	if err := os.MkdirAll(forgeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(forgeDir, "hooks.yaml"),
+		[]byte("strict-testing: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg := loadHookConfig(root); cfg.StrictTesting {
+		t.Fatal("'strict-testing: false' must disable the gate; without this a project cannot opt out")
 	}
 }
 
 func TestLoadHookConfig_MissingFile(t *testing.T) {
 	root := t.TempDir() // no .forge/hooks.yaml at all
 	cfg := loadHookConfig(root)
-	if cfg.Strict || cfg.StrictTesting {
-		t.Fatal("missing hooks.yaml must default both Strict and StrictTesting to false")
+	if cfg.Strict {
+		t.Fatal("missing hooks.yaml must leave Strict off — it escalates every hook, not just testing")
+	}
+	// 1.8.2 inverted this. Testing evidence is not a premium feature of forge,
+	// it is the product: a pipeline that ships a change while quietly noting
+	// nobody verified it is doing the exact thing forge exists to prevent.
+	if !cfg.StrictTesting {
+		t.Fatal("missing hooks.yaml must default StrictTesting ON — shipping without evidence must be opt-in")
 	}
 }
 
@@ -276,11 +305,15 @@ func TestDefaultHooks_IncludesFourStageHooks(t *testing.T) {
 
 func TestEndToEnd_QAVerify_StrictTestingOff_NeverFailsOnMissingEvidence(t *testing.T) {
 	root := t.TempDir()
+	// Since 1.8.2 `StrictTesting: false` is no longer how the gate is turned
+	// off — it is the default-on state, and only an explicit NoStrictTesting
+	// waives it. Asserting the old field still disabled the gate would have
+	// quietly re-tested nothing.
 	res := RunWithOptions(RunOptions{
-		Root:          root,
-		Description:   "e2e no strict",
-		Names:         []string{"qa-verify"},
-		StrictTesting: false,
+		Root:            root,
+		Description:     "e2e no strict",
+		Names:           []string{"qa-verify"},
+		NoStrictTesting: true,
 	})
 	if len(res.Checkpoints) != 1 {
 		t.Fatalf("expected 1 checkpoint, got %d", len(res.Checkpoints))

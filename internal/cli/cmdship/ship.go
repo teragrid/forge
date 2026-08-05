@@ -250,7 +250,8 @@ func New() *cobra.Command {
 		resume         bool   // --resume: resume from first incomplete checkpoint (G-002)
 		rootDir        string // --root: project root (default: cwd); primarily for testing
 		noBranch       bool   // --no-branch: skip automatic feature-branch creation
-		strictTesting  bool   // --strict-testing: enforce the qa-verify 4-stage testing-pipeline.md gate
+		strictTesting  bool   // --strict-testing: [no-op since 1.8.2] force the qa-verify gate on
+		noStrictTest   bool   // --no-strict-testing: opt out of the 4-stage testing-pipeline.md gate
 		agentMode      bool   // --agent-mode: reasoning plane = host agent, no API key
 		agentSession   string // --session: which agent-mode conversation this run belongs to
 		strictReplay   bool   // --strict-replay: never replay an answer by position when the prompt changed
@@ -271,7 +272,10 @@ func New() *cobra.Command {
 		c.Flags().StringVarP(&rootDir, "root", "r", "", "project root (default: cwd)")
 		c.Flags().BoolVarP(&resume, "resume", "R", false, "resume from first incomplete checkpoint (replaces: forge ship resume <feature>)")
 		c.Flags().BoolVarP(&noBranch, "no-branch", "B", false, "skip automatic feature-branch creation; work on the current branch")
-		c.Flags().BoolVar(&strictTesting, "strict-testing", false, "enforce the 4-stage testing pipeline (local/pre-push/staging/production): qa-verify fails without .forge/specs/<slug>/testing-pipeline.md evidence. Advisory-only by default.")
+		c.Flags().BoolVar(&strictTesting, "strict-testing", false,
+			"[no-op since 1.8.2 — the gate is on by default] force the 4-stage testing gate on, overriding \"strict-testing: false\" in .forge/hooks.yaml")
+		c.Flags().BoolVar(&noStrictTest, "no-strict-testing", false,
+			"ship without 4-stage testing evidence: downgrades the qa-verify testing-pipeline.md gate from blocking back to advisory for this run")
 		c.Flags().StringVarP(&specName, "name", "n", "",
 			"name of the spec directory in .forge/specs/ (overrides slug derived from description; applies to all checkpoints)")
 		c.Flags().BoolVar(&agentMode, "agent-mode", false,
@@ -378,14 +382,15 @@ func New() *cobra.Command {
 		// Self-debate: active when --yolo on the full pipeline.
 		// Single-checkpoint subcommands don't debate (no spec context available).
 		runOpts := RunOptions{
-			Root:          root,
-			Description:   description,
-			SpecName:      specName,
-			Names:         names,
-			Gate:          gate,
-			CreatePR:      pr,
-			DryRun:        dryRun,
-			StrictTesting: strictTesting,
+			Root:            root,
+			Description:     description,
+			SpecName:        specName,
+			Names:           names,
+			Gate:            gate,
+			CreatePR:        pr,
+			DryRun:          dryRun,
+			StrictTesting:   strictTesting,
+			NoStrictTesting: noStrictTest,
 		}
 		if yolo && len(names) == 0 {
 			runOpts.DebateOpts = &DebateOptions{
@@ -601,6 +606,14 @@ func New() *cobra.Command {
 // runResumeFlag implements G-002: forge ship <feature> --resume.
 // It reads .forge/specs/<slug>/ to find the first pending checkpoint and
 // continues from there, printing a deprecation hint for old resume subcommand callers.
+// boolFlag reads a bool flag off cmd, returning false when it is absent.
+// Tolerating absence keeps callers that build a bare command (tests, and the
+// programmatic API) from having to register every flag the CLI happens to own.
+func boolFlag(cmd *cobra.Command, name string) bool {
+	f := cmd.Flags().Lookup(name)
+	return f != nil && f.Value.String() == "true"
+}
+
 func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 	root := rootDir
 	if root == "" {
@@ -647,7 +660,19 @@ func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 		}
 	}
 	_ = found
-	res := RunCheckpoints(root, feature, names)
+	// --resume must honour the run flags it was given. RunCheckpoints takes no
+	// options, so routing through it silently discarded every flag on the
+	// command line: `forge ship <f> --resume --no-strict-testing` re-enabled
+	// the gate the user had just waived, and `--resume --agent-mode` would
+	// have dialled a provider. Read the flags off the command instead — the
+	// resumed run is the same pipeline and must obey the same switches.
+	res := RunWithOptions(RunOptions{
+		Root:            root,
+		Description:     feature,
+		Names:           names,
+		StrictTesting:   boolFlag(cmd, "strict-testing"),
+		NoStrictTesting: boolFlag(cmd, "no-strict-testing"),
+	})
 	// Respect --json flag (single JSON object when --json without --yes).
 	if isJSON {
 		enc := json.NewEncoder(cmd.OutOrStdout())
@@ -1868,10 +1893,20 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		hooks = defaultHooks()
 	}
 	hookCfg := loadHookConfig(root)
-	// --strict-testing (or the programmatic RunOptions.StrictTesting) can only
-	// turn strict testing ON for this run — it never overrides an existing
-	// "strict-testing: true" in .forge/hooks.yaml back to false.
+	// Strict testing is on by default as of 1.8.2. Precedence, tightest last:
+	//
+	//	default (on) → .forge/hooks.yaml → --strict-testing → --no-strict-testing
+	//
+	// --strict-testing survives as a no-op that can still force the gate on
+	// over a project file that turned it off; it is kept because scripts and
+	// CI jobs in the wild pass it, and having it start erroring would break
+	// them to no purpose. --no-strict-testing is the only way to turn the gate
+	// off from the CLI, and it is checked last so an explicit opt-out always
+	// wins over an explicit opt-in.
 	hookCfg.StrictTesting = hookCfg.StrictTesting || opts.StrictTesting
+	if opts.NoStrictTesting {
+		hookCfg.StrictTesting = false
+	}
 
 	// P1: load domain profile for per-checkpoint budget/steering overrides.
 	domainProfile := LoadDomainProfile(root, opts.DomainProfileName)

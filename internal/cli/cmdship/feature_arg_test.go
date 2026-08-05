@@ -39,7 +39,7 @@ func TestCmd_PositionalFeatureArg(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"auth/email", "--root", root, "--json"})
+	cmd.SetArgs([]string{"auth/email", "--root", root, "--json", "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected exit 0, got error: %v\noutput: %s", err, out.String())
 	}
@@ -63,7 +63,7 @@ func TestCmd_PositionalFeatureArg_Slugify(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"user profile", "--root", root, "--json"})
+	cmd.SetArgs([]string{"user profile", "--root", root, "--json", "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected exit 0, got error: %v\noutput: %s", err, out.String())
 	}
@@ -82,7 +82,7 @@ func TestCmd_DescriptionDeprecatedAlias(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--description", "auth email", "--root", root})
+	cmd.SetArgs([]string{"--description", "auth email", "--root", root, "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected exit 0, got error: %v\noutput: %s", err, out.String())
 	}
@@ -145,7 +145,7 @@ func TestCmd_ResumeFlag_AllComplete(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{slug, "--resume", "--root", root})
+	cmd.SetArgs([]string{slug, "--resume", "--root", root, "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected exit 0 when all complete, got: %v\noutput: %s", err, out.String())
 	}
@@ -170,7 +170,7 @@ func TestCmd_ResumeSubcommandDeprecated(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"resume", "my-feature", "--root", root})
+	cmd.SetArgs([]string{"resume", "my-feature", "--root", root, "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected exit 0 for deprecated resume subcommand: %v\noutput: %s", err, out.String())
 	}

@@ -135,35 +135,61 @@ type HookConfig struct {
 	// .forge/specs/<slug>/testing-pipeline.md evidence) from advisory-only to
 	// a blocking checkpoint failure. Deliberately independent of Strict —
 	// enabling it must not also make every other hook in defaultHooks()
-	// blocking. Default: false (advisory). Set via .forge/hooks.yaml's
-	// "strict-testing: true" line, or overridden per-run by the
-	// `forge ship --strict-testing` flag (RunOptions.StrictTesting).
+	// blocking.
+	//
+	// Default: TRUE as of 1.8.2. Testing evidence is not a premium feature of
+	// forge, it is the product: a pipeline that ships a change while quietly
+	// noting that nobody verified it is doing the one thing forge exists to
+	// prevent. Advisory-by-default meant the gate's own finding — "there is no
+	// evidence this was tested" — was itself reported as an acceptable outcome.
+	//
+	// Turn it off per-project with "strict-testing: false" in
+	// .forge/hooks.yaml, or per-run with `forge ship --no-strict-testing`.
 	StrictTesting bool
 }
 
+// defaultHookConfig is the configuration used when .forge/hooks.yaml is absent.
+// Every field here is a policy decision, so they are stated in one place rather
+// than relying on Go's zero values — a zero value silently becomes policy, and
+// "strict testing is off" is not something that should be expressible by
+// accident.
+func defaultHookConfig() HookConfig {
+	return HookConfig{
+		Strict:        false, // unrelated hooks stay advisory; see Strict
+		StrictTesting: true,  // 1.8.2: evidence required unless explicitly waived
+	}
+}
+
 // loadHookConfig reads .forge/hooks.yaml if it exists.
-// Missing file → default config (no disabled hooks, not strict).
+// Missing file → defaultHookConfig().
 func loadHookConfig(root string) HookConfig {
+	cfg := defaultHookConfig()
 	path := filepath.Join(root, ".forge", "hooks.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return HookConfig{}
+		return cfg
 	}
-	// Minimal YAML parsing: only support "disabled:", "strict:" and
-	// "strict-testing:" lines. Checked before "strict:" so a hyphenated key
-	// is never mistaken for the plain one (HasPrefix("strict-testing: true",
-	// "strict: true") is false anyway — different prefix — but the explicit
-	// ordering keeps this file's intent obvious as more keys get added).
-	cfg := HookConfig{}
+	// Minimal YAML parsing: only "disabled:", "strict:" and "strict-testing:"
+	// are supported. "strict-testing" is matched before "strict" so a
+	// hyphenated key is never mistaken for the plain one.
+	//
+	// Both true and false are now accepted for strict-testing. Before 1.8.2
+	// only "true" was read, because the default was false and the file could
+	// therefore only ever turn the gate ON. With the default inverted, an
+	// unreadable "false" would mean a project had no way to opt out at all —
+	// which would make the gate a mandate rather than a default.
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "strict-testing: true") {
+		switch {
+		case strings.HasPrefix(line, "strict-testing: true"):
 			cfg.StrictTesting = true
-		}
-		if strings.HasPrefix(line, "strict: true") {
+		case strings.HasPrefix(line, "strict-testing: false"):
+			cfg.StrictTesting = false
+		case strings.HasPrefix(line, "strict: true"):
 			cfg.Strict = true
-		}
-		if strings.HasPrefix(line, "- ") {
+		case strings.HasPrefix(line, "strict: false"):
+			cfg.Strict = false
+		case strings.HasPrefix(line, "- "):
 			cfg.Disabled = append(cfg.Disabled, strings.TrimPrefix(line, "- "))
 		}
 	}

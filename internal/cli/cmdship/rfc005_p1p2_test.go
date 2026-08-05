@@ -401,8 +401,12 @@ func TestRunWithOptions_WritesCheckpointMarkers(t *testing.T) {
 	slug := slugify(desc)
 
 	res := RunWithOptions(RunOptions{
-		Root:        root,
-		Description: desc,
+		// This test exercises pipeline mechanics, not the 4-stage testing
+		// gate; since 1.8.2 a bare temp dir legitimately fails qa-verify for
+		// having no testing evidence.
+		NoStrictTesting: true,
+		Root:            root,
+		Description:     desc,
 	})
 	if !res.Ready {
 		t.Fatalf("expected Ready=true, got message: %s", res.Message)
@@ -603,8 +607,12 @@ func TestDAGPipeline_ArchTestBothPresent(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	res := RunWithOptions(RunOptions{
-		Root:        root,
-		Description: "dag parallel test",
+		// This test exercises pipeline mechanics, not the 4-stage testing
+		// gate; since 1.8.2 a bare temp dir legitimately fails qa-verify for
+		// having no testing evidence.
+		NoStrictTesting: true,
+		Root:            root,
+		Description:     "dag parallel test",
 	})
 	if !res.Ready {
 		t.Fatalf("expected Ready=true, message: %s", res.Message)
@@ -625,8 +633,12 @@ func TestDAGPipeline_CheckpointOrder(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	res := RunWithOptions(RunOptions{
-		Root:        root,
-		Description: "order test feature",
+		// This test exercises pipeline mechanics, not the 4-stage testing
+		// gate; since 1.8.2 a bare temp dir legitimately fails qa-verify for
+		// having no testing evidence.
+		NoStrictTesting: true,
+		Root:            root,
+		Description:     "order test feature",
 	})
 	if !res.Ready {
 		t.Fatalf("expected Ready=true, message: %s", res.Message)

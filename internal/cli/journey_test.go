@@ -174,7 +174,7 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 	}
 
 	// Step 4 — ship dry-run: all 6 checkpoints present.
-	s4 := jStep(t, "ship", cmdship.New(), "--dry-run", "--root", dir, "--description", "onboarding", "--json")
+	s4 := jStep(t, "ship", cmdship.New(), "--dry-run", "--root", dir, "--description", "onboarding", "--json", "--no-strict-testing")
 	var shipRes cmdship.ShipResult
 	if err := json.Unmarshal(firstJSON([]byte(s4)), &shipRes); err != nil {
 		t.Fatalf("step 4 (ship): not JSON: %v\n%s", err, s4)
@@ -188,7 +188,7 @@ func TestJourney_DeveloperOnboarding(t *testing.T) {
 
 	// Idempotency guard (§4 in 9-point checklist): running ship again yields
 	// the same checkpoint count.
-	s4b := jStep(t, "ship (replay)", cmdship.New(), "--dry-run", "--root", dir, "--json")
+	s4b := jStep(t, "ship (replay)", cmdship.New(), "--dry-run", "--root", dir, "--json", "--no-strict-testing")
 	var shipRes2 cmdship.ShipResult
 	if err := json.Unmarshal([]byte(strings.TrimSpace(s4b)), &shipRes2); err != nil {
 		t.Fatalf("step 4b (ship replay): not JSON: %v\n%s", err, s4b)
@@ -716,7 +716,7 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	dir := t.TempDir()
 
 	// Step 1: full pipeline.
-	s1 := jStep(t, "ship --json", cmdship.New(), "--json", "--dry-run", "--root", dir)
+	s1 := jStep(t, "ship --json", cmdship.New(), "--json", "--dry-run", "--root", dir, "--no-strict-testing")
 	r1 := parseShipJSON(t, "ship-full", s1)
 	if !r1.DryRun {
 		t.Fatal("step 1 (ship full): expected dry_run=true")
@@ -757,7 +757,7 @@ func TestJourney_ShipCheckpoints(t *testing.T) {
 	}
 
 	// Step 6: text output (no --json) must mention pipeline.
-	s6 := jStep(t, "ship (text)", cmdship.New(), "--root", dir)
+	s6 := jStep(t, "ship (text)", cmdship.New(), "--root", dir, "--no-strict-testing")
 	if !strings.Contains(s6, "7-checkpoint") {
 		t.Fatalf("step 6 (text): missing 7-checkpoint in output\n%s", s6)
 	}
