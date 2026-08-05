@@ -450,10 +450,19 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # Enforce Conventional Commits format: type(scope): description
-          if ! echo "$PR_TITLE" | grep -qP '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
+          # Enforce Conventional Commits format: type(scope)!: description
+          #
+          # The optional "!" marks a breaking change. It is part of the
+          # Conventional Commits spec, and this repo already depends on it:
+          # BREAKING.md documents `git log --grep "!:"` as the way to find
+          # breaking changes, and .goreleaser.yml groups them with the regexp
+          # "^.*!:.*$". Rejecting it here contradicted both — the one PR type
+          # that most needs an unmissable marker was the one that could not
+          # carry it.
+          if ! echo "$PR_TITLE" | grep -qP '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'; then
             echo "::error::PR title '$PR_TITLE' does not follow Conventional Commits format."
             echo "Example: feat(scan): add RLS scanner"
+            echo "Breaking change: feat(scan)!: drop the --legacy flag"
             echo "See CONTRIBUTING.md for requirements."
             exit 1
           fi
