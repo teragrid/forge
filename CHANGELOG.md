@@ -4,6 +4,28 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.8.2] — 2026-08-05 — The 4-stage testing gate is on by default
+
+> **Read this before upgrading.** This release changes a default in a way that will fail pipelines that previously passed. It ships as a patch version, so `^1.8.0` / `~1.8.1` consumers receive it automatically. If a green `forge ship` suddenly fails at qa-verify with `four-stage-testing-gate`, that is this change, and the failure message names both ways to opt out.
+
+### Breaking Changes
+
+- **`four-stage-testing-gate` is now blocking by default.** Previously it only ran when opted into with `forge ship --strict-testing` or `strict-testing: true` in `.forge/hooks.yaml`; missing `testing-pipeline.md` evidence was reported and then ignored. It now fails `qa-verify` unless the evidence is present.
+
+  The old default meant the gate's own finding — *"there is no evidence this change was tested"* — was itself recorded as an acceptable outcome. Testing evidence is not a premium feature of forge, it is the product: a pipeline that ships a change while quietly noting nobody verified it is doing the exact thing forge exists to prevent.
+
+  **To restore the previous behaviour**, pick either:
+  - per run: `forge ship --no-strict-testing`
+  - per project: add `strict-testing: false` to `.forge/hooks.yaml`
+
+- **`--strict-testing` is now a no-op** in the common case, since the gate it enabled is on by default. It is deliberately **not** removed and does **not** error — scripts and CI jobs in the wild pass it, and breaking them would serve no purpose. It retains one real effect: forcing the gate on over a project file that set `strict-testing: false`.
+
+- **`.forge/hooks.yaml` now reads `strict-testing: false`.** While the default was off, the file could only ever turn the gate *on*, so the `false` case was never parsed. With the default inverted, leaving it unread would have meant a project had no way to opt out at all — turning a default into a mandate. `strict: false` is now honoured for the same reason.
+
+### Fixed
+
+- **`forge ship --resume` silently discarded every flag on the command line.** `runResumeFlag` called `RunCheckpoints`, which takes no options struct, so a resumed run ignored the switches it was given: `--resume --no-strict-testing` re-enabled the very gate the user had just waived, and `--resume --agent-mode` would have dialled a paid provider despite the user opting out of one. Resume now routes through `RunWithOptions` and honours the same flags as a fresh run — a resumed run is the same pipeline, and must not be a way around a gate.
+
 ## [1.8.1] — 2026-08-05 — The Test checkpoint no longer calls tests green that no runner will ever execute
 
 ### Fixed

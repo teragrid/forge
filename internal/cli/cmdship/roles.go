@@ -350,6 +350,13 @@ type RunOptions struct {
 	// budget multipliers and steering overrides (e.g. "banking", "healthcare").
 	// "" defaults to the "default" profile.
 	DomainProfileName string
+	// NoStrictTesting, when true, downgrades four-stage-testing-gate back to
+	// advisory for this run — the escape hatch for `forge ship
+	// --no-strict-testing`. It is the only thing that can turn the gate off
+	// from the CLI, and it is deliberately explicit: as of 1.8.2 shipping
+	// without testing evidence is something a user has to ask for by name,
+	// not something they can drift into by omitting a flag.
+	NoStrictTesting bool
 	// StrictTesting, when true, forces HookConfig.StrictTesting on for this
 	// run regardless of .forge/hooks.yaml — escalates the qa-verify
 	// four-stage-testing-gate from advisory to blocking. Set by

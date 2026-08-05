@@ -37,7 +37,7 @@ func TestCmd_NDJSONEvents_FullPipeline(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--yes", "--json", "--root", t.TempDir()})
+	cmd.SetArgs([]string{"--yes", "--json", "--root", t.TempDir(), "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("expected exit 0: %v\noutput: %s", err, out.String())
 	}

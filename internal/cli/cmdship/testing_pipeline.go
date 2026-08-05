@@ -102,8 +102,12 @@ var fourStageTestingGate = Hook{
 			return HookResult{
 				Passed: false,
 				Message: fmt.Sprintf(
-					"four-stage-testing-gate: %s not found — document local/pre-push/staging/production evidence, or drop --strict-testing to make this advisory",
-					filepath.Base(path),
+					"four-stage-testing-gate: %s not found. This gate became blocking by "+
+						"default in 1.8.2 — if this run passed on an earlier version, that is why. "+
+						"Either document evidence for all 4 stages (local / pre-push / staging / "+
+						"production) in %s, or waive the gate: `forge ship --no-strict-testing` for "+
+						"one run, or \"strict-testing: false\" in .forge/hooks.yaml for the project",
+					filepath.Base(path), filepath.Base(path),
 				),
 			}
 		}

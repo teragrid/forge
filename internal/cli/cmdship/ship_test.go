@@ -61,7 +61,7 @@ func TestCmd_Text(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--root", t.TempDir()})
+	cmd.SetArgs([]string{"--root", t.TempDir(), "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestCmd_JSON(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--json", "--root", t.TempDir()})
+	cmd.SetArgs([]string{"--json", "--root", t.TempDir(), "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,10 @@ func TestRunCheckpoints_Verify_FreshDir_OK(t *testing.T) {
 // TestRunCheckpointsGated_NilGate_YOLO â€” nil gate runs all 6, no Approved fields.
 func TestRunCheckpointsGated_NilGate_YOLO(t *testing.T) {
 	t.Parallel()
-	res := RunCheckpointsGated(t.TempDir(), "", nil, nil)
+	// RunCheckpointsGated has no options struct to waive the 1.8.2 testing
+	// gate through, and this test is about gate *approval* plumbing, not
+	// testing evidence — so drive the same path via RunWithOptions.
+	res := RunWithOptions(RunOptions{Root: t.TempDir(), NoStrictTesting: true})
 	if len(res.Checkpoints) != 7 {
 		t.Fatalf("yolo: expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
@@ -258,7 +261,10 @@ func TestRunCheckpointsGated_AllApproved(t *testing.T) {
 		gateCalls++
 		return true
 	})
-	res := RunCheckpointsGated(t.TempDir(), "", nil, gate)
+	// See TestRunCheckpointsGated_NilGate_YOLO: this asserts gate-approval
+	// plumbing, so the 1.8.2 testing gate is waived to keep a bare temp dir
+	// from failing qa-verify for a reason this test is not about.
+	res := RunWithOptions(RunOptions{Root: t.TempDir(), Gate: gate, NoStrictTesting: true})
 	if len(res.Checkpoints) != 7 {
 		t.Fatalf("all-approved: expected 7 checkpoints, got %d", len(res.Checkpoints))
 	}
@@ -365,7 +371,7 @@ func TestCmd_Yolo_JSON(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--yolo", "--json", "--root", t.TempDir()})
+	cmd.SetArgs([]string{"--yolo", "--json", "--root", t.TempDir(), "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--yolo --json: %v\n%s", err, out.String())
 	}
@@ -404,7 +410,7 @@ func TestCmd_Yolo_Text(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	cmd.SetArgs([]string{"--yolo", "--root", t.TempDir()})
+	cmd.SetArgs([]string{"--yolo", "--root", t.TempDir(), "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--yolo text: %v\n%s", err, out.String())
 	}
@@ -424,7 +430,7 @@ func TestCmd_JSON_DisablesGate(t *testing.T) {
 	cmd.SetErr(&out)
 	// Provide no stdin data â€” if the gate fired it would block / return false.
 	cmd.SetIn(strings.NewReader(""))
-	cmd.SetArgs([]string{"--json", "--root", t.TempDir()})
+	cmd.SetArgs([]string{"--json", "--root", t.TempDir(), "--no-strict-testing"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("--json gate-disabled: %v\n%s", err, out.String())
 	}
@@ -450,7 +456,7 @@ func TestCmd_Interactive_AllApproved(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetIn(strings.NewReader("y\ny\ny\ny\ny\n"))
-	cmd.SetArgs([]string{"--root", t.TempDir()}) // full pipeline, no --yolo, no --json â†’ interactive
+	cmd.SetArgs([]string{"--root", t.TempDir(), "--no-strict-testing"}) // full pipeline, no --yolo, no --json â†’ interactive
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("interactive all-approved: %v\n%s", err, out.String())
 	}
@@ -602,6 +608,8 @@ func TestCmd_Yolo_JSON_IncludesDebate(t *testing.T) {
 
 	res := RunWithOptions(RunOptions{
 		Root: root,
+		// Debate plumbing, not the 1.8.2 four-stage testing gate.
+		NoStrictTesting: true,
 		DebateOpts: &DebateOptions{
 			Feature:   "test-feature",
 			MaxRounds: 3,
@@ -628,6 +636,8 @@ func TestCmd_Yolo_Text_ShowsDebate(t *testing.T) {
 
 	res := RunWithOptions(RunOptions{
 		Root: root,
+		// Debate plumbing, not the 1.8.2 four-stage testing gate.
+		NoStrictTesting: true,
 		DebateOpts: &DebateOptions{
 			Feature:   "test-feature",
 			MaxRounds: 3,
@@ -654,6 +664,8 @@ func TestCmd_Yolo_Text_ShowsImprovements(t *testing.T) {
 
 	res := RunWithOptions(RunOptions{
 		Root: root,
+		// Debate plumbing, not the 1.8.2 four-stage testing gate.
+		NoStrictTesting: true,
 		DebateOpts: &DebateOptions{
 			Feature:   "test-feature",
 			MaxRounds: 3,
@@ -681,6 +693,8 @@ func TestRunWithOptions_DebateEnabled(t *testing.T) {
 	root := t.TempDir()
 	res := RunWithOptions(RunOptions{
 		Root: root,
+		// Debate plumbing, not the 1.8.2 four-stage testing gate.
+		NoStrictTesting: true,
 		DebateOpts: &DebateOptions{
 			Feature:   "order-fulfillment",
 			MaxRounds: 3,
@@ -1884,8 +1898,12 @@ func TestRunWithOptions_CreatePR_GhAbsent(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	res := RunWithOptions(RunOptions{
-		Root:     root,
-		CreatePR: true,
+		// This test exercises pipeline mechanics, not the 4-stage testing
+		// gate; since 1.8.2 a bare temp dir legitimately fails qa-verify for
+		// having no testing evidence.
+		NoStrictTesting: true,
+		Root:            root,
+		CreatePR:        true,
 	})
 
 	// PR checkpoint should be the 6th entry (index 5) when CreatePR=true and Names is nil.
@@ -1927,9 +1945,11 @@ func TestRunWithOptions_MockLLM_FullPipeline(t *testing.T) {
 		Response: mockResponse(""),
 	}
 	res := RunWithOptions(RunOptions{
-		Root:        root,
-		Description: "full pipeline mock feature",
-		LLMPipe:     mockPipe(root, mock),
+		// Pipeline mechanics, not the 1.8.2 four-stage testing gate.
+		NoStrictTesting: true,
+		Root:            root,
+		Description:     "full pipeline mock feature",
+		LLMPipe:         mockPipe(root, mock),
 	})
 
 	if len(res.Checkpoints) != 7 {
