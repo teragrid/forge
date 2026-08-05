@@ -4,6 +4,24 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+### Added
+
+- **Gate mutation testing (`gate_mutation_test.go`) — tests for the quality gates themselves.** Every other test in the suite asks "does the pipeline behave correctly?"; these ask whether the gates *check anything at all*. Each of the 13 hooks in `defaultHooks()` is now run against a **known-bad** fixture it must reject, and a known-good one it must accept. A gate that cannot fail is not a gate — and that is not hypothetical: 1.8.1's reachability checker compiled `\\.` from config source meaning `\.`, matched nothing in any real path, and reported the dead zone it was written to catch as fine. It was green, it was wrong, and nothing in the suite would have noticed, because every existing test asked only whether *good* input passed.
+
+  `TestGateMutation_EveryDefaultHookIsCovered` fails the build when a hook is added without a mutation entry. Without that guard the file decays silently: gates written later get no coverage while the suite still reports green — a safety net with a growing hole, which is worse than none because it is still trusted. Hooks that genuinely cannot fail (the post-pipeline reminder) must declare `alwaysPasses` with a written justification rather than being omitted, since omission and "deliberately cannot fail" are indistinguishable in a diff.
+
+- **A real gap the mutation table found on its first run**, now pinned by `TestSpecCodeAlignment_SilentlyPassesWithoutSpecMD`: `auditSlug()` returns early when `spec.md` is absent, so `spec-code-alignment-gate` reports **pass** on a project with unfinished tasks — it never looked. Not reachable by accident in a normal pipeline, but very reachable on purpose: `forge ship --from=code` on a project whose spec was never written gets a green alignment gate that verified nothing. Left as-is rather than flipped to a failure, because failing every spec-less run is a behaviour change that belongs in its own release; recorded so it is a known gap with a name instead of an unexamined green.
+
+### Fixed
+
+- **`NO_COLOR=1` silently disabled every interactive approval gate in `forge ship`.** [NO_COLOR](https://no-color.org) is defined as a purely *presentational* signal — it asks software not to emit ANSI colour. People set it for accessibility, for terminals that render escape codes badly, or simply preference, and they set it globally in a shell profile once. Forge read it as "an LLM is driving me" and auto-approved all seven checkpoints without ever prompting, with nothing in the output saying so. A signal about how text is *displayed* was deciding whether a human reviews the change. `NO_COLOR` now only suppresses colour, which is all it ever asked for.
+
+- **Gate suppression is no longer silent.** `FORGE_LLM_MODE=1` still auto-approves — it is forge's own explicit signal and does mean no human is present — but it now announces itself on stderr. Skipping review must never happen quietly even when it is the correct behaviour, or the next person to inherit that environment variable has no way to discover why nothing ever asks them.
+
+### Changed
+
+- **`BREAKING.md` now has a `Default-behaviour changes` tier.** The versioning table alone read as "any default change is MAJOR", a bar high enough that the realistic alternative became shipping as a patch and hoping — which is precisely what happened in 1.8.2. The new tier permits `MINOR` under four explicit conditions (documented opt-out; opt-out named *in the failure message*, not just the changelog; loud and specific failure; `Breaking Changes` section plus a `!` commit), and keeps capability removal at `MAJOR` regardless. The 1.8.2 → 1.9.0 correction is written up as the worked example, including what the correction could **not** fix. An unfollowed policy is worse than no policy, because it still gets cited as binding.
+
 ## [1.9.0] — 2026-08-05 — Re-release of 1.8.2 under a correct version signal
 
 No code changes from 1.8.2. This release exists to fix the version number, which was wrong in a way that matters to consumers.

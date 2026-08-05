@@ -302,14 +302,29 @@ func New() *cobra.Command {
 			yolo = true
 		}
 
-		// LLM mode (explicit signals only): suppress interactive y/N gates when
-		// FORGE_LLM_MODE=1 or NO_COLOR=1 so that LLMs driving forge commands are
+		// LLM mode: suppress interactive y/N gates so an LLM driving forge is
 		// never blocked (AC-3). TTY detection is intentionally excluded here so
-		// that `go test` (non-TTY but human developer) never silently skips gates.
-		if !yolo && !asJSON && !humanMode {
-			if os.Getenv("FORGE_LLM_MODE") == "1" || os.Getenv("NO_COLOR") == "1" {
-				yolo = true
-			}
+		// that `go test` (non-TTY but human developer) never silently skips
+		// gates.
+		//
+		// NO_COLOR=1 used to be accepted here too, and must not be. NO_COLOR is
+		// defined (no-color.org) as a purely *presentational* signal: it asks
+		// software not to emit ANSI colour. People set it for accessibility, for
+		// terminals that render escape codes badly, or just preference — and
+		// they set it globally, in a shell profile, once, years ago.
+		//
+		// Reading it as "an LLM is driving me" meant every one of those users
+		// silently lost every approval gate in the pipeline. forge ship would
+		// auto-approve all six checkpoints and never ask, and nothing in the
+		// output said so. A signal about how text is *displayed* was deciding
+		// whether a human reviews the change. Colour is still suppressed for
+		// NO_COLOR — see internal/cli/banner — which is all it ever asked for.
+		if !yolo && !asJSON && !humanMode && os.Getenv("FORGE_LLM_MODE") == "1" {
+			yolo = true
+			// Say it out loud. Skipping review is the kind of thing that must
+			// never happen quietly, even when it is the correct behaviour.
+			fmt.Fprintln(cmd.ErrOrStderr(),
+				"note: FORGE_LLM_MODE=1 — approval gates auto-approved (unset it, or pass --human, to review each checkpoint)")
 		}
 
 		// --quick: run spec+code only (skip test, breakdown, verify).

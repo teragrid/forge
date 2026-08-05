@@ -18,6 +18,49 @@ Forge follows **Semantic Versioning 2.0.0** (semver.org):
 Pre-1.0 releases (`0.y.z`) treat the `MINOR` component as the breaking-change
 signal — i.e. a `0.y` → `0.(y+1)` bump may include breaking changes.
 
+### Default-behaviour changes
+
+A change that flips a **default** sits between the rows above, and this section
+exists because the table alone gave the wrong answer in practice: it reads as
+`MAJOR`, which sets a bar so high that the realistic alternative becomes
+shipping the change as a patch and hoping. That is exactly what happened in
+1.8.2 (see the worked example below).
+
+A change that alters a default **MAY** ship as `MINOR` when **all** of these
+hold:
+
+1. The previous behaviour remains available through a documented opt-out — a
+   flag, a config key, or both.
+2. The opt-out is named **in the failure message itself**, not only in the
+   changelog. Users meet a new default by being broken by it, not by reading
+   release notes, so the answer has to be at the point of failure.
+3. The failure is loud and specific. A default that changes what a command
+   *silently* produces is still `MAJOR`, because no opt-out helps someone who
+   never learns they need one.
+4. `CHANGELOG.md` carries a `Breaking Changes` section and the commit uses the
+   Conventional Commits `!` marker.
+
+Anything that **removes** a capability — a verb, a flag, a config key, an error
+code — remains `MAJOR` regardless of how loudly it fails.
+
+### Worked example: the 1.8.2 → 1.9.0 correction
+
+1.8.2 made `four-stage-testing-gate` blocking by default, which fails pipelines
+that previously passed, and shipped it as a **patch**. That told every
+`^1.8.0` consumer it was a safe automatic upgrade. It was not.
+
+It was re-released unchanged as **1.9.0** to correct the signal. Note what the
+correction could and could not do:
+
+- **Fixed:** consumers pinned to `~1.8.1` no longer take the change automatically.
+- **Not fixed:** anyone on `^1.8.0` who had already upgraded. npm publishes are
+  permanent; a version number cannot be recalled once it is out.
+
+The lesson is in that asymmetry. A version number is a machine-readable promise
+made *before* anyone can check it, so the cost of getting it wrong is paid by
+users who had no way to know. Decide the component before tagging, not after
+the first bug report.
+
 ---
 
 ## What counts as a breaking change
