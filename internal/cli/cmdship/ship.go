@@ -2125,7 +2125,27 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				Result:         &cp,
 				StrictTesting:  hookCfg.StrictTesting,
 			}
-			if failures := runHooks(PhasePostCheckpoint, hookCtx, hooks, hookCfg); len(failures) > 0 {
+			allResults := runHooks(PhasePostCheckpoint, hookCtx, hooks, hookCfg)
+			failures, unverified := partitionResults(allResults)
+
+			// Gates that could not check are reported separately and never
+			// escalate the checkpoint. They are not evidence of a problem —
+			// but they are also not evidence of correctness, and reporting a
+			// checkpoint as clean on the strength of checks that never ran is
+			// the failure this whole distinction exists to end.
+			//
+			// Suppressed on an already-failed checkpoint: that run has a real
+			// error to show, and burying it under "unverified" notes for gates
+			// that were moot anyway helps nobody.
+			if len(unverified) > 0 && cp.Status != "fail" {
+				var notes []string
+				for _, u := range unverified {
+					notes = append(notes, u.Message)
+				}
+				cp.Detail += " | UNVERIFIED[" + strings.Join(notes, "; ") + "]"
+			}
+
+			if len(failures) > 0 {
 				// four-stage-testing-gate only ever fails when StrictTesting
 				// is on (see testing_pipeline.go), so its failure must
 				// escalate the checkpoint even when the unrelated global

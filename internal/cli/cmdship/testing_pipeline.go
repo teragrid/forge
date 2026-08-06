@@ -24,7 +24,7 @@
 //     is the default, guideline-only behavior for every project.
 //   - fourStageTestingGate (post-checkpoint, qa-verify): checks for
 //     .forge/specs/<slug>/testing-pipeline.md evidence that all 4 stages
-//     ran. Advisory (HookResult.Passed always true) unless
+//     ran. Advisory (VerdictUnknown, never VerdictFail) unless
 //     HookConfig.StrictTesting is set, in which case missing/incomplete
 //     evidence fails the qa-verify checkpoint the same way
 //     manualTestPlanGate already does for the manual test plan.
@@ -90,43 +90,37 @@ var fourStageTestingGate = Hook{
 	Gate:  "qa-verify",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 
 		path := testingPipelineEvidencePath(ctx.Root, ctx.Description)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if !ctx.StrictTesting {
-				return HookResult{Passed: true}
+				return gatePass()
 			}
-			return HookResult{
-				Passed: false,
-				Message: fmt.Sprintf(
-					"four-stage-testing-gate: %s not found. This gate became blocking by "+
-						"default in 1.8.2 (re-released as 1.9.0) — if this run passed on an "+
-						"earlier version, that is why. "+
-						"Either document evidence for all 4 stages (local / pre-push / staging / "+
-						"production) in %s, or waive the gate: `forge ship --no-strict-testing` for "+
-						"one run, or \"strict-testing: false\" in .forge/hooks.yaml for the project",
-					filepath.Base(path), filepath.Base(path),
-				),
-			}
+			return gateFail(
+				"four-stage-testing-gate: %s not found. This gate became blocking by "+
+					"default in 1.8.2 (re-released as 1.9.0) — if this run passed on an "+
+					"earlier version, that is why. "+
+					"Either document evidence for all 4 stages (local / pre-push / staging / "+
+					"production) in %s, or waive the gate: `forge ship --no-strict-testing` for "+
+					"one run, or \"strict-testing: false\" in .forge/hooks.yaml for the project",
+				filepath.Base(path), filepath.Base(path),
+			)
 		}
 
 		missing := missingTestingPipelineStages(string(data))
 		if len(missing) == 0 {
-			return HookResult{Passed: true}
+			return gatePass()
 		}
 		if !ctx.StrictTesting {
-			return HookResult{Passed: true}
+			return gatePass()
 		}
-		return HookResult{
-			Passed: false,
-			Message: fmt.Sprintf(
-				"four-stage-testing-gate: testing-pipeline.md missing evidence for: %s",
-				strings.Join(missing, "; "),
-			),
-		}
+		return gateFail(
+			"four-stage-testing-gate: testing-pipeline.md missing evidence for: %s",
+			strings.Join(missing, "; "),
+		)
 	},
 }
 
@@ -152,6 +146,6 @@ var fourStageTestingReminder = Hook{
 				filepath.Base(testingPipelineEvidencePath(ctx.Root, ctx.Description))))
 		}
 		fmt.Fprint(os.Stderr, b.String())
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
