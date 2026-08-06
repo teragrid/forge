@@ -150,6 +150,51 @@ See `docs/SECURITY.md` for the full vulnerability disclosure and patching policy
 
 ---
 
+## Unreleased — quality-gate verdicts and checkpoint evidence
+
+**Feature:** three-state `Verdict`, evidence-backed checkpoints, pre-checkpoint hooks activated
+**Package:** `internal/cli/cmdship`
+
+### What changed
+
+| Area | Old | New |
+|---|---|---|
+| `HookResult.Passed` | `bool` | **removed** — replaced by `HookResult.Verdict` |
+| Gate outcome | pass / fail | `VerdictUnknown` / `VerdictPass` / `VerdictFail` |
+| `Checkpoint` | status only | gains `Evidence []Evidence` |
+| `PhasePreCheckpoint` | declared, never invoked | runs before every checkpoint (advisory) |
+
+`cmdship` is an `internal/` package, so nothing outside this module can import it and no external consumer can break. It is recorded here anyway: the gate that demanded this entry is right to treat the module's own API as worth tracking, and a policy that is waived the first time it is inconvenient stops being a policy.
+
+### Why `Passed bool` had to go
+
+A bool forced every gate that *could not check* — artefact missing, tool absent, config it cannot parse — to answer either pass or fail. Authors picked pass, because failing a build over something that is not the user's fault is obviously wrong. So "I did not verify this" and "I verified this and it is fine" became the same value.
+
+`VerdictUnknown` is the **zero value** deliberately: a handler that forgets to set a verdict yields "unverified", not a false pass.
+
+### Migration (for anyone patching or forking this package)
+
+```go
+// before
+return HookResult{Passed: true}
+return HookResult{Passed: false, Message: "..."}
+
+// after
+return gatePass()
+return gateFail("...")
+return gateUnknown("...")   // when the gate could not check — this case is new
+```
+
+The third constructor is the point of the change. A handler that previously returned `Passed: true` because its artefact was missing must now return `gateUnknown` with a reason.
+
+### Runtime behaviour changes (no action required)
+
+- A checkpoint reaching `ok` with **no independent evidence** is downgraded to `warning` and annotated `UNVERIFIED[…]`. It is never escalated to `fail`, and `res.Ready` keys on `fail` — so no working pipeline breaks.
+- `self-review-gate` now actually executes. It is advisory: it annotates and downgrades to `warning`, never fails. `HookConfig.Strict` remains the opt-in for making hook findings blocking.
+- `.forge/specs/<slug>/<checkpoint>.md` markers gain an `Evidence:` line.
+
+---
+
 ## v1.7.0 — LLM-first rearchitecture (piped-output migration)
 
 **Feature:** `internal/llmresponse` + `forge ship --human` + 10 MCP tools
