@@ -138,6 +138,11 @@ type Checkpoint struct {
 	Debate            *DebateResult    `json:"debate,omitempty"`             // populated when --yolo self-debate runs
 	GapAudit          *SpecAuditResult `json:"gap_audit,omitempty"`          // TG-39: spec-vs-code audit result
 	RemediationRounds int              `json:"remediation_rounds,omitempty"` // rounds of LLM-driven gap remediation
+	// Evidence records what this checkpoint's status actually rests on. A
+	// status of "ok" requires at least one entry from an independent source —
+	// see evidence.go. Emitted in --json so a reviewer or CI job can audit the
+	// basis of a green run rather than taking the word "ok" for it.
+	Evidence []Evidence `json:"evidence,omitempty"`
 }
 
 // ShipResult summarizes the ship run.
@@ -1453,6 +1458,19 @@ func checkVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	}
 
 	cp.Status = "ok"
+	// M1: the ship checkpoint has no post-checkpoint gates to earn its green
+	// from, so it records its own. Unlike most "ok" assignments in this file,
+	// these are real observations — the scanner and the hygiene checker were
+	// actually run and actually answered.
+	cp.AddEvidence(SourceExternalTool, "security scan found no high-confidence findings",
+		fmt.Sprintf("%d finding(s) total, %d high-confidence", len(scanRes.Findings), len(highFindings)))
+	cp.AddEvidence(SourceExternalTool, "hygiene check found no unmanaged files",
+		fmt.Sprintf("%d manifest pattern(s)", patternCount))
+	if auditRes.SpecFound {
+		cp.AddEvidence(SourceReadBack, "spec-vs-code audit found no blocking gaps",
+			fmt.Sprintf("%d warning-level gap(s)", len(auditRes.Gaps)))
+	}
+
 	warnCount := len(scanRes.Findings) - len(highFindings)
 	if warnCount > 0 {
 		cp.Detail = fmt.Sprintf("security scan: no high-confidence findings (%d medium/low advisory — run `forge scan security` to review); hygiene OK; manifest OK (%d patterns)", warnCount, patternCount)
@@ -1990,9 +2008,43 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	agentPaused := func() bool { return opts.AgentBridge.Paused() }
 	serial := opts.AgentBridge != nil
 
+	// Pre-checkpoint hooks. Until now this phase was declared, documented, and
+	// never invoked — self-review-gate has been counted among forge's quality
+	// gates since it was written without ever executing once.
+	//
+	// Findings are stashed rather than acted on immediately: the phase runs
+	// before the checkpoint exists, so there is no Checkpoint to annotate yet.
+	// They are attached in the reporting loop below, where the result is.
+	preHookNotes := map[string][]HookResult{}
+	runPre := func(name string) {
+		if len(hooks) == 0 {
+			return
+		}
+		res := runHooks(PhasePreCheckpoint, HookContext{
+			Phase:          PhasePreCheckpoint,
+			CheckpointName: name,
+			Root:           root,
+			Description:    opts.Description,
+			SpecName:       opts.SpecName,
+			Pipe:           pipe,
+			Result:         nil, // by definition — the checkpoint has not run
+			StrictTesting:  hookCfg.StrictTesting,
+		}, hooks, hookCfg)
+		if len(res) > 0 {
+			preHookNotes[name] = res
+		}
+	}
+	// beforeCheckpoint bundles the three things that must happen before every
+	// checkpoint, so a new checkpoint cannot pick up two of them and silently
+	// miss the third.
+	beforeCheckpoint := func(name string) {
+		snapBefore(name)
+		pipe.SetCheckpoint(name)
+		runPre(name)
+	}
+
 	if needs("spec") {
-		snapBefore("spec")
-		pipe.SetCheckpoint("spec")
+		beforeCheckpoint("spec")
 		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe)
 	}
 
@@ -2006,13 +2058,11 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	switch {
 	case serial:
 		if runArch {
-			snapBefore("arch")
-			pipe.SetCheckpoint("arch")
+			beforeCheckpoint("arch")
 			archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
 		}
 		if runTest && !agentPaused() {
-			snapBefore("test")
-			pipe.SetCheckpoint("test")
+			beforeCheckpoint("test")
 			testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 		} else {
 			runTest = false
@@ -2020,7 +2070,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	default:
 		if runArch {
 			dagWG.Add(1)
-			snapBefore("arch")
+			beforeCheckpoint("arch")
 			go func() {
 				defer dagWG.Done()
 				archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
@@ -2028,7 +2078,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		}
 		if runTest {
 			dagWG.Add(1)
-			snapBefore("test")
+			beforeCheckpoint("test")
 			go func() {
 				defer dagWG.Done()
 				testCP = checkTest(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
@@ -2044,22 +2094,19 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	}
 
 	if needs("breakdown") && !agentPaused() {
-		snapBefore("breakdown")
-		pipe.SetCheckpoint("breakdown")
+		beforeCheckpoint("breakdown")
 		results["breakdown"] = checkBreakdown(root, opts.Description, opts.SpecName, pipe)
 	}
 	if needs("code") && !agentPaused() {
-		snapBefore("code")
-		pipe.SetCheckpoint("code")
+		beforeCheckpoint("code")
 		results["code"] = checkCode(root, opts.Description, opts.SpecName, pipe)
 	}
 	if needs("ship") && !agentPaused() {
-		snapBefore("ship")
-		pipe.SetCheckpoint("ship")
+		beforeCheckpoint("ship")
 		results["ship"] = checkVerify(root, opts.Description, opts.SpecName, pipe)
 	}
 	if needs("qa-verify") && !agentPaused() {
-		pipe.SetCheckpoint("qa-verify")
+		beforeCheckpoint("qa-verify")
 		results["qa-verify"] = checkQAVerify(root, opts.Description, opts.SpecName, pipe)
 	}
 	// PR checkpoint: appended only for full-pipeline runs with --pr.
@@ -2125,7 +2172,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				Result:         &cp,
 				StrictTesting:  hookCfg.StrictTesting,
 			}
+			// Pre-checkpoint findings are merged with the post-checkpoint ones
+			// so both phases reach the same reporting and escalation rules.
+			// Keeping them on separate paths is how the pre-checkpoint phase
+			// stayed unwired and unnoticed for as long as it did.
 			allResults := runHooks(PhasePostCheckpoint, hookCtx, hooks, hookCfg)
+			allResults = append(preHookNotes[strings.ToLower(cp.Name)], allResults...)
 			failures, unverified := partitionResults(allResults)
 
 			// Gates that could not check are reported separately and never
@@ -2168,6 +2220,12 @@ func runWithOptions(opts RunOptions) *ShipResult {
 				}
 			}
 		}
+
+		// M1: a green checkpoint has to rest on something other than forge
+		// reporting its own success. Runs last, after every gate has had the
+		// chance to contribute evidence, so it only fires when genuinely
+		// nothing independent was observed.
+		applyEvidencePolicy(&cp)
 		// P1-L2: write checkpoint digest on success for downstream context compression.
 		// J6 (fix-checkpoint-llm-quality-and-observability): digest from the
 		// real generated artefact, not cp.Detail (the one-line status
@@ -2192,8 +2250,18 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			cpLowerName := strings.ToLower(cp.Name)
 			markerPath := filepath.Join(root, ".forge", "specs", specSlug, cpLowerName+".md")
 			if _, statErr := os.Stat(markerPath); os.IsNotExist(statErr) {
-				marker := fmt.Sprintf("# %s checkpoint\n\nStatus: %s\nCompleted: %s\n\n%s\n",
-					cp.Name, cp.Status, time.Now().UTC().Format(time.RFC3339), cp.Detail)
+				// M1: the marker is the durable record — what `forge ship
+				// status` reads and what a human opens months later to ask
+				// "was this actually checked?". Recording the status without
+				// its basis leaves that question unanswerable, which is the
+				// whole failure this work is about.
+				basis := cp.EvidenceSummary()
+				if basis == "" {
+					basis = "none — no independent verification was recorded for this checkpoint"
+				}
+				marker := fmt.Sprintf(
+					"# %s checkpoint\n\nStatus: %s\nCompleted: %s\nEvidence: %s\n\n%s\n",
+					cp.Name, cp.Status, time.Now().UTC().Format(time.RFC3339), basis, cp.Detail)
 				_ = os.WriteFile(markerPath, []byte(marker), 0o600)
 			}
 		}

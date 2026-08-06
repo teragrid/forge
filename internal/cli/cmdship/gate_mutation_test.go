@@ -538,27 +538,24 @@ func TestSpecCodeAlignment_ReportsUnverifiedWithoutSpecMD(t *testing.T) {
 	}
 }
 
-// TestPreCheckpointHooks_AreRegisteredButNeverRun records the largest gap the
-// mutation work turned up, and fails the moment it is closed so the change is
-// noticed rather than absorbed.
+// TestPreCheckpointHooks_ActuallyRun closes the largest gap the mutation work
+// turned up.
 //
-// self-review-gate is declared PhasePreCheckpoint, listed in defaultHooks(),
-// documented in this package's header comment, and covered by tests. It has
-// never executed. runWithOptions calls runHooks for PhasePostCheckpoint and
-// PhasePostPipeline only — there is no PhasePreCheckpoint call site anywhere
+// self-review-gate was declared PhasePreCheckpoint, listed in defaultHooks(),
+// documented in the package header, and covered by tests — and had never
+// executed. runWithOptions called runHooks for PhasePostCheckpoint and
+// PhasePostPipeline only; there was no PhasePreCheckpoint call site anywhere
 // in the package.
 //
-// This is the failure mode one level up from a gate that checks nothing: a
-// gate that never runs at all. Everything *about* it is correct — the handler
-// works, the tests pass, the docs describe it — and none of that was ever
-// reachable. Counting it among forge's quality gates has been inaccurate since
-// it was written.
+// That is the failure mode one level above a gate that checks nothing: a gate
+// that never runs at all. Everything *about* it was correct — handler, tests,
+// docs — and none of it was reachable. Counting it among forge's quality gates
+// was inaccurate from the day it was written.
 //
-// Not wired in here on purpose. Turning on a gate that has never fired will
-// flag artefacts in projects that have been shipping happily, and that belongs
-// in a release with a changelog entry, not in a test file. Recorded so it is a
-// decision someone makes rather than a fact nobody knows.
-func TestPreCheckpointHooks_AreRegisteredButNeverRun(t *testing.T) {
+// This test asserts the phase fires, using an artefact the gate rejects
+// outright. A registered-but-unreachable hook is invisible to every other test
+// in the suite, which is exactly how it survived.
+func TestPreCheckpointHooks_ActuallyRun(t *testing.T) {
 	t.Parallel()
 
 	var preCheckpoint []string
@@ -568,11 +565,50 @@ func TestPreCheckpointHooks_AreRegisteredButNeverRun(t *testing.T) {
 		}
 	}
 	if len(preCheckpoint) == 0 {
-		t.Skip("no pre-checkpoint hooks registered; nothing to record")
+		t.Skip("no pre-checkpoint hooks registered; nothing to assert")
 	}
 
-	// A full run with an artefact that the gate would reject outright. If
-	// pre-checkpoint hooks were wired in, this would surface in the output.
+	root := t.TempDir()
+	slug := slugify(mutationFeature)
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A leftover placeholder from a previous run — the case the gate exists
+	// for, and one only a *pre*-checkpoint scan can catch, since the spec
+	// checkpoint is about to overwrite this file.
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Spec\n\n## Acceptance Criteria\n\nTODO: write these\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res := RunWithOptions(RunOptions{
+		Root:            root,
+		Description:     mutationFeature,
+		Names:           []string{"spec"},
+		NoStrictTesting: true,
+	})
+
+	var detail string
+	for _, cp := range res.Checkpoints {
+		detail += cp.Detail
+	}
+	if !strings.Contains(detail, "self-review-gate") {
+		t.Fatalf("pre-checkpoint hooks did not fire — %v are registered but unreachable again.\n"+
+			"Detail was: %s", preCheckpoint, detail)
+	}
+}
+
+// TestPreCheckpointHooks_DoNotHardFailTheCheckpoint keeps the newly-activated
+// phase from becoming a wall.
+//
+// This gate has never fired, so every project using forge has been shipping
+// without it. Switching it on as a blocker would break builds over artefacts
+// that were acceptable yesterday. It annotates and downgrades to warning;
+// HookConfig.Strict is the opt-in for making it stop a run, same as every
+// other hook.
+func TestPreCheckpointHooks_DoNotHardFailTheCheckpoint(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	slug := slugify(mutationFeature)
 	specDir := filepath.Join(root, ".forge", "specs", slug)
@@ -590,16 +626,10 @@ func TestPreCheckpointHooks_AreRegisteredButNeverRun(t *testing.T) {
 		Names:           []string{"spec"},
 		NoStrictTesting: true,
 	})
-
-	var detail string
 	for _, cp := range res.Checkpoints {
-		detail += cp.Detail
-	}
-	if strings.Contains(detail, "self-review-gate") {
-		t.Fatalf("pre-checkpoint hooks now run — %v fire in the pipeline.\n"+
-			"That is the better behaviour. Update this test, and give the change a "+
-			"changelog entry: projects that have been shipping clean will start seeing "+
-			"findings from a gate that never fired before.", preCheckpoint)
+		if cp.Status == "fail" {
+			t.Fatalf("a newly-activated advisory gate must not start failing builds: %s", cp.Detail)
+		}
 	}
 }
 

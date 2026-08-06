@@ -748,10 +748,25 @@ func runHooks(phase HookPhase, ctx HookContext, hooks []Hook, cfg HookConfig) []
 			continue
 		}
 		res := h.Handler(ctx)
+		res.HookName = h.Name
 		if res.Verdict != VerdictPass {
-			res.HookName = h.Name
 			failed = append(failed, res)
+			continue
 		}
+		// A gate that returns Pass has read an artefact off disk and
+		// re-validated it — the definition of read-back evidence (M1). This is
+		// where most checkpoints earn their green: the gates were already
+		// doing the verifying, it was simply never recorded as the basis for
+		// the status.
+		//
+		// Only VerdictPass qualifies. Unknown means the gate could not check,
+		// and M3 exists precisely so that no longer counts for anything.
+		//
+		// ctx.Result is nil in the pre-checkpoint phase and AddEvidence is a
+		// no-op on nil, which is the behaviour we want: a pre-checkpoint scan
+		// examines the *previous* run's artefact, so it is not evidence about
+		// what this run is about to produce.
+		ctx.Result.AddEvidence(SourceReadBack, h.Name+" verified "+ctx.CheckpointName, "gate passed")
 	}
 	return failed
 }
