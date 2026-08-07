@@ -4,6 +4,49 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-08-07 — Quality gates that can fail, admit ignorance, and cite their evidence
+
+### Added
+
+- **M1 — a checkpoint may no longer report green on forge's own say-so.** `Checkpoint.Status` is a plain string that any of twenty-odd code paths could set to `"ok"`, and nothing ever required the code setting it to say *why*. Because forge is the actor in all of those paths, the thing being implicitly asserted was always true — "I wrote the file", "I ran the generator", "I completed the step". Those are facts about forge's behaviour, not about whether the change is sound. Every bug in this family has had the same shape:
+
+  | forge verified | what mattered |
+  |---|---|
+  | `spec.md` written | `spec.md` is complete |
+  | test file written | the test will ever run |
+  | the gate returned | the gate examined anything |
+  | the checkpoint ran | the checkpoint verified anything |
+
+  Checkpoints now carry `Evidence`, tagged by source. `SourceExternalTool` (a scanner, test runner, linter or git was asked and answered) and `SourceReadBack` (forge re-read the artefact from disk and re-validated it, judging it as it would judge a stranger's) count as independent. `SourceForgeClaim` — forge asserting its own success — is recorded, reported, and never sufficient on its own.
+
+  Enforcement is at the reporting boundary, not via a private field or a mandatory setter: routing every assignment through `Pass(evidence)` would just invite `SourceForgeClaim` boilerplate that satisfies the compiler and nothing else. A checkpoint reaching `"ok"` with no independent evidence is downgraded to `"warning"` and annotated `UNVERIFIED[…]`.
+
+  **This cannot break a working pipeline.** The claim a downgrade makes is "nobody checked" — a reason to withhold confidence, not to block a release. `res.Ready` keys on `"fail"`, which this policy never produces (`TestEvidencePolicy_NeverBlocksARun`).
+
+- **The gates turned out to be the evidence system already.** A hook returning `VerdictPass` has read an artefact off disk and re-validated it — that *is* read-back evidence, it was simply never recorded as the basis for the status. Wiring it up gave most checkpoints real evidence without touching a single `Status = "ok"` line. Only `VerdictUnknown` contributes nothing, which is exactly what M3 was for.
+
+- **Checkpoint marker files now record the basis, not just the outcome.** `.forge/specs/<slug>/<checkpoint>.md` gains an `Evidence:` line. The marker is the durable record — what `forge ship status` reads and what someone opens months later to ask "was this actually checked?" — and recording a status without its basis left that question unanswerable. Evidence is also emitted in `forge ship --json` so CI can audit a green run instead of taking the word `ok` for it.
+
+- **`PhasePreCheckpoint` hooks now actually run.** `self-review-gate` was declared, listed in `defaultHooks()`, documented in the package header, covered by tests — and had never executed, because `runWithOptions` only ever called `runHooks` for the two later phases. Counting it among forge's quality gates was inaccurate from the day it was written.
+
+  It is wired in as **advisory**: findings annotate the checkpoint and downgrade `ok` to `warning`, but do not fail it. Every project using forge has been shipping without this gate, so switching it on as a blocker would break builds over artefacts that were acceptable yesterday. `HookConfig.Strict` is the opt-in for making it stop a run, exactly as with every other hook. All three pre-checkpoint calls are now routed through one `beforeCheckpoint()` helper alongside the snapshot and the agent-mode checkpoint marker, so a future checkpoint cannot pick up two of the three and silently miss the third.
+
+- **`Verdict` — quality gates now have three outcomes, not two.** `HookResult.Passed bool` is replaced by `Verdict` (`VerdictUnknown` / `VerdictPass` / `VerdictFail`).
+
+  A bool forced every gate that *could not check* — artefact missing, tool not installed, config it cannot parse — to answer either "pass" or "fail". Gate authors almost always picked pass, because failing a build over something that is not the user's fault is obviously wrong. So "I did not verify this" and "I verified this and it is fine" became the same value, and the caller could not tell them apart. Every instance of that in forge has been the same bug: a green checkpoint standing on a check that never ran.
+
+  `VerdictUnknown` is deliberately the **zero value** — a handler that forgets to set a verdict yields "unverified", which is honest, rather than falling into a false pass. Pinned by `TestVerdict_UnknownIsTheZeroValue`, because if `VerdictPass` ever became iota's first value, every incomplete handler in the codebase would silently start reporting success.
+
+  Unverified gates annotate the checkpoint `UNVERIFIED[…]` and never escalate it. They are suppressed on an already-failed checkpoint, which has a real error to show.
+
+- **Every "could not check" path now says so.** Nine gates returned `Passed: true` when their artefact was missing (`// no spec file yet`, `// no ADR file → nothing to check`, …). All now return `VerdictUnknown` with a reason naming the missing file. Enforced going forward by `TestGateMutation_NoGateReportsCleanOnAnEmptyProject`: no gate may report clean on a project where none of its artefacts exist.
+
+### Fixed
+
+- **`spec-code-alignment-gate` reported PASS on projects it had never examined** — the gap the M2 mutation table found on its first run. `auditSlug()` returns early when `spec.md` is absent, skipping every check, and the gate fell through to pass. `forge ship --from=code` on a project whose spec was never written got a green alignment gate that verified nothing. It now returns `VerdictUnknown`: the gate did not find the project acceptable, it found it *unexaminable*, and those are different facts.
+
+- **`self-review-gate` reported PASS after scanning zero files.** Same shape, found by the same test.
+
 ### Added
 
 - **Gate mutation testing (`gate_mutation_test.go`) — tests for the quality gates themselves.** Every other test in the suite asks "does the pipeline behave correctly?"; these ask whether the gates *check anything at all*. Each of the 13 hooks in `defaultHooks()` is now run against a **known-bad** fixture it must reject, and a known-good one it must accept. A gate that cannot fail is not a gate — and that is not hypothetical: 1.8.1's reachability checker compiled `\\.` from config source meaning `\.`, matched nothing in any real path, and reported the dead zone it was written to catch as fine. It was green, it was wrong, and nothing in the suite would have noticed, because every existing test asked only whether *good* input passed.

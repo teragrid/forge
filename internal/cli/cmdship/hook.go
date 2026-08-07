@@ -20,11 +20,16 @@
 //
 // Hook phases:
 //
-//	PhasePreCheckpoint  — runs before the checkpoint LLM call; a Passed=false
-//	                      result adds a warning prefix to the checkpoint detail.
-//	PhasePostCheckpoint — runs after the checkpoint completes; a Passed=false
+//	PhasePreCheckpoint  — declared, but NOT CURRENTLY INVOKED. runWithOptions
+//	                      only calls runHooks for the two phases below, so
+//	                      self-review-gate — the sole pre-checkpoint hook — has
+//	                      never executed in the pipeline. See
+//	                      TestPreCheckpointHooks_AreRegisteredButNeverRun.
+//	PhasePostCheckpoint — runs after the checkpoint completes; a VerdictFail
 //	                      result flags the checkpoint as "warning" (non-blocking
 //	                      by default; set HookConfig.Strict to elevate to "fail").
+//	                      A VerdictUnknown result annotates the checkpoint
+//	                      UNVERIFIED and never escalates it.
 //	PhasePostPipeline   — runs once after all checkpoints pass; used for
 //	                      learning extraction, review routing, and KB updates.
 //	                      Failures here are always advisory-only (see the
@@ -44,10 +49,10 @@
 //	security-hygiene-gate     — post-checkpoint (code): secret + sandbox path scan
 //	qa-coverage-gate          — post-checkpoint (qa-verify): AC items referenced in tests
 //	four-stage-testing-gate   — post-checkpoint (qa-verify): testing-pipeline.md evidence
-//	                            present for all 4 stages. Advisory (never fails the
-//	                            checkpoint) unless HookConfig.StrictTesting is set —
-//	                            via .forge/hooks.yaml's "strict-testing: true" or the
-//	                            `forge ship --strict-testing` flag. See testing_pipeline.go.
+//	                            present for all 4 stages. Blocking by default since
+//	                            1.8.2; waive with `forge ship --no-strict-testing` or
+//	                            "strict-testing: false" in .forge/hooks.yaml.
+//	                            See testing_pipeline.go.
 //	four-stage-testing-reminder — post-pipeline: always prints the 4-stage testing
 //	                            pipeline checklist to stderr after a successful run,
 //	                            regardless of StrictTesting. Pure reminder, never blocks.
@@ -95,11 +100,51 @@ type HookContext struct {
 	StrictTesting bool
 }
 
+// Verdict is the outcome of a quality gate. It has three states, not two, and
+// that is the whole point of the type.
+//
+// A bool forces every gate that *could not check* — artefact missing, tool not
+// installed, config it cannot parse — to answer either "pass" or "fail". Gate
+// authors almost always pick pass, because failing a build over something that
+// is not the user's fault is obviously wrong. The result is that "I did not
+// verify this" and "I verified this and it is fine" become the same value, and
+// the caller cannot tell them apart. Every instance of that in forge has been
+// the same bug: a green checkpoint standing on a check that never ran.
+//
+// VerdictUnknown is deliberately the zero value. A handler that forgets to set
+// a verdict yields "unverified", which is honest, rather than falling into
+// either a false pass or a spurious build failure.
+type Verdict int
+
+const (
+	// VerdictUnknown means the gate could not determine an answer. It is never
+	// treated as passing.
+	VerdictUnknown Verdict = iota
+	// VerdictPass means the gate checked and found no issue.
+	VerdictPass
+	// VerdictFail means the gate checked and found an issue.
+	VerdictFail
+)
+
+// String renders the verdict for logs and checkpoint details.
+func (v Verdict) String() string {
+	switch v {
+	case VerdictPass:
+		return "pass"
+	case VerdictFail:
+		return "fail"
+	default:
+		return "unverified"
+	}
+}
+
 // HookResult is what a hook handler returns.
 type HookResult struct {
-	// Passed is false when the hook detected an issue.
-	Passed bool
-	// Message is the human-readable explanation (empty when Passed=true).
+	// Verdict is the gate's outcome. The zero value is VerdictUnknown.
+	Verdict Verdict
+	// Message is the human-readable explanation. Required for VerdictFail and
+	// VerdictUnknown — a result the user cannot act on is barely better than
+	// no gate at all. Empty for VerdictPass.
 	Message string
 	// HookName is set by runHooks (not the handler) to the originating
 	// Hook.Name — lets a caller distinguish which specific hook failed
@@ -108,6 +153,33 @@ type HookResult struct {
 	// HookConfig.StrictTesting without also escalating unrelated
 	// same-checkpoint hook failures that only HookConfig.Strict governs.
 	HookName string
+}
+
+// gatePass reports that the gate checked and found no issue.
+func gatePass() HookResult { return HookResult{Verdict: VerdictPass} }
+
+// gateFail reports that the gate checked and found an issue.
+func gateFail(format string, args ...any) HookResult {
+	return HookResult{Verdict: VerdictFail, Message: fmt.Sprintf(format, args...)}
+}
+
+// gateUnknown reports that the gate could not check.
+//
+// Use this — never gatePass — when the artefact is missing, a tool is absent,
+// or input cannot be parsed. Saying "pass" there is the bug this whole type
+// exists to prevent: it launders an unexamined state into a verified one, and
+// the checkpoint goes green on a check that never ran.
+func gateUnknown(format string, args ...any) HookResult {
+	return HookResult{Verdict: VerdictUnknown, Message: fmt.Sprintf(format, args...)}
+}
+
+// gateNotApplicable is the one case where "we did not check" is uninteresting:
+// the checkpoint has already failed, so its gates are moot. It is Unknown like
+// any other unchecked state, but the caller suppresses it on a failed
+// checkpoint rather than piling "unverified" notes onto a run that already has
+// a real error to report.
+func gateNotApplicable() HookResult {
+	return HookResult{Verdict: VerdictUnknown, Message: "checkpoint already failed; gate not evaluated"}
 }
 
 // Hook is a single quality gate attached to the pipeline.
@@ -230,26 +302,34 @@ var selfReviewGate = Hook{
 		}
 		filesToScan, ok := artifactsByCheckpoint[ctx.CheckpointName]
 		if !ok {
-			return HookResult{Passed: true}
+			return gateUnknown("self-review-gate: no known artefact for checkpoint %q — nothing scanned",
+				ctx.CheckpointName)
 		}
 
 		badPatterns := []string{"TODO", "TBD", "<fill", "...", "might consider", "could perhaps"}
+		scanned := 0
 		for _, fp := range filesToScan {
 			data, err := os.ReadFile(fp)
 			if err != nil {
 				continue // file not yet written — nothing to scan
 			}
+			scanned++
 			content := string(data)
 			for _, pat := range badPatterns {
 				if strings.Contains(content, pat) {
-					return HookResult{
-						Passed:  false,
-						Message: fmt.Sprintf("self-review-gate: placeholder/hedging in %s: %q", filepath.Base(fp), pat),
-					}
+					return gateFail("self-review-gate: placeholder/hedging in %s: %q", filepath.Base(fp), pat)
 				}
 			}
 		}
-		return HookResult{Passed: true}
+		// Scanning zero files is not a clean bill of health. On a first run the
+		// artefact does not exist yet — the checkpoint is about to write it —
+		// so this is the gate's normal state rather than an anomaly, which is
+		// exactly why reporting it as "pass" was so easy to leave in place.
+		if scanned == 0 {
+			return gateUnknown("self-review-gate: no artefact present for %q — nothing scanned",
+				ctx.CheckpointName)
+		}
+		return gatePass()
 	},
 }
 
@@ -261,35 +341,29 @@ var specCompletenessGate = Hook{
 	Gate:  "spec",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		specPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "spec.md")
 		data, err := os.ReadFile(specPath)
 		if err != nil {
-			return HookResult{Passed: true} // no spec file yet
+			return gateUnknown("spec-completeness-gate: spec.md not found — acceptance criteria unverified")
 		}
 		content := string(data)
 		// Must have an Acceptance Criteria / AC section.
 		hasACSection := strings.Contains(strings.ToLower(content), "acceptance criteria") ||
 			strings.Contains(strings.ToLower(content), "## ac")
 		if !hasACSection {
-			return HookResult{
-				Passed:  false,
-				Message: "spec-completeness-gate: spec.md missing Acceptance Criteria section",
-			}
+			return gateFail("spec-completeness-gate: spec.md missing Acceptance Criteria section")
 		}
 		// At least one Given/When/Then criterion.
 		hasGWT := strings.Contains(content, "Given ") &&
 			strings.Contains(content, "When ") &&
 			strings.Contains(content, "Then ")
 		if !hasGWT {
-			return HookResult{
-				Passed:  false,
-				Message: "spec-completeness-gate: spec.md AC missing Given/When/Then format",
-			}
+			return gateFail("spec-completeness-gate: spec.md AC missing Given/When/Then format")
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -300,13 +374,13 @@ var taskCompletionGate = Hook{
 	Gate:  "code",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true} // nothing to check on failure
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		tasksPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "tasks.md")
 		data, err := os.ReadFile(tasksPath)
 		if err != nil {
-			return HookResult{Passed: true} // no tasks file → pass
+			return gateUnknown("task-completion-gate: tasks.md not found — task completion unverified")
 		}
 		lines := strings.Split(string(data), "\n")
 		incomplete := 0
@@ -316,12 +390,9 @@ var taskCompletionGate = Hook{
 			}
 		}
 		if incomplete > 0 {
-			return HookResult{
-				Passed:  false,
-				Message: fmt.Sprintf("task-completion-gate: %d incomplete task(s) remain in tasks.md after code checkpoint", incomplete),
-			}
+			return gateFail("task-completion-gate: %d incomplete task(s) remain in tasks.md after code checkpoint", incomplete)
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -333,30 +404,24 @@ var adrQualityGate = Hook{
 	Gate:  "arch",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		adrPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "adr.md")
 		data, err := os.ReadFile(adrPath)
 		if err != nil {
-			return HookResult{Passed: true} // no ADR file → nothing to check
+			return gateUnknown("adr-quality-gate: adr.md not found — architecture decision unverified")
 		}
 		content := strings.ToLower(string(data))
 		// Look for at least 2 alternative headings or list items.
 		altCount := strings.Count(content, "alternative") + strings.Count(content, "option ")
 		if altCount < 2 {
-			return HookResult{
-				Passed:  false,
-				Message: "adr-quality-gate: ADR must evaluate ≥2 alternatives; found fewer markers",
-			}
+			return gateFail("adr-quality-gate: ADR must evaluate ≥2 alternatives; found fewer markers")
 		}
 		if !strings.Contains(content, "consequence") && !strings.Contains(content, "trade-off") {
-			return HookResult{
-				Passed:  false,
-				Message: "adr-quality-gate: ADR missing consequences/trade-offs section",
-			}
+			return gateFail("adr-quality-gate: ADR missing consequences/trade-offs section")
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -367,13 +432,13 @@ var archFileLint = Hook{
 	Gate:  "arch",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		archPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "arch.md")
 		data, err := os.ReadFile(archPath)
 		if err != nil {
-			return HookResult{Passed: true}
+			return gateUnknown("arch-file-lint: arch.md not found — architecture document unverified")
 		}
 		// Detect consecutive heading followed immediately by another heading
 		// (empty section) or a TODO marker.
@@ -383,20 +448,14 @@ var archFileLint = Hook{
 			if strings.HasPrefix(trimmed, "#") && i+1 < len(lines) {
 				next := strings.TrimSpace(lines[i+1])
 				if strings.HasPrefix(next, "#") {
-					return HookResult{
-						Passed:  false,
-						Message: fmt.Sprintf("arch-file-lint: empty section detected after %q", trimmed),
-					}
+					return gateFail("arch-file-lint: empty section detected after %q", trimmed)
 				}
 			}
 			if strings.Contains(trimmed, "TODO") || strings.Contains(trimmed, "TBD") {
-				return HookResult{
-					Passed:  false,
-					Message: fmt.Sprintf("arch-file-lint: placeholder detected in arch.md: %q", trimmed),
-				}
+				return gateFail("arch-file-lint: placeholder detected in arch.md: %q", trimmed)
 			}
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -409,13 +468,13 @@ var tddGate = Hook{
 	Gate:  "test",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		testsPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "tests.md")
 		data, err := os.ReadFile(testsPath)
 		if err != nil {
-			return HookResult{Passed: true} // no test artefact yet
+			return gateUnknown("tdd-gate: tests.md not found — test quality unverified")
 		}
 		content := string(data)
 		// Detect always-passing anti-patterns.
@@ -425,21 +484,15 @@ var tddGate = Hook{
 		}
 		for _, pat := range alwaysPass {
 			if strings.Contains(content, pat) {
-				return HookResult{
-					Passed:  false,
-					Message: fmt.Sprintf("tdd-gate: always-passing or skipped test pattern detected: %q", pat),
-				}
+				return gateFail("tdd-gate: always-passing or skipped test pattern detected: %q", pat)
 			}
 		}
 		// Must reference at least one Given/When/Then or test scenario.
 		if !strings.Contains(content, "Given ") && !strings.Contains(content, "Scenario:") &&
 			!strings.Contains(content, "func Test") {
-			return HookResult{
-				Passed:  false,
-				Message: "tdd-gate: tests.md must contain at least one test scenario (Given/When/Then or func Test*)",
-			}
+			return gateFail("tdd-gate: tests.md must contain at least one test scenario (Given/When/Then or func Test*)")
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -452,13 +505,13 @@ var breakdownCompletenessGate = Hook{
 	Gate:  "breakdown",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		tasksPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "tasks.md")
 		data, err := os.ReadFile(tasksPath)
 		if err != nil {
-			return HookResult{Passed: true}
+			return gateUnknown("breakdown-completeness: tasks.md not found — breakdown unverified")
 		}
 		lines := strings.Split(string(data), "\n")
 		empty := 0
@@ -470,12 +523,9 @@ var breakdownCompletenessGate = Hook{
 			}
 		}
 		if empty > 0 {
-			return HookResult{
-				Passed:  false,
-				Message: fmt.Sprintf("breakdown-completeness: %d task(s) have empty descriptions in tasks.md", empty),
-			}
+			return gateFail("breakdown-completeness: %d task(s) have empty descriptions in tasks.md", empty)
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -487,13 +537,13 @@ var securityHygieneGate = Hook{
 	Gate:  "code",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		implPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "impl-notes.md")
 		data, err := os.ReadFile(implPath)
 		if err != nil {
-			return HookResult{Passed: true}
+			return gateUnknown("security-hygiene-gate: impl-notes.md not found — implementation notes unscanned")
 		}
 		content := string(data)
 		// Secret-like patterns.
@@ -503,23 +553,17 @@ var securityHygieneGate = Hook{
 		}
 		for _, pat := range secretPatterns {
 			if strings.Contains(strings.ToLower(content), strings.ToLower(pat)) {
-				return HookResult{
-					Passed:  false,
-					Message: fmt.Sprintf("security-hygiene-gate: potential secret pattern %q in impl-notes.md", pat),
-				}
+				return gateFail("security-hygiene-gate: potential secret pattern %q in impl-notes.md", pat)
 			}
 		}
 		// Shell injection indicators.
 		shellPatterns := []string{"shell=true", "os.system(", "exec.Command(\"sh\",", "exec.Command(\"bash\","}
 		for _, pat := range shellPatterns {
 			if strings.Contains(content, pat) {
-				return HookResult{
-					Passed:  false,
-					Message: fmt.Sprintf("security-hygiene-gate: shell-injection risk: %q found in impl-notes.md", pat),
-				}
+				return gateFail("security-hygiene-gate: shell-injection risk: %q found in impl-notes.md", pat)
 			}
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -531,7 +575,7 @@ var qaCoverageGate = Hook{
 	Gate:  "qa-verify",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		specPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "spec.md")
@@ -540,7 +584,7 @@ var qaCoverageGate = Hook{
 		specData, specErr := os.ReadFile(specPath)
 		qaData, qaErr := os.ReadFile(qaPath)
 		if specErr != nil || qaErr != nil {
-			return HookResult{Passed: true} // artefacts not present yet
+			return gateUnknown("qa-coverage-gate: spec.md or qa-report.md not found — AC coverage unverified")
 		}
 
 		// Count AC items in spec (lines starting with "Given" or "- AC-").
@@ -564,12 +608,9 @@ var qaCoverageGate = Hook{
 			}
 		}
 		if acCount > 0 && covered < acCount {
-			return HookResult{
-				Passed:  false,
-				Message: fmt.Sprintf("qa-coverage-gate: %d/%d AC items referenced in qa-report.md", covered, acCount),
-			}
+			return gateFail("qa-coverage-gate: %d/%d AC items referenced in qa-report.md", covered, acCount)
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -578,11 +619,20 @@ var qaCoverageGate = Hook{
 // blocking gaps are found (incomplete tasks, untested authz roles, missing event tests).
 var specCodeAlignmentHandler = func(ctx HookContext) HookResult {
 	if ctx.Result == nil || ctx.Result.Status == "fail" {
-		return HookResult{Passed: true}
+		return gateNotApplicable()
 	}
 	result := auditSpecVsCode(ctx.Root, ctx.Description, ctx.SpecName)
+	// Without spec.md there is nothing to align code against, and auditSlug()
+	// returns early — so every gap check below is skipped. This used to fall
+	// through to "pass", which meant `forge ship --from=code` on a project
+	// whose spec was never written got a green alignment gate that had
+	// verified nothing. Found by the gate mutation table (M2); this is what
+	// having a third verdict is for.
+	if !result.SpecFound {
+		return gateUnknown("spec-code-alignment-gate: spec.md not found — spec-vs-code alignment unverified")
+	}
 	if !result.HasBlockingGaps() {
-		return HookResult{Passed: true}
+		return gatePass()
 	}
 	var msgs []string
 	for _, g := range result.Gaps {
@@ -590,10 +640,7 @@ var specCodeAlignmentHandler = func(ctx HookContext) HookResult {
 			msgs = append(msgs, fmt.Sprintf("[%s] %s (hint: %s)", g.Type, g.Description, g.Hint))
 		}
 	}
-	return HookResult{
-		Passed:  false,
-		Message: fmt.Sprintf("spec-code-alignment-gate: %d blocking gap(s): %s", len(msgs), strings.Join(msgs, "; ")),
-	}
+	return gateFail("spec-code-alignment-gate: %d blocking gap(s): %s", len(msgs), strings.Join(msgs, "; "))
 }
 
 // specCodeAlignmentGateCode runs the spec-vs-code audit at the code checkpoint.
@@ -625,16 +672,13 @@ var manualTestPlanGate = Hook{
 	Gate:  "qa-verify",
 	Handler: func(ctx HookContext) HookResult {
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
-			return HookResult{Passed: true}
+			return gateNotApplicable()
 		}
 		slug := slugify(ctx.Description)
 		planPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "manual-test-plan.md")
 		data, err := os.ReadFile(planPath)
 		if err != nil {
-			return HookResult{
-				Passed:  false,
-				Message: "manual-test-plan-gate: manual-test-plan.md not found — run qa-verify with an LLM configured",
-			}
+			return gateFail("manual-test-plan-gate: manual-test-plan.md not found — run qa-verify with an LLM configured")
 		}
 		content := strings.ToLower(string(data))
 		// Each of the 6 role sections must be identifiable by a heading keyword.
@@ -656,12 +700,9 @@ var manualTestPlanGate = Hook{
 			}
 		}
 		if len(missing) > 0 {
-			return HookResult{
-				Passed:  false,
-				Message: fmt.Sprintf("manual-test-plan-gate: missing role sections in manual-test-plan.md: %s", strings.Join(missing, ", ")),
-			}
+			return gateFail("manual-test-plan-gate: missing role sections in manual-test-plan.md: %s", strings.Join(missing, ", "))
 		}
-		return HookResult{Passed: true}
+		return gatePass()
 	},
 }
 
@@ -707,10 +748,44 @@ func runHooks(phase HookPhase, ctx HookContext, hooks []Hook, cfg HookConfig) []
 			continue
 		}
 		res := h.Handler(ctx)
-		if !res.Passed {
-			res.HookName = h.Name
+		res.HookName = h.Name
+		if res.Verdict != VerdictPass {
 			failed = append(failed, res)
+			continue
 		}
+		// A gate that returns Pass has read an artefact off disk and
+		// re-validated it — the definition of read-back evidence (M1). This is
+		// where most checkpoints earn their green: the gates were already
+		// doing the verifying, it was simply never recorded as the basis for
+		// the status.
+		//
+		// Only VerdictPass qualifies. Unknown means the gate could not check,
+		// and M3 exists precisely so that no longer counts for anything.
+		//
+		// ctx.Result is nil in the pre-checkpoint phase and AddEvidence is a
+		// no-op on nil, which is the behaviour we want: a pre-checkpoint scan
+		// examines the *previous* run's artefact, so it is not evidence about
+		// what this run is about to produce.
+		ctx.Result.AddEvidence(SourceReadBack, h.Name+" verified "+ctx.CheckpointName, "gate passed")
 	}
 	return failed
+}
+
+// partitionResults splits hook results into the two groups the caller treats
+// differently: gates that found a real problem, and gates that could not check.
+//
+// Keeping them apart is the entire point of Verdict. Merging them would put
+// "spec.md not found, nothing verified" and "spec.md is missing its acceptance
+// criteria" into one bucket, which is how the two became indistinguishable in
+// the first place.
+func partitionResults(results []HookResult) (failures, unverified []HookResult) {
+	for _, r := range results {
+		switch r.Verdict {
+		case VerdictFail:
+			failures = append(failures, r)
+		case VerdictUnknown:
+			unverified = append(unverified, r)
+		}
+	}
+	return failures, unverified
 }

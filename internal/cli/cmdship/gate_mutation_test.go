@@ -42,7 +42,7 @@
 //
 // # Gates that cannot fail
 //
-// Some hooks are advisory by design and can never return Passed=false. Those
+// Some hooks are advisory by design and can never return VerdictFail. Those
 // are declared with alwaysPasses and a written reason, rather than being left
 // out of the table. Omission and "deliberately cannot fail" look identical in
 // a diff; one is a decision and the other is an oversight.
@@ -68,6 +68,15 @@ type gateMutation struct {
 	good map[string]string
 	// bad is a set the gate must reject. The whole point of the file.
 	bad map[string]string
+	// selfReports is true when the gate returns a verdict on an EMPTY project
+	// — i.e. it notices its own artefact is missing and says so, rather than
+	// reporting clean. Gates that read a file must set this; a gate that reads
+	// nothing (there are none today) would not.
+	//
+	// This is the M3 half of the mutation table. `bad` proves the gate can
+	// fail on wrong content; this proves it does not silently pass on no
+	// content at all — the more common and much quieter defect.
+	selfReports bool
 	// alwaysPasses marks an advisory hook that cannot fail by design. reason
 	// is required with it — an assertion-free entry has to justify itself.
 	alwaysPasses bool
@@ -92,6 +101,7 @@ var mutationTable = []gateMutation{
 		},
 		// Plausible-looking spec prose with no testable criteria — exactly what
 		// an LLM produces when it drifts into summary mode.
+		selfReports: true,
 		bad: map[string]string{
 			"spec.md": "# Spec\n\nThis feature adds rate limiting to the public API so the service stays responsive under load.\n",
 		},
@@ -105,6 +115,7 @@ var mutationTable = []gateMutation{
 		},
 		// A decision recorded with no alternatives weighed and no cost stated:
 		// an ADR in name only.
+		selfReports: true,
 		bad: map[string]string{
 			"adr.md": "# ADR-001\n\nWe will use a token bucket.\n",
 		},
@@ -118,6 +129,7 @@ var mutationTable = []gateMutation{
 		},
 		// A heading immediately followed by another heading — the shape a
 		// truncated or skeleton-only generation leaves behind.
+		selfReports: true,
 		bad: map[string]string{
 			"arch.md": "# Architecture\n## Components\n### Limiter\n",
 		},
@@ -131,6 +143,7 @@ var mutationTable = []gateMutation{
 		},
 		// The single most dangerous artefact in the whole pipeline: a test file
 		// that runs, passes, and asserts nothing.
+		selfReports: true,
 		bad: map[string]string{
 			"tests.md": "# Tests\n\nScenario: over the limit\nGiven 100 requests\n\n```ts\nexpect(true).toBe(true)\n```\n",
 		},
@@ -144,6 +157,7 @@ var mutationTable = []gateMutation{
 		},
 		// Checkboxes with nothing after them: a breakdown that counts as work
 		// done while describing no work at all.
+		selfReports: true,
 		bad: map[string]string{
 			"tasks.md": "# Tasks\n\n- [ ]\n- [ ]\n",
 		},
@@ -155,6 +169,7 @@ var mutationTable = []gateMutation{
 		good: map[string]string{
 			"tasks.md": "# Tasks\n\n- [x] Add the limiter middleware\n- [x] Add the 429 response path\n",
 		},
+		selfReports: true,
 		bad: map[string]string{
 			"tasks.md": "# Tasks\n\n- [x] Add the limiter middleware\n- [ ] Add the 429 response path\n",
 		},
@@ -166,6 +181,7 @@ var mutationTable = []gateMutation{
 		good: map[string]string{
 			"impl-notes.md": "# Notes\n\nThe limiter reads its config from the environment via the settings loader.\n",
 		},
+		selfReports: true,
 		bad: map[string]string{
 			"impl-notes.md": "# Notes\n\nFor local testing we set api_key = \"sk-live-not-a-real-key\" in the handler.\n",
 		},
@@ -181,6 +197,7 @@ var mutationTable = []gateMutation{
 		},
 		// A QA report that reviews something other than the acceptance criteria
 		// it is supposed to be evidence for.
+		selfReports: true,
 		bad: map[string]string{
 			"spec.md":             "# Spec\n\nGiven a signed-in user over the limit\n",
 			"qa-report.md":        "# QA\n\nRan the suite. Everything looked fine.\n",
@@ -196,6 +213,7 @@ var mutationTable = []gateMutation{
 		},
 		// Half the review roles missing: a plan that looks complete at a glance
 		// but leaves security and compliance unexamined.
+		selfReports: true,
 		bad: map[string]string{
 			"manual-test-plan.md": "# Manual Test Plan\n\n## Product Owner\n- Check the happy path.\n\n## Business Analyst\n- Check the edge cases.\n",
 		},
@@ -209,6 +227,7 @@ var mutationTable = []gateMutation{
 		},
 		// Evidence for the two cheap stages and silence on the two that
 		// actually exercise a deployed system.
+		selfReports: true,
 		bad: map[string]string{
 			"testing-pipeline.md": "# Testing Pipeline\n\n## Stage 1 — Local\nRan the suite locally.\n\n## Stage 2 — Pre-push\nCI is green.\n",
 		},
@@ -225,6 +244,7 @@ var mutationTable = []gateMutation{
 			"spec.md":  "# Spec\n\nGiven a user over the limit\n",
 			"tasks.md": "# Tasks\n\n- [x] Add the limiter middleware\n",
 		},
+		selfReports: true,
 		bad: map[string]string{
 			"spec.md":  "# Spec\n\nGiven a user over the limit\n",
 			"tasks.md": "# Tasks\n\n- [ ] Add the limiter middleware\n",
@@ -242,6 +262,7 @@ var mutationTable = []gateMutation{
 			"spec.md":  "# Spec\n\nGiven a user over the limit\n",
 			"tasks.md": "# Tasks\n\n- [x] Add the limiter middleware\n",
 		},
+		selfReports: true,
 		bad: map[string]string{
 			"spec.md":  "# Spec\n\nGiven a user over the limit\n",
 			"tasks.md": "# Tasks\n\n- [ ] Add the limiter middleware\n",
@@ -254,6 +275,7 @@ var mutationTable = []gateMutation{
 		good: map[string]string{
 			"spec.md": "# Spec\n\n## Acceptance Criteria\n\nGiven a user\nWhen over the limit\nThen 429\n",
 		},
+		selfReports: true,
 		bad: map[string]string{
 			"spec.md": "# Spec\n\n## Acceptance Criteria\n\nTODO: write the acceptance criteria\n",
 		},
@@ -308,7 +330,8 @@ Read-only smoke check after promotion; no live mutations.
 
 // TestGateMutation_EveryGateRejectsKnownBadInput is the heart of this file.
 //
-// A gate that returns Passed for its known-bad fixture is broken, whatever its
+// A gate that does not return VerdictFail for its known-bad fixture is broken,
+// whatever its
 // own unit tests say — those assert that good input passes, which a function
 // returning `true` unconditionally also does.
 func TestGateMutation_EveryGateRejectsKnownBadInput(t *testing.T) {
@@ -320,7 +343,7 @@ func TestGateMutation_EveryGateRejectsKnownBadInput(t *testing.T) {
 		t.Run(m.hook.Name+"/"+m.checkpoint+"/rejects-bad", func(t *testing.T) {
 			t.Parallel()
 			res := runGateAgainst(t, m, m.bad)
-			if res.Passed {
+			if res.Verdict != VerdictFail {
 				t.Fatalf("%s PASSED its known-bad fixture — this gate does not check what it claims to.\n"+
 					"Bad fixture: %v", m.hook.Name, keysOf(m.bad))
 			}
@@ -345,12 +368,84 @@ func TestGateMutation_EveryGateAcceptsKnownGoodInput(t *testing.T) {
 		t.Run(m.hook.Name+"/"+m.checkpoint+"/accepts-good", func(t *testing.T) {
 			t.Parallel()
 			res := runGateAgainst(t, m, m.good)
-			if !res.Passed {
+			if res.Verdict != VerdictPass {
 				t.Fatalf("%s REJECTED its known-good fixture: %s\n"+
 					"A gate that cries wolf gets switched off, and then it protects nothing.",
 					m.hook.Name, res.Message)
 			}
 		})
+	}
+}
+
+// TestGateMutation_NoGateReportsCleanOnAnEmptyProject is the M3 half.
+//
+// The `bad` fixtures above prove a gate can fail on *wrong* content. This
+// proves it does not report clean on *no* content — a quieter and far more
+// common defect, because the code path that produces it reads "the artefact
+// isn't there yet, nothing to complain about" and looks entirely reasonable.
+//
+// spec-code-alignment-gate did exactly that: on a project with unfinished
+// tasks and no spec.md it returned pass, having skipped every check. Nothing
+// distinguished that from a genuinely clean project until Verdict gained a
+// third state.
+func TestGateMutation_NoGateReportsCleanOnAnEmptyProject(t *testing.T) {
+	t.Parallel()
+	for _, m := range mutationTable {
+		if m.alwaysPasses || !m.selfReports {
+			continue
+		}
+		t.Run(m.hook.Name+"/"+m.checkpoint+"/empty-project", func(t *testing.T) {
+			t.Parallel()
+			res := runGateAgainst(t, m, nil) // no artefacts at all
+			if res.Verdict == VerdictPass {
+				t.Fatalf("%s reported PASS on a project with none of its artefacts present. "+
+					"It verified nothing and said everything was fine — return VerdictUnknown "+
+					"with a reason instead.", m.hook.Name)
+			}
+			if strings.TrimSpace(res.Message) == "" {
+				t.Errorf("%s gave a non-pass verdict with no message; the user cannot act on that",
+					m.hook.Name)
+			}
+		})
+	}
+}
+
+// TestVerdict_UnknownIsTheZeroValue pins the property the whole type rests on.
+//
+// A handler that forgets to set a verdict must yield "unverified", not a false
+// pass. If VerdictPass ever becomes iota's first value, every incomplete
+// handler in the codebase silently starts reporting success — which is the
+// exact failure this type was introduced to make impossible.
+func TestVerdict_UnknownIsTheZeroValue(t *testing.T) {
+	t.Parallel()
+	var zero Verdict
+	if zero != VerdictUnknown {
+		t.Fatal("VerdictUnknown must be the zero value: a forgotten verdict has to mean " +
+			"'unverified', never 'fine'")
+	}
+	if (HookResult{}).Verdict != VerdictUnknown {
+		t.Fatal("a zero HookResult must be unverified")
+	}
+	if VerdictUnknown.String() != "unverified" {
+		t.Errorf("Verdict.String() must not soften the unknown case: %q", VerdictUnknown.String())
+	}
+}
+
+// TestPartitionResults_KeepsFailuresAndUnverifiedApart guards the distinction
+// at the point it is consumed. Merging the two buckets would restore the old
+// behaviour without touching the type at all.
+func TestPartitionResults_KeepsFailuresAndUnverifiedApart(t *testing.T) {
+	t.Parallel()
+	failures, unverified := partitionResults([]HookResult{
+		{Verdict: VerdictFail, Message: "real problem", HookName: "a"},
+		{Verdict: VerdictUnknown, Message: "could not check", HookName: "b"},
+		{Verdict: VerdictPass, HookName: "c"},
+	})
+	if len(failures) != 1 || failures[0].HookName != "a" {
+		t.Fatalf("failures: %+v", failures)
+	}
+	if len(unverified) != 1 || unverified[0].HookName != "b" {
+		t.Fatalf("unverified: %+v", unverified)
 	}
 }
 
@@ -397,24 +492,22 @@ func TestGateMutation_AlwaysPassesEntriesAreJustified(t *testing.T) {
 
 // ── What the first run of this table found ────────────────────────────────────
 
-// TestSpecCodeAlignment_SilentlyPassesWithoutSpecMD documents a real gap that
-// the mutation table exposed on its very first run, and pins the current
-// behaviour so a future change to it is deliberate.
+// TestSpecCodeAlignment_ReportsUnverifiedWithoutSpecMD is the mutation table's
+// first find, now fixed.
 //
-// auditSlug() returns early when spec.md is absent, so spec-code-alignment-gate
-// reports PASS on a project with unfinished tasks — it never looked. In a
-// normal pipeline spec.md exists by the time the code checkpoint runs, so this
-// is not reachable by accident. It is reachable on purpose: `forge ship
-// --from=code` on a project whose spec was never written, or one where spec.md
-// was deleted, gets a green alignment gate that verified nothing.
+// auditSlug() returns early when spec.md is absent, so every gap check in
+// spec-code-alignment-gate is skipped. That used to fall through to PASS: on a
+// project with unfinished tasks the gate reported clean, having never looked.
+// Not reachable by accident in a normal pipeline, but very reachable on
+// purpose — `forge ship --from=code` on a project whose spec was never
+// written, or one where spec.md was deleted.
 //
-// This is the M3 problem in miniature — "could not check" and "checked, fine"
-// are the same value in a bool. It is left as-is here rather than flipped to a
-// failure, because failing every spec-less run is a behaviour change that
-// belongs in its own release, not smuggled in with a test file. The point of
-// recording it is that it is now a known gap with a name, instead of an
-// unexamined green.
-func TestSpecCodeAlignment_SilentlyPassesWithoutSpecMD(t *testing.T) {
+// It is now VerdictUnknown. This is exactly what the third verdict is for: the
+// gate did not find the project acceptable, it found it unexaminable, and
+// those are different facts. The checkpoint is annotated UNVERIFIED rather
+// than silently green, and the run is not blocked over something that may well
+// be intentional.
+func TestSpecCodeAlignment_ReportsUnverifiedWithoutSpecMD(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	slug := slugify(mutationFeature)
@@ -434,10 +527,109 @@ func TestSpecCodeAlignment_SilentlyPassesWithoutSpecMD(t *testing.T) {
 		Description:    mutationFeature,
 		Result:         &Checkpoint{Name: "code", Status: "ok"},
 	})
-	if !res.Passed {
-		t.Fatal("behaviour changed: the gate now fails without spec.md. That is arguably " +
-			"the better behaviour — update this test and note it in the changelog as a " +
-			"deliberate change, rather than deleting the test.")
+	if res.Verdict == VerdictPass {
+		t.Fatal("the gate reported PASS without a spec to audit against — it verified nothing")
+	}
+	if res.Verdict != VerdictUnknown {
+		t.Fatalf("want VerdictUnknown (unexaminable, not broken), got %v: %s", res.Verdict, res.Message)
+	}
+	if !strings.Contains(res.Message, "spec.md") {
+		t.Errorf("the message must name what was missing: %q", res.Message)
+	}
+}
+
+// TestPreCheckpointHooks_ActuallyRun closes the largest gap the mutation work
+// turned up.
+//
+// self-review-gate was declared PhasePreCheckpoint, listed in defaultHooks(),
+// documented in the package header, and covered by tests — and had never
+// executed. runWithOptions called runHooks for PhasePostCheckpoint and
+// PhasePostPipeline only; there was no PhasePreCheckpoint call site anywhere
+// in the package.
+//
+// That is the failure mode one level above a gate that checks nothing: a gate
+// that never runs at all. Everything *about* it was correct — handler, tests,
+// docs — and none of it was reachable. Counting it among forge's quality gates
+// was inaccurate from the day it was written.
+//
+// This test asserts the phase fires, using an artefact the gate rejects
+// outright. A registered-but-unreachable hook is invisible to every other test
+// in the suite, which is exactly how it survived.
+func TestPreCheckpointHooks_ActuallyRun(t *testing.T) {
+	t.Parallel()
+
+	var preCheckpoint []string
+	for _, h := range defaultHooks() {
+		if h.Phase == PhasePreCheckpoint {
+			preCheckpoint = append(preCheckpoint, h.Name)
+		}
+	}
+	if len(preCheckpoint) == 0 {
+		t.Skip("no pre-checkpoint hooks registered; nothing to assert")
+	}
+
+	root := t.TempDir()
+	slug := slugify(mutationFeature)
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A leftover placeholder from a previous run — the case the gate exists
+	// for, and one only a *pre*-checkpoint scan can catch, since the spec
+	// checkpoint is about to overwrite this file.
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Spec\n\n## Acceptance Criteria\n\nTODO: write these\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res := RunWithOptions(RunOptions{
+		Root:            root,
+		Description:     mutationFeature,
+		Names:           []string{"spec"},
+		NoStrictTesting: true,
+	})
+
+	var detail string
+	for _, cp := range res.Checkpoints {
+		detail += cp.Detail
+	}
+	if !strings.Contains(detail, "self-review-gate") {
+		t.Fatalf("pre-checkpoint hooks did not fire — %v are registered but unreachable again.\n"+
+			"Detail was: %s", preCheckpoint, detail)
+	}
+}
+
+// TestPreCheckpointHooks_DoNotHardFailTheCheckpoint keeps the newly-activated
+// phase from becoming a wall.
+//
+// This gate has never fired, so every project using forge has been shipping
+// without it. Switching it on as a blocker would break builds over artefacts
+// that were acceptable yesterday. It annotates and downgrades to warning;
+// HookConfig.Strict is the opt-in for making it stop a run, same as every
+// other hook.
+func TestPreCheckpointHooks_DoNotHardFailTheCheckpoint(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := slugify(mutationFeature)
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Spec\n\n## Acceptance Criteria\n\nTODO: write these\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res := RunWithOptions(RunOptions{
+		Root:            root,
+		Description:     mutationFeature,
+		Names:           []string{"spec"},
+		NoStrictTesting: true,
+	})
+	for _, cp := range res.Checkpoints {
+		if cp.Status == "fail" {
+			t.Fatalf("a newly-activated advisory gate must not start failing builds: %s", cp.Detail)
+		}
 	}
 }
 
@@ -459,7 +651,7 @@ func runGateAgainst(t *testing.T, m gateMutation, files map[string]string) HookR
 		}
 	}
 	// Result must be non-fail: every post-checkpoint gate short-circuits to
-	// Passed when the checkpoint already failed, so a "fail" here would make
+	// not-applicable when the checkpoint already failed, so a "fail" here would make
 	// the whole table pass vacuously.
 	result := &Checkpoint{Name: m.checkpoint, Status: "ok"}
 	return m.hook.Handler(HookContext{

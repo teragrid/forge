@@ -158,8 +158,8 @@ const completeEvidence = "## Local\nran jest + manual click-through\n\n## Pre-pu
 
 func TestFourStageTestingGate_ResultNilIsNoOp(t *testing.T) {
 	res := fourStageTestingGate.Handler(HookContext{Result: nil, StrictTesting: true})
-	if !res.Passed {
-		t.Fatal("nil Result must always pass — nothing to gate yet")
+	if res.Verdict == VerdictFail {
+		t.Fatal("nil Result must never fail — there is nothing to gate yet")
 	}
 }
 
@@ -168,7 +168,7 @@ func TestFourStageTestingGate_UpstreamFailureIsNoOp(t *testing.T) {
 		Result:        &Checkpoint{Status: "fail"},
 		StrictTesting: true,
 	})
-	if !res.Passed {
+	if res.Verdict == VerdictFail {
 		t.Fatal("an already-failed checkpoint must not additionally fail on missing testing evidence")
 	}
 }
@@ -181,7 +181,7 @@ func TestFourStageTestingGate_MissingFile_AdvisoryByDefault(t *testing.T) {
 		Result:        &Checkpoint{Status: "ok"},
 		StrictTesting: false, // default
 	})
-	if !res.Passed {
+	if res.Verdict == VerdictFail {
 		t.Fatalf("StrictTesting=false must never fail on missing testing-pipeline.md, got: %s", res.Message)
 	}
 }
@@ -194,8 +194,8 @@ func TestFourStageTestingGate_MissingFile_BlocksWhenStrict(t *testing.T) {
 		Result:        &Checkpoint{Status: "ok"},
 		StrictTesting: true,
 	})
-	if res.Passed {
-		t.Fatal("StrictTesting=true with no testing-pipeline.md at all must fail")
+	if res.Verdict != VerdictFail {
+		t.Fatalf("StrictTesting=true with no testing-pipeline.md at all must FAIL, got %v", res.Verdict)
 	}
 	if !strings.Contains(res.Message, "not found") {
 		t.Fatalf("expected a 'not found' message, got: %s", res.Message)
@@ -211,7 +211,7 @@ func TestFourStageTestingGate_IncompleteEvidence_AdvisoryByDefault(t *testing.T)
 		Result:        &Checkpoint{Status: "ok"},
 		StrictTesting: false,
 	})
-	if !res.Passed {
+	if res.Verdict == VerdictFail {
 		t.Fatalf("StrictTesting=false must never fail on incomplete evidence, got: %s", res.Message)
 	}
 }
@@ -225,8 +225,8 @@ func TestFourStageTestingGate_IncompleteEvidence_BlocksWhenStrict(t *testing.T) 
 		Result:        &Checkpoint{Status: "ok"},
 		StrictTesting: true,
 	})
-	if res.Passed {
-		t.Fatal("StrictTesting=true with incomplete evidence must fail")
+	if res.Verdict != VerdictFail {
+		t.Fatalf("StrictTesting=true with incomplete evidence must FAIL, got %v", res.Verdict)
 	}
 	for _, want := range []string{"Pre-push", "Staging", "Production"} {
 		if !strings.Contains(res.Message, want) {
@@ -244,8 +244,8 @@ func TestFourStageTestingGate_CompleteEvidence_PassesEvenWhenStrict(t *testing.T
 		Result:        &Checkpoint{Status: "ok"},
 		StrictTesting: true,
 	})
-	if !res.Passed {
-		t.Fatalf("complete evidence must pass even in strict mode, got: %s", res.Message)
+	if res.Verdict != VerdictPass {
+		t.Fatalf("complete evidence must PASS even in strict mode, got %v: %s", res.Verdict, res.Message)
 	}
 }
 
@@ -260,8 +260,8 @@ func TestFourStageTestingReminder_AlwaysPasses(t *testing.T) {
 			Description:   "some feature",
 			StrictTesting: strict,
 		})
-		if !res.Passed {
-			t.Fatalf("post-pipeline reminder hook must always report Passed=true (strict=%v)", strict)
+		if res.Verdict != VerdictPass {
+			t.Fatalf("post-pipeline reminder hook must always pass (strict=%v), got %v", strict, res.Verdict)
 		}
 	}
 }
