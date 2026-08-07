@@ -4,6 +4,8 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-08-07 — Quality gates that can fail, admit ignorance, and cite their evidence
+
 ### Added
 
 - **M1 — a checkpoint may no longer report green on forge's own say-so.** `Checkpoint.Status` is a plain string that any of twenty-odd code paths could set to `"ok"`, and nothing ever required the code setting it to say *why*. Because forge is the actor in all of those paths, the thing being implicitly asserted was always true — "I wrote the file", "I ran the generator", "I completed the step". Those are facts about forge's behaviour, not about whether the change is sound. Every bug in this family has had the same shape:

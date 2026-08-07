@@ -150,7 +150,7 @@ See `docs/SECURITY.md` for the full vulnerability disclosure and patching policy
 
 ---
 
-## Unreleased — quality-gate verdicts and checkpoint evidence
+## v1.10.0 — quality-gate verdicts and checkpoint evidence
 
 **Feature:** three-state `Verdict`, evidence-backed checkpoints, pre-checkpoint hooks activated
 **Package:** `internal/cli/cmdship`
