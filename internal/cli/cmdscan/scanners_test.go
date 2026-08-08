@@ -1035,3 +1035,133 @@ func TestRunPromptInjection_ReadmeDocExamples_NoFinding(t *testing.T) {
 		}
 	}
 }
+
+// TC-SCAN-RLS-03 (regression): `REVOKE SELECT ON t FROM role;` must NOT be
+// flagged. The old line-local regex matched the SELECT/FROM keywords inside a
+// privilege statement, so the scanner reported a hardening statement — one
+// that REMOVES read access — as an unscoped read. Reported by the
+// ai-marketing-platform repo, where two lockdown migrations were flagged.
+func TestRunRLS_RevokeSelectNotFlagged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "lockdown.sql", "REVOKE SELECT ON auth.users FROM authenticated;\n")
+	res, err := RunRLS(root)
+	if err != nil {
+		t.Fatalf("RunRLS: %v", err)
+	}
+	if res.Count != 0 {
+		t.Fatalf("REVOKE SELECT is a privilege statement, not a query; got: %+v", res.Findings)
+	}
+}
+
+// TC-SCAN-RLS-04 (regression): GRANT SELECT is the same shape as TC-03.
+func TestRunRLS_GrantSelectNotFlagged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "grants.sql", "GRANT SELECT ON public.plans TO anon;\n")
+	res, err := RunRLS(root)
+	if err != nil {
+		t.Fatalf("RunRLS: %v", err)
+	}
+	if res.Count != 0 {
+		t.Fatalf("GRANT SELECT is a privilege statement, not a query; got: %+v", res.Findings)
+	}
+}
+
+// TC-SCAN-RLS-05 (regression): a SELECT reading a CTE that the same statement
+// just populated is not an unscoped read of a physical table — tenant scoping
+// belongs on the writing arm. Requires file-level context, which the old
+// line-local scanner did not have.
+func TestRunRLS_CTESourceNotFlagged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "heal.sql", `
+WITH inserted AS (
+  INSERT INTO memberships (user_id, role)
+  SELECT u.id, 'member' FROM candidates u
+  RETURNING 1
+)
+SELECT count(*) INTO v_count FROM inserted;
+`)
+	res, err := RunRLS(root)
+	if err != nil {
+		t.Fatalf("RunRLS: %v", err)
+	}
+	for _, f := range res.Findings {
+		if f.Rule == "select-without-where-tenant" && strings.Contains(f.Match, "FROM inserted") {
+			t.Fatalf("reading the CTE `inserted` should not be flagged; got: %+v", res.Findings)
+		}
+	}
+}
+
+// TC-SCAN-RLS-06 (regression): a CTE declared as a continuation (`, name AS (`)
+// rather than after WITH is recognised too.
+func TestRunRLS_ContinuationCTENotFlagged(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "view.sql", `
+WITH eligible AS (
+  SELECT id FROM contacts WHERE opted_in
+),
+ad_metrics AS (
+  SELECT spend, clicks FROM raw_metrics
+)
+SELECT * FROM ad_metrics;
+`)
+	res, err := RunRLS(root)
+	if err != nil {
+		t.Fatalf("RunRLS: %v", err)
+	}
+	for _, f := range res.Findings {
+		if strings.Contains(f.Match, "FROM ad_metrics;") {
+			t.Fatalf("reading the continuation CTE `ad_metrics` should not be flagged; got: %+v", res.Findings)
+		}
+	}
+}
+
+// TC-SCAN-RLS-07 (false-positive guard for the fix itself): the CTE exemption
+// must not blanket-silence the rule. A real unscoped read of a physical table
+// in a file that ALSO contains a CTE is still a finding.
+func TestRunRLS_PhysicalTableStillFlaggedAlongsideCTE(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "mixed.sql", `
+WITH inserted AS (
+  INSERT INTO audit (msg) VALUES ('x') RETURNING 1
+)
+SELECT count(*) INTO v FROM inserted;
+
+SELECT email, password_hash FROM users;
+`)
+	res, err := RunRLS(root)
+	if err != nil {
+		t.Fatalf("RunRLS: %v", err)
+	}
+	found := false
+	for _, f := range res.Findings {
+		if f.Rule == "select-without-where-tenant" && strings.Contains(f.Match, "FROM users;") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("unscoped read of physical table `users` must still be flagged; got: %+v", res.Findings)
+	}
+}
+
+// TC-SCAN-RLS-08 (boundary): line numbers stay 1-based and correct after the
+// switch from line-streaming to whole-file scanning.
+func TestRunRLS_ReportsCorrectLineNumber(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "lines.sql", "-- header\n-- second\nSELECT id FROM users;\n")
+	res, err := RunRLS(root)
+	if err != nil {
+		t.Fatalf("RunRLS: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("expected exactly 1 finding, got: %+v", res.Findings)
+	}
+	if res.Findings[0].Line != 3 {
+		t.Fatalf("expected line 3, got %d", res.Findings[0].Line)
+	}
+}

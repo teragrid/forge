@@ -430,7 +430,18 @@ fi
 qa_run "QA-23  ship status (empty project, exit 0)" 0 "$FORGE_BIN" ship status
 
 # QA-24  Full pipeline via --json bypasses interactive gate; checkpoints key present
-SHIP_FULL_OUT=$("$FORGE_BIN" ship --dry-run --no-branch --json "qa-smoke" 2>&1) && SHIP_FULL_EXIT=0 || SHIP_FULL_EXIT=$?
+#
+# --no-strict-testing is required, not incidental: the QA scratch project comes
+# from `forge init --minimal`, so it has no go.mod / package.json /
+# pyproject.toml, no cmd/mcp/, and no testing-pipeline.md. The four-stage
+# testing gate became BLOCKING by default in 1.8.2 (re-released as 1.9.0), so
+# from that release on QA-Verify legitimately fails this project and the whole
+# pipeline exits 1 — the gate working as designed, not a regression. These two
+# scenarios assert that --json bypasses the *interactive* gate and emits the
+# documented keys; they are not a test of whether an empty scratch directory
+# can satisfy a four-stage testing audit. Waiving the gate is the documented
+# escape hatch for exactly this case.
+SHIP_FULL_OUT=$("$FORGE_BIN" ship --dry-run --no-branch --no-strict-testing --json "qa-smoke" 2>&1) && SHIP_FULL_EXIT=0 || SHIP_FULL_EXIT=$?
 if [[ "$SHIP_FULL_EXIT" -eq 0 ]] && echo "$SHIP_FULL_OUT" | grep -q '"checkpoints"'; then
   qa_pass "QA-24  ship --dry-run --no-branch --json (exit 0, checkpoints key present)"
 else
@@ -441,7 +452,8 @@ fi
 qa_run "QA-25  ship spec --dry-run (single checkpoint, exit 0)" 0 "$FORGE_BIN" ship spec --dry-run "qa-spec-test"
 
 # QA-26  --json output contains dry_run field
-SHIP_JSON_OUT=$("$FORGE_BIN" ship --dry-run --json "qa-json-test" 2>&1) && SHIP_JSON_EXIT=0 || SHIP_JSON_EXIT=$?
+# --no-strict-testing for the same reason as QA-24 above.
+SHIP_JSON_OUT=$("$FORGE_BIN" ship --dry-run --no-strict-testing --json "qa-json-test" 2>&1) && SHIP_JSON_EXIT=0 || SHIP_JSON_EXIT=$?
 if [[ "$SHIP_JSON_EXIT" -eq 0 ]] && echo "$SHIP_JSON_OUT" | grep -q '"dry_run"'; then
   qa_pass "QA-26  ship --dry-run --json (dry_run field present in output)"
 else

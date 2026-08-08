@@ -785,27 +785,70 @@ func scanWithBuiltinPatterns(root string) []Finding {
 	})
 }
 
+var (
+	// rlsCreateTablePattern flags a CREATE TABLE with no tenant column.
+	rlsCreateTablePattern = regexp.MustCompile(`(?i)create\s+table\s+\w+\s*\(`)
+
+	// rlsSelectFromPattern matches a terminal SELECT and captures the relation
+	// it reads from, so the source can be checked against the file's CTEs.
+	rlsSelectFromPattern = regexp.MustCompile(`(?i)select\s+.+\s+from\s+(\w+)\s*;`)
+
+	// rlsGrantRevokePattern matches a privilege statement. `REVOKE SELECT ON
+	// t FROM role;` contains both SELECT and FROM but is not a query — it is
+	// the opposite, a statement that takes read access away. Flagging it
+	// inverted the scanner's meaning: hardening was reported as exposure.
+	rlsGrantRevokePattern = regexp.MustCompile(`(?i)^\s*(?:grant|revoke)\b`)
+
+	// rlsCTEPattern matches a common-table-expression definition — `WITH name
+	// AS (` or a continuation `, name AS (`. A SELECT reading a CTE (e.g.
+	// `SELECT count(*) INTO v FROM inserted;` after `WITH inserted AS (
+	// INSERT ... RETURNING ... )`) reads rows the same statement just wrote;
+	// tenant scoping belongs on the writing arm, not on this read.
+	rlsCTEPattern = regexp.MustCompile(`(?i)(?:\bwith\b|,)\s+(\w+)\s+as\s*\(`)
+)
+
 // RunRLS scans for missing Row-Level-Security in SQL/migration files.
+//
+// Scanning is file-aware rather than line-local: CTE names are collected from
+// the whole file first so that a SELECT reading a CTE is not mistaken for an
+// unscoped read of a physical table.
 func RunRLS(root string) (*ScanResult, error) {
 	res := &ScanResult{}
-	rules := []struct {
-		Name    string
-		Pattern *regexp.Regexp
-	}{
-		// CREATE TABLE without subsequent ENABLE ROW LEVEL SECURITY is a signal,
-		// but we keep it line-local: flag any CREATE TABLE missing tenant column.
-		{"missing-tenant-col-create-table", regexp.MustCompile(`(?i)create\s+table\s+\w+\s*\(`)},
-		{"select-without-where-tenant", regexp.MustCompile(`(?i)select\s+.+\s+from\s+\w+\s*;`)},
-	}
-	res.Findings = scanFilesExt(root, []string{".sql", ".pgsql"}, func(rel string, line int, text string) []Finding {
+	res.Findings = scanFilesWhole(root, []string{".sql", ".pgsql"}, func(rel, content string) []Finding {
+		// Pass 1 — every CTE name defined anywhere in this file.
+		cteNames := map[string]bool{}
+		for _, m := range rlsCTEPattern.FindAllStringSubmatch(content, -1) {
+			cteNames[strings.ToLower(m[1])] = true
+		}
+
+		// Pass 2 — line-local rule evaluation, now with file context.
 		var out []Finding
-		for _, r := range rules {
-			if r.Pattern.MatchString(text) &&
-				!strings.Contains(strings.ToLower(text), "tenant") &&
-				!strings.Contains(strings.ToLower(text), "workspace") {
+		for i, text := range strings.Split(content, "\n") {
+			text = strings.TrimRight(text, "\r")
+			lower := strings.ToLower(text)
+			// A line that already names the tenant column is scoped by
+			// construction; this predates the file-aware pass and is kept.
+			if strings.Contains(lower, "tenant") || strings.Contains(lower, "workspace") {
+				continue
+			}
+			add := func(rule string) {
 				out = append(out, Finding{
-					File: rel, Line: line, Rule: r.Name, Match: truncate(text, 100), Secret: "",
+					File: rel, Line: i + 1, Rule: rule, Match: truncate(text, 100), Secret: "",
 				})
+			}
+			if rlsCreateTablePattern.MatchString(text) {
+				add("missing-tenant-col-create-table")
+			}
+			if m := rlsSelectFromPattern.FindStringSubmatch(text); m != nil {
+				// GRANT/REVOKE name SELECT as a privilege, not as a query.
+				if rlsGrantRevokePattern.MatchString(text) {
+					continue
+				}
+				// Reading a CTE defined in this file is not an unscoped read.
+				if cteNames[strings.ToLower(m[1])] {
+					continue
+				}
+				add("select-without-where-tenant")
 			}
 		}
 		return out
@@ -919,6 +962,54 @@ func scanFiles(root string, fn func(rel string, line int, text string) []Finding
 	return scanFilesExt(root, nil, fn)
 }
 
+// skipScanDir reports whether a directory should not be descended into:
+// version-control, package trees, generated build output, tool-managed
+// directories, and test fixture trees — scanning them produces only noise
+// (fixtures contain intentional examples).
+func skipScanDir(name string) bool {
+	switch name {
+	case ".git", "node_modules", "vendor", ".forge",
+		".next", ".nuxt", ".svelte-kit",
+		"dist", "build", "out", "output",
+		"coverage", ".nyc_output", ".cache", "tmp", ".tmp",
+		"fixtures", "testdata", ".playwright-mcp":
+		return true
+	}
+	return false
+}
+
+// scanFilesWhole is like scanFilesExt but hands fn the entire file content
+// instead of one line at a time. Use it for rules that need context beyond the
+// current line — e.g. resolving whether a SELECT's source is a CTE defined
+// earlier in the same file. fn is responsible for reporting 1-based line
+// numbers.
+func scanFilesWhole(root string, exts []string, fn func(rel, content string) []Finding) []Finding {
+	var out []Finding
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if skipScanDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !matchesExts(d.Name(), exts) {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		out = append(out, fn(rel, string(b))...)
+		return nil
+	})
+	return out
+}
+
 // scanFilesExt is like scanFiles but restricts to files matching one of exts
 // (suffix match). Empty/nil exts means all text files.
 func scanFilesExt(root string, exts []string, fn func(rel string, line int, text string) []Finding) []Finding {
@@ -928,16 +1019,7 @@ func scanFilesExt(root string, exts []string, fn func(rel string, line int, text
 			return nil
 		}
 		if d.IsDir() {
-			name := d.Name()
-			// Skip version-control, package trees, generated build output,
-			// tool-managed directories, and test fixture trees — scanning
-			// them produces only noise (fixtures contain intentional examples).
-			switch name {
-			case ".git", "node_modules", "vendor", ".forge",
-				".next", ".nuxt", ".svelte-kit",
-				"dist", "build", "out", "output",
-				"coverage", ".nyc_output", ".cache", "tmp", ".tmp",
-				"fixtures", "testdata", ".playwright-mcp":
+			if skipScanDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
