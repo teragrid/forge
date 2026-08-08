@@ -4,6 +4,22 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.1] — 2026-08-08 — Scanner false positives, and a QA scenario that had been red since 1.9.0
+
+### Fixed
+
+- **`forge scan security` reported hardening as exposure.** The `select-without-where-tenant` rule matched line-locally with `select\s+.+\s+from\s+\w+\s*;`, which flagged `REVOKE SELECT ON auth.users FROM authenticated;` — a statement that *removes* read access — as an unscoped tenant read. A rule that inverts its own meaning is worse than an absent rule: it teaches the reader to distrust the output, and real findings then hide in the noise.
+
+  The same regex also flagged `SELECT count(*) INTO v FROM inserted;` where `inserted` is a CTE the same statement had just populated. Tenant scoping belongs on the writing arm of a `WITH inserted AS (INSERT … RETURNING …)`; the read cannot be scoped and is not a leak. Deciding that needs context beyond the current line, which a line-local scanner does not have.
+
+  `RunRLS` now scans whole files in two passes — pass 1 collects CTE names (`WITH x AS (` and continuation `, x AS (`), pass 2 evaluates the rules with that context and skips lines whose leading keyword is `GRANT` or `REVOKE`. The exemption is deliberately narrow, and pinned that way: `TC-SCAN-RLS-07` asserts that a genuine unscoped read of a physical table *in a file that also contains a CTE* is still flagged, so the fix cannot quietly become an off switch for the rule.
+
+  Found by dogfooding on a real repo where all 8 findings from `forge scan security` were false positives, 7 of them from this rule. That repo now reports `findings: 0, clean`, and a real unscoped `SELECT` still trips.
+
+- **QA-24 and QA-26 had failed on a clean `main` since 1.9.0.** Both run the full ship pipeline against a scratch project from `forge init --minimal` — no `go.mod`, no `package.json`, no `testing-pipeline.md` — and both assert exit 0. When the four-stage testing gate became blocking by default (1.8.2, re-released as 1.9.0), QA-Verify started correctly failing such a project, so the pipeline correctly exited 1 and the expectations were simply stale.
+
+  That left stage [13/13] of the pre-push hook permanently red — precisely the state in which a real failure goes unnoticed. What these two scenarios actually cover is that `--json` bypasses the *interactive* gate and emits the documented `checkpoints` / `dry_run` keys, not whether an empty directory can satisfy a testing audit; both now pass `--no-strict-testing`, the documented waiver for exactly this case, with a comment recording why it is required rather than incidental. `SHIP_QA_ONLY=1 FORGE_NO_LLM=1 bash scripts/forge-qa-real.sh` goes from 2 of 12 failing to 12 of 12 passing.
+
 ## [1.10.0] — 2026-08-07 — Quality gates that can fail, admit ignorance, and cite their evidence
 
 ### Added
