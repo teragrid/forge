@@ -224,13 +224,33 @@ func (b *Bridge) SessionName() string { return b.session.Name }
 
 // SetFeature records what feature this session is driving. Best-effort: a
 // persistence failure never blocks the pipeline.
-func (b *Bridge) SetFeature(feature, slug string) {
+//
+// If the session already has recorded responses from a *different* feature
+// (its persisted Slug/Feature does not match), those responses are discarded
+// first. Otherwise the ordinal fallback in Lookup — keyed only on
+// "operation#N", with no feature scoping — would happily replay another
+// feature's answer into this run merely because both features' Nth call to
+// the same operation (e.g. "ship:qa-verify:generate") landed in the same
+// position. That is silent cross-feature state contamination: the host agent
+// never sees a prompt for the new feature, it just gets served the old
+// feature's stale artefact under the new feature's name. Reusing the default
+// session across unrelated features (rather than passing --session per
+// feature) is exactly the case this guards.
+func (b *Bridge) SetFeature(feature, slug string) (switched bool) {
 	if b == nil {
-		return
+		return false
+	}
+	prevSlug, prevFeature := b.session.Slug, b.session.Feature
+	hadPrior := prevSlug != "" || prevFeature != ""
+	newIdentity := slug != "" || feature != ""
+	if hadPrior && newIdentity && prevSlug != slug && prevFeature != feature {
+		_ = b.Reset()
+		switched = true
 	}
 	b.session.Feature = feature
 	b.session.Slug = slug
 	_ = b.saveSession()
+	return switched
 }
 
 // Paused reports whether a turn has been requested during this process run.

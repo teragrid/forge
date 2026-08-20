@@ -115,6 +115,35 @@ var (
 		"forge agent prompt  # read the turn, then: forge agent submit --file <path>")
 )
 
+// agentPauseCheckpoint reports whether genErr is a paused agent-mode turn
+// (IsAgentTurn) rather than a genuine LLM/provider failure, and if so fills
+// in cp with a neutral "awaiting host-agent turn" status.
+//
+// Every checkpoint that generates an artefact via an LLMPipe must call this
+// before falling back to a stub/appendFailure on error. Without it, a pause
+// — the bridge has recorded a pending turn and is waiting for the host agent
+// to answer — was indistinguishable from a real LLM failure: the checkpoint
+// would overwrite whatever artefact was on disk with a stub template and log
+// a false failure to the learned-failures file, while the bridge's own pause
+// latch (Bridge.Paused) silently prevented later checkpoints in the same run
+// from doing any real work either — so a single miss on, say, arch cascaded
+// into every remaining checkpoint being stubbed out instead of the pipeline
+// stopping to show the real prompt. See the outer caller in the ship command,
+// which renders the pending turn from bridge state after RunWithOptions
+// returns — that render is unaffected by what any individual checkpoint's
+// Status/Detail says, but the stub writes and appendFailure calls are not,
+// which is what made this worth guarding at every call site rather than
+// relying on the outer check alone.
+func agentPauseCheckpoint(cp *Checkpoint, operation string, genErr error) bool {
+	if !IsAgentTurn(genErr) {
+		return false
+	}
+	cp.Status = "ok"
+	cp.Detail = "awaiting host-agent turn for " + operation + " — run: forge agent prompt"
+	cp.AgentPaused = true
+	return true
+}
+
 // ExitAgentTurn is the process exit code for a paused agent-mode run.
 //
 // 78 is chosen from the sysexits.h convention (EX_CONFIG, "configuration
@@ -138,6 +167,17 @@ type Checkpoint struct {
 	Debate            *DebateResult    `json:"debate,omitempty"`             // populated when --yolo self-debate runs
 	GapAudit          *SpecAuditResult `json:"gap_audit,omitempty"`          // TG-39: spec-vs-code audit result
 	RemediationRounds int              `json:"remediation_rounds,omitempty"` // rounds of LLM-driven gap remediation
+	// AgentPaused is true when this checkpoint did not run to completion but
+	// instead deferred to a host-agent turn (agent mode). It is not a failure
+	// and not a success — no artefact was produced, so post-checkpoint
+	// side effects (quality-gate hooks, evidence policy, digests, and the
+	// completion-marker file) must all be skipped: running them against a
+	// nonexistent artefact either errors, reports false "unverified" noise,
+	// or — for the completion marker specifically, whose path is the
+	// checkpoint's own primary artefact file (e.g. arch.md) — writes bogus
+	// placeholder content into the exact file the deferred turn was supposed
+	// to produce, corrupting it before the host agent ever answers.
+	AgentPaused bool `json:"-"`
 	// Evidence records what this checkpoint's status actually rests on. A
 	// status of "ok" requires at least one entry from an independent source —
 	// see evidence.go. Emitted in --json so a reviewer or CI job can audit the
@@ -431,7 +471,12 @@ func New() *cobra.Command {
 				return errcode.New(ErrAgentTurn, "open agent bridge", bErr)
 			}
 			bridge.StrictReplay = strictReplay
-			bridge.SetFeature(description, specName)
+			if bridge.SetFeature(description, specName) {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"note: session %q was driving a different feature — recorded answers reset for %q "+
+						"(use --session <name> to run multiple features concurrently without this)\n",
+					agentSession, description)
+			}
 			runOpts.AgentBridge = bridge
 			// Interactive y/N gates would block a chat-driven run between
 			// turns, and the host agent has no stdin to answer them with.
@@ -831,6 +876,9 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				// J8/J9: strip conversational preamble and detect truncation
 				// before overwriting an existing, presumably-good spec.md.
 				reviewed, complete, reviewErr := generateWithValidation(reviewFn)
+				if agentPauseCheckpoint(&cp, "ship:spec:review", reviewErr) {
+					return cp
+				}
 				if reviewErr != nil {
 					cp.Status = "ok"
 					if ySpec != nil {
@@ -906,6 +954,9 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 					}
 					// J8/J9: strip preamble and detect truncation before writing.
 					generated, genComplete, genErr := generateWithValidation(genFn)
+					if agentPauseCheckpoint(&cp, "ship:spec:generate-from-yaml", genErr) {
+						return cp
+					}
 					switch {
 					case genErr != nil:
 						specContent = specStub(description)
@@ -969,6 +1020,9 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				}
 				// J8/J9: strip preamble and detect truncation before writing.
 				generated, genComplete, genErr := generateWithValidation(genFn)
+				if agentPauseCheckpoint(&cp, "ship:spec:generate", genErr) {
+					return cp
+				}
 				switch {
 				case genErr != nil:
 					specContent = specStub(description)
@@ -1103,6 +1157,9 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 		applyReachability(root, testFiles, &cp)
 		if pipe != nil {
 			if _, err := generateTestStubs(root, description, slug, pipe); err != nil {
+				if agentPauseCheckpoint(&cp, "ship:test:generate", err) {
+					return cp
+				}
 				cp.Detail += fmt.Sprintf(" [LLM:%s — %s]", pipe.ProviderName(), llmErrNote(err))
 			}
 		}
@@ -1111,6 +1168,9 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 	// No test files — generate 4 named artifacts.
 	if pipe != nil {
 		if _, err := generateTestStubs(root, description, slug, pipe); err != nil {
+			if agentPauseCheckpoint(&cp, "ship:test:generate", err) {
+				return cp
+			}
 			cp.Status = "warning"
 			cp.Detail = fmt.Sprintf("no test files; 4 artifacts written to tests/%s.* [LLM:%s — %s]",
 				slug, pipe.ProviderName(), llmErrNote(err))
@@ -1248,6 +1308,9 @@ func checkBreakdown(root, description, specName string, pipe *LLMPipe) Checkpoin
 		// Breakdown does not exist — attempt LLM generation.
 		if pipe != nil {
 			generated, err := generateBreakdown(root, description, slug, pipe)
+			if agentPauseCheckpoint(&cp, "ship:breakdown:generate", err) {
+				return cp
+			}
 			if err != nil {
 				cp.Status = "warning"
 				cp.Detail = fmt.Sprintf("no breakdown.md [LLM:%s — %s] — run forge ship breakdown to generate",
@@ -1298,6 +1361,9 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 
 	if pipe != nil {
 		plan, err := generateCodePlan(root, description, slug, pipe)
+		if agentPauseCheckpoint(&cp, "ship:code:generate", err) {
+			return cp
+		}
 		if err != nil {
 			if changedFiles > 0 {
 				cp.Status = "ok"
@@ -2158,6 +2224,18 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	total := len(selected)
 
 	for i, cp := range selected {
+		// A checkpoint that deferred to a host-agent turn produced no
+		// artefact — none of hooks, evidence policy, digesting, or the
+		// completion marker have anything real to inspect, and running them
+		// anyway is actively harmful (the completion marker in particular
+		// would write placeholder content into the checkpoint's own artefact
+		// path). The outer `forge ship` command renders the pending turn from
+		// bridge state regardless of what res contains, so it is safe to stop
+		// here without evaluating the rest of the loop body for this entry.
+		if cp.AgentPaused {
+			res.Checkpoints = append(res.Checkpoints, cp)
+			return res
+		}
 		// ── Post-checkpoint quality-gate hooks ───────────────────────────────
 		// Hooks run after the check* function and can annotate cp.Detail with
 		// warnings or escalate status to "fail" when HookConfig.Strict is set.

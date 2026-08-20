@@ -4,6 +4,16 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-08-20 — Agent mode stopped pausing: a bridge miss was treated as an LLM failure
+
+### Fixed
+
+- **`forge ship --agent-mode` silently stubbed spec/arch/test/breakdown/code instead of pausing for a real turn.** Every checkpoint that generates an artefact via `LLMPipe` funnelled `generateWithValidation`'s error straight into its generic "LLM failed → write a stub, log a failure" branch, without ever checking whether that error was actually `ErrAgentTurn` — a *pause*, not a failure. In agent mode a bridge miss on, say, the arch checkpoint was therefore treated exactly like a real provider error: the checkpoint overwrote whatever was on disk (or nothing, pre-emptively) with a stub template and recorded a false failure in the learned-failures file used as future prompt context. A second, independent instance of the same root cause lived in the per-checkpoint post-processing loop: because the pause was reported as `cp.Status == "ok"`, the completion-marker writer — which writes `<checkpoint>.md` whenever a checkpoint didn't fail — ran anyway and wrote placeholder "Status: warning / Evidence: none" content into the checkpoint's own primary artefact file (e.g. `arch.md`) before the host agent had answered anything. Once that file existed, the next `forge ship --agent-mode` invocation saw it as "already done" and moved straight to the next checkpoint, repeating the mistake — the net effect being a single run that could stamp broken stubs across several checkpoints in a row while only ever showing the user the first turn.
+
+  Every checkpoint (`spec`, `arch`, `test`, `breakdown`, `code`) now checks `IsAgentTurn` before falling back to a stub, and a paused checkpoint is marked `AgentPaused` so the post-checkpoint hooks, evidence policy, digest, and completion-marker steps are all skipped for it rather than run against an artefact that doesn't exist yet.
+
+- **Reusing the same agent-mode session across unrelated features could replay one feature's answers into another's.** The bridge's ordinal-fallback replay (used when a prompt's hash has drifted but its position in the run has not) is keyed only on `operation#N`, with no feature scoping. Driving a second feature through the same `default` session — the common case, since `--session` is opt-in — meant its Nth call to a given operation (e.g. `ship:qa-verify:generate`) could silently hit the *first* feature's recorded answer for that same position instead of asking a fresh question. `Bridge.SetFeature` now detects when a session already belongs to a different feature/slug and resets the session's recorded responses before adopting the new one; `forge ship --agent-mode` prints a note when this happens so a reused session isn't a silent trap.
+
 ## [1.10.1] — 2026-08-08 — Scanner false positives, and a QA scenario that had been red since 1.9.0
 
 ### Fixed

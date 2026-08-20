@@ -31,6 +31,9 @@ package cmdship
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -191,6 +194,143 @@ func TestAgentMode_IgnoresAnInjectedProvider(t *testing.T) {
 	}
 	if !bridge.Paused() {
 		t.Fatal("the run should have deferred a turn to the host agent")
+	}
+}
+
+// ── Regression: a pause must not be treated as an LLM failure ─────────────────
+//
+// Root cause fixed here: checkSpec/checkArch/checkBreakdown/checkCode/checkTest
+// all funnelled generateWithValidation's error straight into their generic
+// "LLM failed, write a stub" branch. IsAgentTurn(err) was never checked, so a
+// bridge miss (a *pause*, not a failure) was indistinguishable from a real
+// provider error: the checkpoint clobbered whatever artefact was on disk with
+// a stub template, logged a false failure, and — because the bridge's pause
+// latch is set inside Lookup regardless — every checkpoint gated by
+// agentPaused() correctly stopped running in *that* invocation, but the
+// artefact files were already corrupted by the time it did. On the next
+// invocation, the stubbed file made the checkpoint look "already done" and
+// the pipeline moved on to the next checkpoint, which repeated the same
+// mistake — net effect: a single run silently stamped broken stubs across
+// spec/arch/test/breakdown/code instead of pausing once per checkpoint for a
+// real answer.
+func TestAgentMode_ArchPauseDoesNotStubTheArtefact(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	// Turn 1: spec pauses.
+	if _, err := runShipAgent(t, root); !IsAgentTurn(err) {
+		t.Fatalf("expected spec to pause, got %v", err)
+	}
+	b, _ := agentbridge.Open(root, agentbridge.DefaultSession)
+	if _, err := b.Fulfil("# Spec\n\n## Acceptance Criteria\n- [ ] works\n"); err != nil {
+		t.Fatalf("Fulfil spec: %v", err)
+	}
+
+	slug := "add-rate-limiting"
+	assertNoStubsYet := func(except ...string) {
+		t.Helper()
+		skip := map[string]bool{}
+		for _, s := range except {
+			skip[s] = true
+		}
+		for _, artefact := range []string{"arch.md", "test-stubs.md", "breakdown.md", "code-plan.md"} {
+			if skip[artefact] {
+				continue
+			}
+			p := filepath.Join(root, ".forge", "specs", slug, artefact)
+			if fi, statErr := os.Stat(p); statErr == nil {
+				data, _ := os.ReadFile(p)
+				t.Fatalf("%s must not exist yet (size=%d) — the pipeline should have paused for a real "+
+					"answer instead of writing a stub while a turn was still owed:\n%s", artefact, fi.Size(), string(data))
+			}
+		}
+	}
+
+	// Drive the run forward, answering whatever turn comes up (spec.md
+	// existing now routes through a review turn before arch), until arch's
+	// own generation turn is reached. At every step, no *later* checkpoint's
+	// artefact must have been stubbed out while a prior turn was still owed.
+	const maxTurns = 5
+	reachedArch := false
+	for i := 0; i < maxTurns; i++ {
+		cmd := New()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"add rate limiting", "--root", root, "--agent-mode"})
+		err := cmd.Execute()
+		if !IsAgentTurn(err) {
+			t.Fatalf("turn %d: expected a pause, got %v\n%s", i, err, out.String())
+		}
+
+		bn, _ := agentbridge.Open(root, agentbridge.DefaultSession)
+		pending, ok := bn.Pending()
+		if !ok {
+			t.Fatalf("turn %d: expected a pending turn", i)
+		}
+		if pending.Operation == "ship:arch:generate" {
+			assertNoStubsYet()
+			reachedArch = true
+			break
+		}
+		assertNoStubsYet()
+		if _, err := bn.Fulfil("placeholder host-agent answer for " + pending.Operation); err != nil {
+			t.Fatalf("turn %d: Fulfil %s: %v", i, pending.Operation, err)
+		}
+	}
+	if !reachedArch {
+		t.Fatalf("never reached the arch generation turn within %d turns", maxTurns)
+	}
+}
+
+// ── Regression: reusing a session across features must not cross-contaminate ──
+//
+// Root cause fixed here: Bridge.SetFeature recorded the new feature/slug but
+// never checked whether the session already belonged to a different feature.
+// The ordinal fallback in Lookup is keyed only on "operation#N" with no
+// feature scoping, so replaying "default" session state into a second,
+// unrelated feature could silently serve the first feature's recorded answer
+// for the second feature's Nth call to the same operation — e.g. its
+// qa-verify tasks — instead of asking a fresh question.
+func TestAgentMode_SwitchingFeatureResetsStaleSession(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	b, err := agentbridge.Open(root, agentbridge.DefaultSession)
+	if err != nil {
+		t.Fatalf("open bridge: %v", err)
+	}
+	if switched := b.SetFeature("agency master-calendar", "agency-master-calendar"); switched {
+		t.Fatal("first SetFeature call on a fresh session must not report a switch")
+	}
+	if _, err := b.Lookup("ship:qa-verify:generate", "qa-verify", "", "sys", "usr", 100); !errors.Is(err, agentbridge.ErrTurnRequired) {
+		t.Fatalf("expected a pause, got %v", err)
+	}
+	if _, err := b.Fulfil("master-calendar tasks answer"); err != nil {
+		t.Fatalf("Fulfil: %v", err)
+	}
+	if got := b.Stats().Responses; got != 1 {
+		t.Fatalf("expected 1 recorded response before the switch, got %d", got)
+	}
+
+	// Reopen as a fresh process would, then point the same default session at
+	// an unrelated feature.
+	b2, err := agentbridge.Open(root, agentbridge.DefaultSession)
+	if err != nil {
+		t.Fatalf("reopen bridge: %v", err)
+	}
+	if switched := b2.SetFeature("checkout redesign", "checkout-redesign"); !switched {
+		t.Fatal("SetFeature must report a switch when the session already belonged to a different feature")
+	}
+	if got := b2.Stats().Responses; got != 0 {
+		t.Fatalf("switching features must discard the prior feature's recorded answers, %d remain", got)
+	}
+	// The Nth call (N=1) to the same operation for the new feature must ask a
+	// fresh question rather than replaying the old feature's answer via the
+	// ordinal fallback.
+	content, lookupErr := b2.Lookup("ship:qa-verify:generate", "qa-verify", "", "sys", "usr", 100)
+	if !errors.Is(lookupErr, agentbridge.ErrTurnRequired) {
+		t.Fatalf("expected a fresh pause for the new feature, got content=%q err=%v", content, lookupErr)
 	}
 }
 
