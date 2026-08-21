@@ -38,6 +38,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teragrid/forge/internal/agentbridge"
 	"github.com/teragrid/forge/internal/cli/cmdtest"
 	"github.com/teragrid/forge/internal/llmprovider"
 )
@@ -2471,5 +2472,86 @@ func TestRunQATestSuite_NodeProject_NoTestScript_FallsThrough(t *testing.T) {
 
 	if status != "warning" || detail != "" {
 		t.Fatalf("expected the no-runner-found fallback (warning, \"\"), got status=%q detail=%q", status, detail)
+	}
+}
+
+// ── Regression: an agent-mode pause must not be treated as an LLM failure ─────
+//
+// Root cause: checkSpec/checkArch/checkBreakdown/checkCode/checkTest all
+// funnelled generateWithValidation's error straight into their generic "LLM
+// failed, write a stub" branch. IsAgentTurn(err) was never checked, so a
+// bridge miss (a *pause*, not a failure) was indistinguishable from a real
+// provider error, and the checkpoint clobbered whatever artefact was on disk
+// with a stub template. A second, independent bug in this file's own
+// per-checkpoint post-processing loop compounded it: because the pause
+// reported cp.Status == "ok", the completion-marker writer ran anyway and
+// wrote placeholder content into the checkpoint's own primary artefact file
+// (e.g. arch.md) before the host agent had answered anything — so the next
+// invocation saw that file as "already done" and moved on, repeating the
+// mistake on the next checkpoint. Net effect: a single run could silently
+// stamp broken stubs across spec/arch/test/breakdown/code instead of pausing
+// once per checkpoint for a real answer.
+func TestAgentMode_ArchPauseDoesNotStubTheArtefact(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	runShipAgentOnce := func() error {
+		cmd := New()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"add rate limiting", "--root", root, "--agent-mode"})
+		err := cmd.Execute()
+		if !IsAgentTurn(err) {
+			t.Fatalf("expected a pause, got %v\n%s", err, out.String())
+		}
+		return err
+	}
+
+	// Turn 1: spec pauses.
+	_ = runShipAgentOnce()
+	b, _ := agentbridge.Open(root, agentbridge.DefaultSession)
+	if _, err := b.Fulfil("# Spec\n\n## Acceptance Criteria\n- [ ] works\n"); err != nil {
+		t.Fatalf("Fulfil spec: %v", err)
+	}
+
+	slug := "add-rate-limiting"
+	assertNoStubsYet := func() {
+		t.Helper()
+		for _, artefact := range []string{"arch.md", "test-stubs.md", "breakdown.md", "code-plan.md"} {
+			p := filepath.Join(root, ".forge", "specs", slug, artefact)
+			if fi, statErr := os.Stat(p); statErr == nil {
+				data, _ := os.ReadFile(p)
+				t.Fatalf("%s must not exist yet (size=%d) — the pipeline should have paused for a real "+
+					"answer instead of writing a stub while a turn was still owed:\n%s", artefact, fi.Size(), string(data))
+			}
+		}
+	}
+
+	// Drive the run forward, answering whatever turn comes up (spec.md
+	// existing now routes through a review turn before arch), until arch's
+	// own generation turn is reached. At every step, no *later* checkpoint's
+	// artefact must have been stubbed out while a prior turn was still owed.
+	const maxTurns = 5
+	reachedArch := false
+	for i := 0; i < maxTurns; i++ {
+		_ = runShipAgentOnce()
+
+		bn, _ := agentbridge.Open(root, agentbridge.DefaultSession)
+		pending, ok := bn.Pending()
+		if !ok {
+			t.Fatalf("turn %d: expected a pending turn", i)
+		}
+		assertNoStubsYet()
+		if pending.Operation == "ship:arch:generate" {
+			reachedArch = true
+			break
+		}
+		if _, err := bn.Fulfil("placeholder host-agent answer for " + pending.Operation); err != nil {
+			t.Fatalf("turn %d: Fulfil %s: %v", i, pending.Operation, err)
+		}
+	}
+	if !reachedArch {
+		t.Fatalf("never reached the arch generation turn within %d turns", maxTurns)
 	}
 }

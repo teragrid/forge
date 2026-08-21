@@ -441,3 +441,47 @@ func TestFence_SurvivesFencedContentInsideThePrompt(t *testing.T) {
 			strings.Count(out, Fence), out)
 	}
 }
+
+// TestSetFeature_SwitchingFeatureResetsStaleSession is a regression test for
+// cross-feature state contamination: SetFeature recorded the new
+// feature/slug but never checked whether the session already belonged to a
+// different feature. The ordinal fallback in Lookup is keyed only on
+// "operation#N" with no feature scoping, so replaying default-session state
+// into a second, unrelated feature could silently serve the first feature's
+// recorded answer for the second feature's Nth call to the same operation —
+// e.g. its qa-verify tasks — instead of asking a fresh question.
+func TestSetFeature_SwitchingFeatureResetsStaleSession(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	b := mustOpen(t, root, DefaultSession)
+	if switched := b.SetFeature("agency master-calendar", "agency-master-calendar"); switched {
+		t.Fatal("first SetFeature call on a fresh session must not report a switch")
+	}
+	if _, err := b.Lookup("ship:qa-verify:generate", "qa-verify", "", "sys", "usr", 100); !errors.Is(err, ErrTurnRequired) {
+		t.Fatalf("expected a pause, got %v", err)
+	}
+	if _, err := b.Fulfil("master-calendar tasks answer"); err != nil {
+		t.Fatalf("Fulfil: %v", err)
+	}
+	if got := b.Stats().Responses; got != 1 {
+		t.Fatalf("expected 1 recorded response before the switch, got %d", got)
+	}
+
+	// Reopen as a fresh process would, then point the same default session at
+	// an unrelated feature.
+	b2 := mustOpen(t, root, DefaultSession)
+	if switched := b2.SetFeature("checkout redesign", "checkout-redesign"); !switched {
+		t.Fatal("SetFeature must report a switch when the session already belonged to a different feature")
+	}
+	if got := b2.Stats().Responses; got != 0 {
+		t.Fatalf("switching features must discard the prior feature's recorded answers, %d remain", got)
+	}
+	// The Nth call (N=1) to the same operation for the new feature must ask a
+	// fresh question rather than replaying the old feature's answer via the
+	// ordinal fallback.
+	content, lookupErr := b2.Lookup("ship:qa-verify:generate", "qa-verify", "", "sys", "usr", 100)
+	if !errors.Is(lookupErr, ErrTurnRequired) {
+		t.Fatalf("expected a fresh pause for the new feature, got content=%q err=%v", content, lookupErr)
+	}
+}

@@ -230,6 +230,9 @@ func checkArch(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		// J8/J9: strip conversational preamble and detect truncation before
 		// writing; retry once on an incomplete response.
 		generated, complete, err := generateWithValidation(generateFn)
+		if agentPauseCheckpoint(&cp, "ship:arch:generate", err) {
+			return cp
+		}
 		switch {
 		case err != nil:
 			archContent = archStub(description)
