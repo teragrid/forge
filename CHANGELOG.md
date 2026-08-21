@@ -4,7 +4,7 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
-## [1.10.2] — 2026-08-20 — Agent mode stopped pausing: a bridge miss was treated as an LLM failure
+## [1.10.2] — 2026-08-21 — Agent mode stopped pausing: a bridge miss was treated as an LLM failure
 
 ### Fixed
 
