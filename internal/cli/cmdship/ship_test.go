@@ -875,6 +875,56 @@ func TestCheckSpec_LLM_NoDescription_Warning(t *testing.T) {
 	}
 }
 
+// TestCheckSpec_NoDescription_MultipleSpecs_HardFails guards against a real
+// gap: with no description/--name and more than one spec directory already
+// present, checkSpec used to report "ok" ("N spec(s) in .forge/specs/; pass
+// a feature description to target one") and let the pipeline continue — every
+// later checkpoint then ran against an empty/undefined slug, each separately
+// falling back to its own "no description" branch, so an ambiguous target
+// produced a full pipeline's worth of fabricated, spec-less output instead of
+// a single clear error. Ambiguity (more than one candidate) must hard-fail
+// and demand --name; it must not be treated the same as the unambiguous
+// single-spec case, which is still fine to report as an informational "ok".
+func TestCheckSpec_NoDescription_MultipleSpecs_HardFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, slug := range []string{"add-login", "add-billing"} {
+		if err := os.MkdirAll(filepath.Join(root, ".forge", "specs", slug), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", slug, err)
+		}
+	}
+	cp := checkSpec(root, "", "", nil)
+
+	if cp.Status != "fail" {
+		t.Fatalf("ambiguous multi-spec target must hard-fail, got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "--name") {
+		t.Errorf("detail must instruct the user to disambiguate with --name: %s", cp.Detail)
+	}
+	for _, slug := range []string{"add-login", "add-billing"} {
+		if !strings.Contains(cp.Detail, slug) {
+			t.Errorf("detail must name the ambiguous candidate %q: %s", slug, cp.Detail)
+		}
+	}
+}
+
+// TestCheckSpec_NoDescription_SingleSpec_StillOK guards the non-ambiguous
+// case: exactly one existing spec directory is not an error, and must keep
+// reporting the pre-existing informational "ok" rather than being swept into
+// the new hard-fail path.
+func TestCheckSpec_NoDescription_SingleSpec_StillOK(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".forge", "specs", "add-login"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cp := checkSpec(root, "", "", nil)
+
+	if cp.Status != "ok" {
+		t.Fatalf("a single unambiguous spec dir must not hard-fail, got %q: %s", cp.Status, cp.Detail)
+	}
+}
+
 // â”€â”€ YAML spec (spec.yml) integration tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Test-design checklist (always-write-tests.md 9-point):

@@ -1069,6 +1069,27 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	// No description — look for any existing spec.
 	entries, err := os.ReadDir(specsDir)
 	if err == nil && len(entries) > 0 {
+		var names []string
+		for _, e := range entries {
+			if e.IsDir() {
+				names = append(names, e.Name())
+			}
+		}
+		if len(names) > 1 {
+			// Ambiguous: more than one spec directory and nothing (--name or a
+			// description) to pick one. Continuing anyway used to run every
+			// later checkpoint against an empty/undefined slug — each one
+			// separately falling back to its own "no description" branch — so
+			// a multi-spec project got a full pipeline's worth of fabricated,
+			// spec-less output instead of a single clear error demanding
+			// `--name`. Hard-fail here instead of warning-and-continuing.
+			cp.Status = "fail"
+			cp.Detail = fmt.Sprintf(
+				"%d spec(s) in .forge/specs/ (%s) and no feature description or --name given — ambiguous target; "+
+					"pass forge ship --name <slug> to pick one, or a feature description to start a new spec",
+				len(names), strings.Join(names, ", "))
+			return cp
+		}
 		cp.Status = "ok"
 		cp.Detail = fmt.Sprintf("%d spec(s) in .forge/specs/; pass a feature description to target one", len(entries))
 		return cp
@@ -1143,7 +1164,14 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 		if data, err := os.ReadFile(specPath); err == nil {
 			specMD = string(data)
 		}
-		writeTestArtifacts(root, slug, description, specMD, pipe)
+		// A paused host-agent turn here must not fall through to the
+		// "artifacts found" branch below: writeTestArtifacts wrote nothing in
+		// that case specifically so allTestArtifactsExist stays false and the
+		// real answer (once submitted) lands in tests/* on the next run
+		// instead of being permanently shadowed by a placeholder.
+		if _, waErr := writeTestArtifacts(root, slug, description, specMD, pipe); agentPauseCheckpoint(&cp, "ship:test:write-artifacts", waErr) {
+			return cp
+		}
 	}
 
 	if len(testFiles) > 0 {

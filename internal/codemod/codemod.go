@@ -113,6 +113,11 @@ const defaultMarkerBody = `# forge:gitignore:start
 # Managed by forge — do not edit manually. Run "forge upgrade gitignore-marker" to refresh.
 .forge/scratch/
 .forge/cache/
+.forge/.snapshots/
+.forge/agent/
+.forge/learned/
+.forge/trash/
+.forge/token-ledger.jsonl
 *.tmp
 *.bak
 __pycache__/

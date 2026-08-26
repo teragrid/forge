@@ -199,7 +199,7 @@ func TestWriteTestArtifactsWithContext_Go_GeneratesGoStubs(t *testing.T) {
 	root, slug := testRoot(t, "go")
 
 	fw := detectTestFramework(root)
-	paths := writeTestArtifactsWithContext(root, slug, "my feature", "", fw, nil)
+	paths, _ := writeTestArtifactsWithContext(root, slug, "my feature", "", fw, nil)
 
 	if paths.GoTest == "" {
 		t.Fatal("GoTest path must be set for Go project")
@@ -218,7 +218,7 @@ func TestWriteTestArtifactsWithContext_Go_NoTypeScriptStubs(t *testing.T) {
 	root, slug := testRoot(t, "go")
 
 	fw := detectTestFramework(root)
-	paths := writeTestArtifactsWithContext(root, slug, "my feature", "", fw, nil)
+	paths, _ := writeTestArtifactsWithContext(root, slug, "my feature", "", fw, nil)
 
 	if paths.UnitTest != "" {
 		if _, err := os.Stat(paths.UnitTest); err == nil {
@@ -237,7 +237,7 @@ func TestWriteTestArtifactsWithContext_TypeScript_NoGoStubs(t *testing.T) {
 	root, slug := testRoot(t, "ts")
 
 	fw := detectTestFramework(root)
-	paths := writeTestArtifactsWithContext(root, slug, "my feature", "", fw, nil)
+	paths, _ := writeTestArtifactsWithContext(root, slug, "my feature", "", fw, nil)
 
 	if paths.UnitTest == "" {
 		t.Fatal("UnitTest path must be set for TypeScript project")
@@ -284,7 +284,7 @@ func TestWriteTestArtifactsWithContext_RLSPromptNamesDetectedFramework(t *testin
 		},
 	}
 
-	writeTestArtifactsWithContext(root, slug, "my feature", "", fw, mockPipe(root, mock))
+	_, _ = writeTestArtifactsWithContext(root, slug, "my feature", "", fw, mockPipe(root, mock))
 
 	for name, prompt := range map[string]string{
 		"RLS": rlsSystemPrompt, "unit": unitSystemPrompt, "integration": integSystemPrompt,
@@ -300,8 +300,8 @@ func TestWriteTestArtifactsWithContext_Idempotent(t *testing.T) {
 	root, slug := testRoot(t, "go")
 	fw := detectTestFramework(root)
 
-	p1 := writeTestArtifactsWithContext(root, slug, "feature", "", fw, nil)
-	p2 := writeTestArtifactsWithContext(root, slug, "feature", "", fw, nil)
+	p1, _ := writeTestArtifactsWithContext(root, slug, "feature", "", fw, nil)
+	p2, _ := writeTestArtifactsWithContext(root, slug, "feature", "", fw, nil)
 
 	if p1.GoTest != p2.GoTest {
 		t.Errorf("idempotency: GoTest paths differ: %q vs %q", p1.GoTest, p2.GoTest)
@@ -344,7 +344,7 @@ func TestWriteTestArtifactsWithContext_BugFix_HasRegressionStubs(t *testing.T) {
 	root, slug := testRoot(t, "go")
 	fw := detectTestFramework(root)
 
-	paths := writeTestArtifactsWithContext(root, slug, "fix nil pointer in parser", "", fw, nil)
+	paths, _ := writeTestArtifactsWithContext(root, slug, "fix nil pointer in parser", "", fw, nil)
 
 	content, err := os.ReadFile(paths.GoTest)
 	if err != nil {
