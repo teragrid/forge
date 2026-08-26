@@ -50,7 +50,10 @@ func TestCheckTest_FourArtefacts(t *testing.T) {
 	root := t.TempDir()
 
 	slug := slugify("add login")
-	paths := writeTestArtifacts(root, slug, "add login", "", nil)
+	paths, err := writeTestArtifacts(root, slug, "add login", "", nil)
+	if err != nil {
+		t.Fatalf("writeTestArtifacts: %v", err)
+	}
 
 	if _, err := os.Stat(paths.UnitTest); err != nil {
 		t.Errorf("unit test artifact missing (%s): %v", paths.UnitTest, err)

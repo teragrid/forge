@@ -163,16 +163,14 @@ type Bridge struct {
 	seen map[string]int
 
 	pending *Turn
-	// paused latches once a turn has been requested. Every later Lookup in the
-	// same process returns ErrTurnRequired without overwriting the pending
-	// turn, so one `forge ship --agent-mode` invocation always yields exactly
-	// one question for the host agent to answer.
+	// paused latches once a turn has been requested — either freshly, on a
+	// miss inside Lookup, or immediately at Open time when pending.json
+	// already held an unanswered turn from a previous run (see loadPending).
+	// Every later Lookup in the same process returns ErrTurnRequired without
+	// overwriting the pending turn, so one `forge ship --agent-mode`
+	// invocation always yields exactly one question for the host agent to
+	// answer — and never silently proceeds past a turn it already owes.
 	paused bool
-
-	// restored records that pending was loaded from disk rather than created
-	// in this process — i.e. a previous run already showed the host agent a
-	// question it has not answered yet. See Lookup for why that matters.
-	restored bool
 
 	// StrictReplay disables the ordinal fallback: a prompt whose hash is not
 	// recorded is always re-asked, even when an ordinal-keyed answer exists.
@@ -293,24 +291,21 @@ func (b *Bridge) Lookup(operation, checkpoint, model, system, user string, maxTo
 			return resp.Content, nil
 		}
 	}
-	if b.paused {
-		return "", ErrTurnRequired
-	}
 	// An unanswered turn from a previous run outranks whatever this run would
-	// have asked. Re-running while paused is normal — a driver that loses its
-	// place just runs `forge ship --agent-mode` again — and the pipeline can
-	// legitimately arrive at a *different* prompt the second time, because a
-	// checkpoint that could not generate its artefact may still have
-	// scaffolded a stub, moving the next run onto the review path instead of
-	// the generate path.
-	//
-	// Letting that overwrite pending.json would misfile the answer: the host
-	// agent is holding a prompt it was shown, and `forge agent submit`
+	// have asked. loadPending latches paused as soon as a pending turn is
+	// read from disk (before Lookup is ever called), so a restored turn is
+	// already caught by the b.paused check above — this is why: re-running
+	// while paused is normal — a driver that loses its place just runs
+	// `forge ship --agent-mode` again — and the pipeline can legitimately
+	// arrive at a *different* prompt the second time, because a checkpoint
+	// that could not generate its artefact may still have scaffolded a stub,
+	// moving the next run onto the review path instead of the generate path.
+	// Overwriting pending.json in that case would misfile the answer: the
+	// host agent is holding a prompt it was shown, and `forge agent submit`
 	// records against whatever is pending at submit time. It would file a
 	// generated spec as if it were a review. So the original question stands
 	// until it is answered or the session is reset.
-	if b.restored && b.pending != nil {
-		b.paused = true
+	if b.paused {
 		return "", ErrTurnRequired
 	}
 	b.pending = &Turn{
@@ -357,7 +352,6 @@ func (b *Bridge) Fulfil(content string) (Turn, error) {
 	b.byOrdinal[resp.Ordinal] = resp
 	b.pending = nil
 	b.paused = false
-	b.restored = false
 	b.nextSeq = t.Seq + 1
 	b.session.TurnsFilled++
 	if err := b.clearPending(); err != nil {
@@ -383,7 +377,6 @@ func (b *Bridge) Reset() error {
 	b.seen = map[string]int{}
 	b.pending = nil
 	b.paused = false
-	b.restored = false
 	b.drifted = 0
 	b.nextSeq = 0
 	b.session = Session{Name: b.session.Name, CreatedAt: time.Now().UTC()}
@@ -513,12 +506,20 @@ func (b *Bridge) loadPending() error {
 		return fmt.Errorf("parse pending turn: %w", err)
 	}
 	b.pending = &t
-	// Loading does not latch paused on its own: replay must still work, so
-	// the run has to be allowed to proceed through every already-answered
-	// prompt before it reaches the unanswered one. The latch happens in
-	// Lookup, on the first miss, and preserves this turn rather than
-	// replacing it.
-	b.restored = true
+	// Latching paused here (rather than waiting for Lookup's first miss) does
+	// not break replay: Lookup checks byHash/byOrdinal before it ever checks
+	// paused, so every already-answered prompt still replays normally even
+	// though paused is already true. What this closes is a fabrication path —
+	// a checkpoint that never calls Lookup at all this run (a stub short-
+	// circuit, a language branch with no LLM call, an "artefact already
+	// exists" skip) used to leave paused false for the entire process, so
+	// forge ship --agent-mode could run straight through Test/Breakdown/Code
+	// to a real failure or success while a turn from an earlier run — e.g. a
+	// still-unanswered arch-parallel-debate role — sat unanswered on disk the
+	// whole time, because both the run loop's per-checkpoint gate and the
+	// final "render the pending turn" check in the ship command key off this
+	// same paused flag, not off Pending() alone.
+	b.paused = true
 	return nil
 }
 

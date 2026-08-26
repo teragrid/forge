@@ -165,3 +165,24 @@ func TestDefault_HasBuiltins(t *testing.T) {
 		}
 	}
 }
+
+// TestDefaultMarkerBody_CoversForgeScratchState guards the third copy of the
+// same managed .gitignore content (alongside canonicalGitignoreBlock in
+// hygiene.go and canonicalGiSnippet in cmddoctor/doctor.go) — see
+// TestCanonicalGitignoreBlock_CoversForgeScratchState for the root cause.
+func TestDefaultMarkerBody_CoversForgeScratchState(t *testing.T) {
+	t.Parallel()
+	for _, pattern := range []string{
+		".forge/scratch/",
+		".forge/cache/",
+		".forge/.snapshots/",
+		".forge/agent/",
+		".forge/learned/",
+		".forge/trash/",
+		".forge/token-ledger.jsonl",
+	} {
+		if !strings.Contains(defaultMarkerBody, pattern) {
+			t.Errorf("defaultMarkerBody missing %q", pattern)
+		}
+	}
+}

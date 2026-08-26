@@ -227,3 +227,25 @@ func TestCheckLLMProviderLive_NoProviderDetected(t *testing.T) {
 		t.Error("Hint must not be empty when no provider is detected")
 	}
 }
+
+// TestCanonicalGiSnippet_CoversForgeScratchState guards the same content this
+// duplicate must stay in sync with (internal/codemod.canonicalGitignoreBlock)
+// — see that package's TestCanonicalGitignoreBlock_CoversForgeScratchState
+// for the root cause (untracked .forge/agent, .forge/.snapshots, etc. being
+// miscounted by ship's countChangedFiles as real code changes).
+func TestCanonicalGiSnippet_CoversForgeScratchState(t *testing.T) {
+	t.Parallel()
+	for _, pattern := range []string{
+		".forge/scratch/",
+		".forge/cache/",
+		".forge/.snapshots/",
+		".forge/agent/",
+		".forge/learned/",
+		".forge/trash/",
+		".forge/token-ledger.jsonl",
+	} {
+		if !strings.Contains(canonicalGiSnippet, pattern) {
+			t.Errorf("canonicalGiSnippet missing %q", pattern)
+		}
+	}
+}

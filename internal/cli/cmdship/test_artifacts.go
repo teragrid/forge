@@ -79,7 +79,7 @@ type TestArtifactPaths struct {
 // writeTestArtifacts is the original G-006 entry point, now a shim that calls
 // writeTestArtifactsWithContext using the auto-detected test framework. This
 // preserves backward-compatibility while fixing G10 (hardcoded TypeScript).
-func writeTestArtifacts(root, slug, feature, specMarkdown string, pipe *LLMPipe) TestArtifactPaths {
+func writeTestArtifacts(root, slug, feature, specMarkdown string, pipe *LLMPipe) (TestArtifactPaths, error) {
 	fw := detectTestFramework(root)
 	return writeTestArtifactsWithContext(root, slug, feature, specMarkdown, fw, pipe)
 }
@@ -318,10 +318,24 @@ func CheckTestFilesExist(files []string) CheckTestFilesResult {
 // only the correct stub type for the detected stack (G10 fix: no cross-language
 // injection). An LLMPipe may be nil — static stubs are always written as a
 // fallback. RFC-005 §6.3.
-func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFrameworkContext, pipe *LLMPipe) TestArtifactPaths {
+//
+// Returns a non-nil error (satisfying IsAgentTurn) when a bridge-backed pipe
+// paused on a host-agent turn mid-generation. In that case NO files are
+// written for the branch that paused: the pre-fix behaviour wrote the static
+// RED placeholder to disk regardless of *why* generation didn't produce
+// content, which let a pending turn look identical to "there was nothing to
+// enrich". That placeholder then satisfied allTestArtifactsExist forever,
+// silently discarding the host agent's real answer once it was later
+// submitted — confirmed live: submitting a real `ping()` assertion for
+// ship:test:unit never reached tests/*.test.ts, because the artifact-exists
+// guard in checkTest had already been tripped by the placeholder from the
+// paused attempt. Returning the error instead lets the caller keep the
+// "not yet written" state so the next run's Lookup call replays the real
+// answer into the actual file.
+func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFrameworkContext, pipe *LLMPipe) (TestArtifactPaths, error) {
 	testsDir := filepath.Join(root, "tests")
 	if err := os.MkdirAll(testsDir, 0o755); err != nil {
-		return TestArtifactPaths{}
+		return TestArtifactPaths{}, nil
 	}
 
 	isFix := IsBugFix(feature)
@@ -332,7 +346,11 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 		paths.GoTest = filepath.Join(testsDir, slug+"_test.go")
 		content := goTestStub(slug, feature, isFix)
 		if pipe != nil {
-			if gen := llmGoStub(pipe, slug, feature, specMD, isFix); gen != "" {
+			gen, err := llmGoStub(pipe, slug, feature, specMD, isFix)
+			if IsAgentTurn(err) {
+				return TestArtifactPaths{}, err
+			}
+			if gen != "" {
 				content = gen
 			}
 		}
@@ -395,7 +413,11 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 					// truncated response is caught rather than written as-is.
 					6000)
 			}
-			if gen, complete, err := generateWithValidation(unitFn); err == nil && complete && gen != "" {
+			gen, complete, err := generateWithValidation(unitFn)
+			if IsAgentTurn(err) {
+				return TestArtifactPaths{}, err
+			}
+			if err == nil && complete && gen != "" {
 				unitContent = gen
 			}
 
@@ -405,7 +427,11 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 						"Tests MUST fail. Import test functions from \""+runner+"\", never a different test framework.",
 					ctx+"Generate failing integration test stubs for feature: "+feature, 6000)
 			}
-			if gen, complete, err := generateWithValidation(integFn); err == nil && complete && gen != "" {
+			gen, complete, err = generateWithValidation(integFn)
+			if IsAgentTurn(err) {
+				return TestArtifactPaths{}, err
+			}
+			if err == nil && complete && gen != "" {
 				integContent = gen
 			}
 
@@ -416,7 +442,11 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 						"\", never a different test framework. Tests MUST fail.",
 					ctx+"Generate failing RLS test stubs for feature: "+feature, 4000)
 			}
-			if gen, complete, err := generateWithValidation(rlsFn); err == nil && complete && gen != "" {
+			gen, complete, err = generateWithValidation(rlsFn)
+			if IsAgentTurn(err) {
+				return TestArtifactPaths{}, err
+			}
+			if err == nil && complete && gen != "" {
 				rlsContent = gen
 			}
 		}
@@ -433,7 +463,7 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 		_ = os.WriteFile(paths.ScanBaseline, data, 0o600)
 	}
 
-	return paths
+	return paths, nil
 }
 
 // ── Go stub generators ─────────────────────────────────────────────────────────
@@ -563,7 +593,7 @@ class %sTest {
 
 // ── LLM generator for Go (optional enrichment) ─────────────────────────────
 
-func llmGoStub(pipe *LLMPipe, _ string, feature, specMD string, isBugFix bool) string {
+func llmGoStub(pipe *LLMPipe, _ string, feature, specMD string, isBugFix bool) (string, error) {
 	ctx := ""
 	if specMD != "" {
 		ctx = "Feature spec:\n" + specMD + "\n\n"
@@ -582,10 +612,13 @@ func llmGoStub(pipe *LLMPipe, _ string, feature, specMD string, isBugFix bool) s
 			6000)
 	}
 	gen, complete, err := generateWithValidation(genFn)
-	if err != nil || !complete || gen == "" {
-		return ""
+	if IsAgentTurn(err) {
+		return "", err
 	}
-	return gen
+	if err != nil || !complete || gen == "" {
+		return "", nil
+	}
+	return gen, nil
 }
 
 // featureTitle converts a feature string to a CamelCase identifier suitable

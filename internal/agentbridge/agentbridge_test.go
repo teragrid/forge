@@ -485,3 +485,65 @@ func TestSetFeature_SwitchingFeatureResetsStaleSession(t *testing.T) {
 		t.Fatalf("expected a fresh pause for the new feature, got content=%q err=%v", content, lookupErr)
 	}
 }
+
+// ── Regression: a restored pending turn must latch paused immediately ────────
+//
+// Root cause this guards: loadPending used to leave b.paused false until some
+// later Lookup call happened to re-encounter the exact same hash/ordinal as
+// the restored turn. A checkpoint that never calls Lookup at all in a given
+// run — a static-stub short-circuit, a language branch with no LLM call, an
+// "artefact already exists" skip — left paused false for the whole process
+// even though a real, unanswered turn was sitting on disk. That let
+// `forge ship --agent-mode` run straight through later checkpoints (and the
+// final "render the pending turn" check in the ship command, which also
+// gates on Paused()) while a genuinely-owed turn from an earlier run went
+// unanswered the entire time. Confirmed live: an arch-parallel-debate turn
+// left pending, then Test/Breakdown/Code fabricated results in the same run.
+func TestOpen_RestoredPendingTurnLatchesPausedImmediately(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	b := mustOpen(t, root, DefaultSession)
+	if b.Paused() {
+		t.Fatal("a fresh bridge with nothing pending must not start paused")
+	}
+	if _, err := b.Lookup("ship:arch:generate", "arch", "", "sys", "usr", 100); !errors.Is(err, ErrTurnRequired) {
+		t.Fatalf("expected a pause, got %v", err)
+	}
+	if !b.Paused() {
+		t.Fatal("a fresh miss must latch paused in the same process")
+	}
+
+	// Simulate a brand-new process (e.g. a second `forge ship --agent-mode`
+	// invocation) that has not yet called Lookup at all this run.
+	b2 := mustOpen(t, root, DefaultSession)
+	if !b2.Paused() {
+		t.Fatal("Open must latch paused immediately when pending.json already holds an unanswered turn — " +
+			"otherwise a checkpoint that never calls Lookup this run can sail past the still-owed turn")
+	}
+	turn, ok := b2.Pending()
+	if !ok {
+		t.Fatal("the restored turn must still be reported by Pending()")
+	}
+	if turn.Operation != "ship:arch:generate" {
+		t.Fatalf("restored the wrong turn: %q", turn.Operation)
+	}
+
+	// Replay through an already-answered prompt must still work even though
+	// paused is true from the moment of Open — hash/ordinal hits are checked
+	// before the paused branch in Lookup.
+	if _, err := b2.Fulfil("the answer"); err != nil {
+		t.Fatalf("Fulfil: %v", err)
+	}
+	b3 := mustOpen(t, root, DefaultSession)
+	if b3.Paused() {
+		t.Fatal("a bridge with no pending turn on disk must not start paused")
+	}
+	content, err := b3.Lookup("ship:arch:generate", "arch", "", "sys", "usr", 100)
+	if err != nil {
+		t.Fatalf("replay of the answered turn must succeed, got err=%v", err)
+	}
+	if content != "the answer" {
+		t.Fatalf("replay returned %q, want the recorded answer", content)
+	}
+}
