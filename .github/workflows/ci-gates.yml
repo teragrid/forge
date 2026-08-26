@@ -73,13 +73,25 @@ jobs:
           CHANGED=$(git diff --name-only "origin/$BASE"...HEAD 2>/dev/null || git diff --name-only HEAD~1...HEAD)
           # For each changed _test.go, find the corresponding non-test file
           # and check that the test commit is not strictly *after* the production commit.
+          #
+          # Both `git log` calls are scoped to this PR's own commit range
+          # ("origin/$BASE..HEAD") and take the *first* commit in that range
+          # (oldest, via `tail -1` — `git log` lists newest-first) rather than
+          # the most recent commit in the file's entire history. A prior
+          # version compared each file's all-time-latest-touch timestamp,
+          # which meant ANY test-only PR against a mature file (no production
+          # change at all) was flagged as a TDD violation purely because the
+          # test's last historical edit postdated the production file's last
+          # historical edit — true for almost every established file. Scoping
+          # to this PR's range means an untouched production file naturally
+          # produces no commits (PROD_DATE empty) and is correctly skipped.
           VIOLATIONS=0
           while IFS= read -r f; do
             if [[ "$f" != *_test.go ]]; then continue; fi
             PROD="${f%_test.go}.go"
             if [[ ! -f "$PROD" ]]; then continue; fi  # No paired prod file — skip
-            TEST_DATE=$(git log --follow --format='%ct' -- "$f" | head -1)
-            PROD_DATE=$(git log --follow --format='%ct' -- "$PROD" | head -1)
+            TEST_DATE=$(git log --follow --format='%ct' "origin/$BASE..HEAD" -- "$f" | tail -1)
+            PROD_DATE=$(git log --follow --format='%ct' "origin/$BASE..HEAD" -- "$PROD" | tail -1)
             if [[ -n "$TEST_DATE" && -n "$PROD_DATE" && "$TEST_DATE" -gt "$PROD_DATE" ]]; then
               echo "::warning file=$f::Test file $f was committed AFTER production file $PROD (TDD violation)"
               VIOLATIONS=$((VIOLATIONS + 1))
