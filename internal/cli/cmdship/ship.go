@@ -460,6 +460,25 @@ func New() *cobra.Command {
 			}
 		}
 
+		// Auto-fallback: when the pipeline is not already in agent mode and the
+		// configured LLM provider is unusable for a permanent reason (no
+		// provider configured, auth failed, or a hard invalid_request such as
+		// "credit balance too low" — see llmpipe.go probeProviderUsable), drive
+		// the run via the host agent instead of hard-failing every LLM
+		// checkpoint. This is the documented escape hatch (--agent-mode) turned
+		// on automatically instead of requiring the operator to notice the
+		// failure and re-invoke with the flag. FORGE_NO_AGENT_FALLBACK=1 opts
+		// out for callers that want a hard failure instead (e.g. CI jobs that
+		// should not silently pause on a human/host-agent turn).
+		if !agentMode && !dryRun && os.Getenv("FORGE_AGENT_MODE") != "1" && os.Getenv("FORGE_NO_AGENT_FALLBACK") != "1" {
+			if usable, reason := probeProviderUsable(); !usable {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"note: configured LLM provider is unusable (%s) — falling back to --agent-mode "+
+						"automatically (set FORGE_NO_AGENT_FALLBACK=1 to disable)\n", reason)
+				agentMode = true
+			}
+		}
+
 		// Agent mode: swap the reasoning plane from a paid provider to the
 		// host agent. The deterministic plane is untouched — same checkpoints,
 		// same gates, same artefact validation.
@@ -471,6 +490,19 @@ func New() *cobra.Command {
 				return errcode.New(ErrAgentTurn, "open agent bridge", bErr)
 			}
 			bridge.StrictReplay = strictReplay
+			// ISSUE 4 fix: a bare continuation (no --name, no description — the
+			// shape of the hint forge itself prints after a submit: "next: forge
+			// ship --agent-mode") must resume the same feature this session was
+			// already driving, not fall through to whatever spec/checkpoint
+			// resolution does with an empty name and description. Resolve from
+			// the session's own recorded identity before SetFeature runs, and
+			// propagate into runOpts so RunWithOptions targets the right spec.
+			if description == "" && specName == "" {
+				if priorFeature, priorSlug := bridge.Feature(); priorSlug != "" || priorFeature != "" {
+					description, specName = priorFeature, priorSlug
+					runOpts.Description, runOpts.SpecName = description, specName
+				}
+			}
 			if bridge.SetFeature(description, specName) {
 				fmt.Fprintf(cmd.ErrOrStderr(),
 					"note: session %q was driving a different feature — recorded answers reset for %q "+

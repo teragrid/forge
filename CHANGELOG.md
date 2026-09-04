@@ -4,6 +4,12 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+
+- **`forge ship` hard-failed every LLM checkpoint when the configured provider was unusable (e.g. Anthropic credit balance too low) instead of falling back to `--agent-mode`.** `--agent-mode` was already the documented escape hatch for exactly this — "drive the pipeline from your own AI chat instead of an API key" — but it required the operator to notice the failure and manually re-invoke with the flag. `forge ship` now runs a cheap live probe (mirroring `forge doctor --llm`'s `checkLLMProviderLive`) before starting a non-agent-mode run: when a provider *is* configured but a minimal completion call against it fails for a permanent reason (an invalid/expired key, or a hard `invalid_request_error` — Anthropic's shape for "credit balance too low"), the run automatically switches to agent mode and prints a note explaining why, instead of proceeding to fail every checkpoint one at a time. No provider configured at all is left untouched — that already has its own stub/hint UX and is not this failure. Set `FORGE_NO_AGENT_FALLBACK=1` to keep the old hard-failure behavior (e.g. for CI jobs that should error rather than pause on a host-agent turn).
+
+- **CRITICAL: `forge ship --agent-mode` without `--name`/description could silently resume a different, unrelated feature's pending checkpoint.** `Bridge.SetFeature` unconditionally wrote its `feature`/`slug` arguments into the session on every call, including the bare continuation forge itself tells you to run after a submit (`next: forge ship --agent-mode`, no flags). That call passed `SetFeature("", "")`, which blanked the session's previously-recorded feature identity — so the next resolution of "which spec is this session driving" had nothing to resume against and could fall through to an unrelated feature's incomplete checkpoint instead, corrupting its pipeline state with the wrong artefact if the answer were submitted. `SetFeature("", "")` is now a no-op when the session already has an identity, and the bare-continuation path in `forge ship --agent-mode` resolves the missing `--name`/description from the session's own recorded `Feature()` before doing anything else, so a bare re-run of forge's own printed hint now reliably continues the same feature.
+
 ## [1.10.2] — 2026-08-21 — Agent mode stopped pausing: a bridge miss was treated as an LLM failure
 
 ### Fixed

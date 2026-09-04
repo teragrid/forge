@@ -485,3 +485,36 @@ func TestSetFeature_SwitchingFeatureResetsStaleSession(t *testing.T) {
 		t.Fatalf("expected a fresh pause for the new feature, got content=%q err=%v", content, lookupErr)
 	}
 }
+
+// TestSetFeature_BareContinuationPreservesIdentity is a regression test for
+// the FORGE_SHIP_ISSUES_2026-09-04.md ISSUE 4 root cause: a bare re-run of
+// the hint forge itself prints after a submit — `forge ship --agent-mode`,
+// with no --name and no description — called SetFeature("", "") on every
+// continuation. The unconditional write at the end of SetFeature blanked the
+// session's recorded Feature/Slug even though nothing about the call
+// intended a switch, so the very next lookup of "what feature is this
+// session driving" (the ship.go call site) found nothing to resume against.
+func TestSetFeature_BareContinuationPreservesIdentity(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+
+	b := mustOpen(t, root, DefaultSession)
+	if switched := b.SetFeature("blog inbound hub", "blog-inbound-hub"); switched {
+		t.Fatal("first SetFeature call on a fresh session must not report a switch")
+	}
+
+	// Simulate the bare continuation call forge ship makes when neither
+	// --name nor a description was passed.
+	if switched := b.SetFeature("", ""); switched {
+		t.Fatal("a bare SetFeature(\"\", \"\") must never report a switch")
+	}
+	if feature, slug := b.Feature(); feature != "blog inbound hub" || slug != "blog-inbound-hub" {
+		t.Fatalf("bare continuation must preserve the session's prior identity, got feature=%q slug=%q", feature, slug)
+	}
+
+	// A fresh process reopening the session must see the same preserved identity.
+	b2 := mustOpen(t, root, DefaultSession)
+	if feature, slug := b2.Feature(); feature != "blog inbound hub" || slug != "blog-inbound-hub" {
+		t.Fatalf("reopened session must preserve identity across processes, got feature=%q slug=%q", feature, slug)
+	}
+}

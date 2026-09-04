@@ -222,6 +222,19 @@ func (b *Bridge) Dir() string { return b.dir }
 // SessionName returns the active session name.
 func (b *Bridge) SessionName() string { return b.session.Name }
 
+// Feature returns the feature description and slug this session last
+// recorded via SetFeature, or ("", "") if none has been set yet. Callers use
+// this to resume a bare `forge ship --agent-mode` (no description/--name)
+// against the same feature the session was already driving, instead of
+// leaving the run to fall back to some other, unrelated resolution of "which
+// spec to operate on" — see the ISSUE 4 fix at the ship.go call site.
+func (b *Bridge) Feature() (feature, slug string) {
+	if b == nil {
+		return "", ""
+	}
+	return b.session.Feature, b.session.Slug
+}
+
 // SetFeature records what feature this session is driving. Best-effort: a
 // persistence failure never blocks the pipeline.
 //
@@ -236,6 +249,15 @@ func (b *Bridge) SessionName() string { return b.session.Name }
 // feature's stale artefact under the new feature's name. Reusing the default
 // session across unrelated features (rather than passing --session per
 // feature) is exactly the case this guards.
+//
+// Calling SetFeature("", "") — a bare continuation with no description and no
+// --name, e.g. re-running the hint `forge ship --agent-mode` printed after a
+// submit — is a no-op when the session already has a recorded identity: it
+// neither resets nor overwrites it. Before this guard, the unconditional
+// write below blanked session.Feature/Slug on every bare call, so the very
+// next lookup of "which feature is this session driving" (ship.go's
+// resolution of an empty --name/description, ISSUE 4) had nothing to resume
+// against and fell through to picking an unrelated feature instead.
 func (b *Bridge) SetFeature(feature, slug string) (switched bool) {
 	if b == nil {
 		return false
@@ -243,6 +265,10 @@ func (b *Bridge) SetFeature(feature, slug string) (switched bool) {
 	prevSlug, prevFeature := b.session.Slug, b.session.Feature
 	hadPrior := prevSlug != "" || prevFeature != ""
 	newIdentity := slug != "" || feature != ""
+	if hadPrior && !newIdentity {
+		// Bare continuation: keep driving whatever feature was already set.
+		return false
+	}
 	if hadPrior && newIdentity && prevSlug != slug && prevFeature != feature {
 		_ = b.Reset()
 		switched = true

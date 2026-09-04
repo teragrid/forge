@@ -359,6 +359,55 @@ func shipMessage(pipe *LLMPipe) string {
 	return "LLM provider: " + pipe.ProviderName()
 }
 
+// probeProviderUsable detects the configured LLM provider the same way
+// newLLMPipe does, then sends one minimal live completion request to confirm
+// it can actually serve the pipeline — not just that credentials are
+// present. It mirrors `forge doctor --llm`'s checkLLMProviderLive, which
+// exists for the identical reason: credential presence and a working call
+// are two different things, and a stale forge.yml model pin or an
+// out-of-credit API key otherwise fails silently on every checkpoint.
+//
+// Returns usable=false only when a provider IS configured but a live call
+// against it fails for a permanent reason — an invalid/expired API key, or a
+// hard invalid_request_error (this is how Anthropic reports "credit balance
+// too low" — see llmprovider/anthropic_errors.go ErrInvalidRequest). No
+// provider configured at all (including the test-only FORGE_NO_LLM=1 escape
+// hatch) is deliberately reported usable=true: that path already has its own
+// long-standing UX — a nil pipe that writes stub artefacts and prints a "set
+// ANTHROPIC_API_KEY" hint — and is not the failure this fallback targets
+// (ISSUE 1: a configured provider that is silently unusable, e.g. an
+// out-of-credit key). A transient failure class (rate limiting, a
+// momentarily-dead model id the tier router can already fall back around) is
+// also left usable=true so a passing blip does not trip the whole pipeline
+// into agent mode.
+func probeProviderUsable() (usable bool, reason string) {
+	p, err := llmprovider.Detect()
+	if err != nil {
+		return true, ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_, err = p.Complete(ctx, &llmprovider.Request{
+		UserPrompt: "Reply with exactly: ok",
+		MaxTokens:  8,
+		Capability: "ship-agent-fallback-probe",
+	})
+	if err == nil {
+		return true, ""
+	}
+	var ecErr *errcode.Error
+	switch {
+	case errors.As(err, &ecErr) && (ecErr.Code == llmprovider.ErrAuthFailed || ecErr.Code == llmprovider.ErrInvalidRequest):
+		return false, fmt.Sprintf("provider=%s: %s", p.Name(), llmErrNote(err))
+	default:
+		// Rate limits, transient 5xx, a dead model id the tier router can
+		// route around, etc. — let the normal checkpoint retry/error path
+		// handle it rather than pausing the whole run for agent input.
+		return true, ""
+	}
+}
+
 // extractAPIErrorMessage pulls the human-readable "message" field out of a
 // provider error body shaped like {"error":{"message":"..."}} or
 // {"error":{"type":"...","message":"..."}} (the shape used by both Anthropic
