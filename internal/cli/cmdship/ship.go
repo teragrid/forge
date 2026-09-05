@@ -460,6 +460,25 @@ func New() *cobra.Command {
 			}
 		}
 
+		// Auto-fallback: when the pipeline is not already in agent mode and the
+		// configured LLM provider is unusable for a permanent reason (no
+		// provider configured, auth failed, or a hard invalid_request such as
+		// "credit balance too low" — see llmpipe.go probeProviderUsable), drive
+		// the run via the host agent instead of hard-failing every LLM
+		// checkpoint. This is the documented escape hatch (--agent-mode) turned
+		// on automatically instead of requiring the operator to notice the
+		// failure and re-invoke with the flag. FORGE_NO_AGENT_FALLBACK=1 opts
+		// out for callers that want a hard failure instead (e.g. CI jobs that
+		// should not silently pause on a human/host-agent turn).
+		if !agentMode && !dryRun && os.Getenv("FORGE_AGENT_MODE") != "1" && os.Getenv("FORGE_NO_AGENT_FALLBACK") != "1" {
+			if usable, reason := probeProviderUsable(); !usable {
+				fmt.Fprintf(cmd.ErrOrStderr(),
+					"note: configured LLM provider is unusable (%s) — falling back to --agent-mode "+
+						"automatically (set FORGE_NO_AGENT_FALLBACK=1 to disable)\n", reason)
+				agentMode = true
+			}
+		}
+
 		// Agent mode: swap the reasoning plane from a paid provider to the
 		// host agent. The deterministic plane is untouched — same checkpoints,
 		// same gates, same artefact validation.
@@ -471,6 +490,19 @@ func New() *cobra.Command {
 				return errcode.New(ErrAgentTurn, "open agent bridge", bErr)
 			}
 			bridge.StrictReplay = strictReplay
+			// ISSUE 4 fix: a bare continuation (no --name, no description — the
+			// shape of the hint forge itself prints after a submit: "next: forge
+			// ship --agent-mode") must resume the same feature this session was
+			// already driving, not fall through to whatever spec/checkpoint
+			// resolution does with an empty name and description. Resolve from
+			// the session's own recorded identity before SetFeature runs, and
+			// propagate into runOpts so RunWithOptions targets the right spec.
+			if description == "" && specName == "" {
+				if priorFeature, priorSlug := bridge.Feature(); priorSlug != "" || priorFeature != "" {
+					description, specName = priorFeature, priorSlug
+					runOpts.Description, runOpts.SpecName = description, specName
+				}
+			}
 			if bridge.SetFeature(description, specName) {
 				fmt.Fprintf(cmd.ErrOrStderr(),
 					"note: session %q was driving a different feature — recorded answers reset for %q "+
@@ -796,7 +828,13 @@ func specYAMLContext(spec *cmdtest.TestSpec) string {
 // Without an LLMPipe (no provider configured): a Markdown stub is written.
 // When a pre-generated spec.yml (from `forge test spec`) exists it is loaded
 // to enrich the LLM call via InvokeWithKnowledge and surfaced in the detail.
-func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
+// dryRun, when true, never writes to disk — matches the documented
+// `--dry-run` contract and checkTest's existing precedent. See ISSUE 3 in
+// docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md (ai-marketing-platfrom repo):
+// before this fix, a --dry-run run still created .forge/specs/<slug>/ and
+// wrote workspace-context.md and a spec.md stub for any not-yet-generated
+// feature, regardless of the flag.
+func checkSpec(root, description, specName string, pipe *LLMPipe, dryRun bool) Checkpoint {
 	cp := Checkpoint{Name: "Spec"}
 	// G-011: surface recent spec failures as context for the LLM.
 	recentSpecFailures := loadRecentFailures(root, "spec", 3)
@@ -819,7 +857,15 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		// G-009 (workspace-context phase): collect deterministic project context
 		// before any LLM call so the spec reflects the actual tech stack,
 		// conventions, recent changes, and existing features.
-		wsCtx := collectWorkspaceContext(root, slug)
+		// Skipped during --dry-run: collectWorkspaceContext writes
+		// workspace-context.md unconditionally, and a preview must not create
+		// files (ISSUE 3). pipe is already guaranteed nil in dry-run (see
+		// newLLMPipeInteractive), so no LLM call below ever consumes wsSection
+		// anyway.
+		var wsCtx WorkspaceContextResult
+		if !dryRun {
+			wsCtx = collectWorkspaceContext(root, slug)
+		}
 		wsSection := ""
 		if wsCtx.Content != "" {
 			wsSection = "\n\n## Workspace Context\n" + wsCtx.Content
@@ -929,6 +975,17 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		}
 
 		// spec.md does not exist.
+		if dryRun {
+			cp.Status = "ok"
+			if ySpec != nil {
+				cp.Detail = fmt.Sprintf(
+					"dry-run: would generate spec.md from spec.yml (%d cases) for %q — no files written",
+					len(ySpec.Cases), description)
+			} else {
+				cp.Detail = fmt.Sprintf("dry-run: would generate spec.md for %q — no files written", description)
+			}
+			return cp
+		}
 		// If a YAML spec is present, generate spec.md from it (KB-enriched when LLM available).
 		if ySpec != nil {
 			if err := os.MkdirAll(filepath.Join(specsDir, slug), 0o755); err == nil {
@@ -2139,7 +2196,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	if needs("spec") {
 		beforeCheckpoint("spec")
-		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe)
+		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 	}
 
 	// P1 DAG: run arch and test in parallel when both are needed — they are
@@ -2153,7 +2210,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	case serial:
 		if runArch {
 			beforeCheckpoint("arch")
-			archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+			archCP = checkArch(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 		}
 		if runTest && !agentPaused() {
 			beforeCheckpoint("test")
@@ -2167,7 +2224,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			beforeCheckpoint("arch")
 			go func() {
 				defer dagWG.Done()
-				archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+				archCP = checkArch(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 			}()
 		}
 		if runTest {

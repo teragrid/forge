@@ -116,7 +116,11 @@ func runParallelArchDebate(pipe *LLMPipe, description, archDoc string, maxTokens
 //   - If spec.md is missing: returns "warning" with a hint to run spec first.
 //   - With an LLMPipe: generates full ADR then runs parallel role debate.
 //   - Without an LLMPipe: writes a structured stub ADR to arch.md.
-func checkArch(root, description, specName string, pipe *LLMPipe) Checkpoint {
+//
+// dryRun, when true, never writes to disk — see checkSpec's matching doc
+// comment and ISSUE 3 in docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md
+// (ai-marketing-platfrom repo).
+func checkArch(root, description, specName string, pipe *LLMPipe, dryRun bool) Checkpoint {
 	cp := Checkpoint{Name: "Arch"}
 
 	if description == "" && specName == "" {
@@ -164,6 +168,15 @@ func checkArch(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		cp.Detail = fmt.Sprintf(
 			"no spec found at .forge/specs/%s/spec.md — run forge ship spec first, then re-run forge ship arch",
 			slug)
+		return cp
+	}
+
+	// dry-run: arch.md does not exist (idempotent check above already
+	// returned otherwise) and generating it would create .forge/specs/<slug>/
+	// and write arch.md + openapi.yaml — a preview must not do either.
+	if dryRun {
+		cp.Status = "ok"
+		cp.Detail = fmt.Sprintf("dry-run: would generate arch document + openapi.yaml for %q — no files written", description)
 		return cp
 	}
 

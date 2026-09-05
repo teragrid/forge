@@ -86,6 +86,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -147,9 +148,28 @@ type Stats struct {
 	Drifted   int     `json:"drifted"`
 }
 
-// Bridge is the plane boundary. It is not safe for concurrent use; forge ship
-// drives it from a single goroutine.
+// Bridge is the plane boundary.
+//
+// Its exported methods that touch shared state (Lookup, Fulfil, Reset,
+// Stats, Pending, Paused, SetFeature, Feature) are safe for concurrent use —
+// each takes mu for its duration. This was not always true: checkArch's
+// runParallelArchDebate (arch.go) fires one goroutine per reviewer role and
+// every one calls Lookup through LLMPipe.invokeViaBridge in agent mode, all
+// against the same Bridge. Before mu existed, that meant unsynchronized
+// concurrent writes to the seen/byHash/byOrdinal maps and the
+// pending/paused/drifted/nextSeq fields — a data race the Go runtime can
+// surface as a panic ("concurrent map writes") or, depending on timing, as
+// what ISSUE 5 in docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md
+// (ai-marketing-platfrom repo) observed: forge ship --agent-mode hanging
+// with zero output for minutes mid-arch-debate — plausibly the runtime map
+// implementation spinning on corrupted internal state rather than panicking
+// cleanly. A single coarse-grained mutex is sufficient here: none of these
+// methods are hot-path, and file I/O inside them (savePending, appendResponse,
+// etc.) is not itself reentrant-locked, so serializing at the exported-method
+// boundary is both correct and the simplest fix.
 type Bridge struct {
+	mu sync.Mutex
+
 	root    string
 	dir     string
 	session Session
@@ -220,6 +240,21 @@ func (b *Bridge) Dir() string { return b.dir }
 // SessionName returns the active session name.
 func (b *Bridge) SessionName() string { return b.session.Name }
 
+// Feature returns the feature description and slug this session last
+// recorded via SetFeature, or ("", "") if none has been set yet. Callers use
+// this to resume a bare `forge ship --agent-mode` (no description/--name)
+// against the same feature the session was already driving, instead of
+// leaving the run to fall back to some other, unrelated resolution of "which
+// spec to operate on" — see the ISSUE 4 fix at the ship.go call site.
+func (b *Bridge) Feature() (feature, slug string) {
+	if b == nil {
+		return "", ""
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.session.Feature, b.session.Slug
+}
+
 // SetFeature records what feature this session is driving. Best-effort: a
 // persistence failure never blocks the pipeline.
 //
@@ -234,15 +269,30 @@ func (b *Bridge) SessionName() string { return b.session.Name }
 // feature's stale artefact under the new feature's name. Reusing the default
 // session across unrelated features (rather than passing --session per
 // feature) is exactly the case this guards.
+//
+// Calling SetFeature("", "") — a bare continuation with no description and no
+// --name, e.g. re-running the hint `forge ship --agent-mode` printed after a
+// submit — is a no-op when the session already has a recorded identity: it
+// neither resets nor overwrites it. Before this guard, the unconditional
+// write below blanked session.Feature/Slug on every bare call, so the very
+// next lookup of "which feature is this session driving" (ship.go's
+// resolution of an empty --name/description, ISSUE 4) had nothing to resume
+// against and fell through to picking an unrelated feature instead.
 func (b *Bridge) SetFeature(feature, slug string) (switched bool) {
 	if b == nil {
 		return false
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	prevSlug, prevFeature := b.session.Slug, b.session.Feature
 	hadPrior := prevSlug != "" || prevFeature != ""
 	newIdentity := slug != "" || feature != ""
+	if hadPrior && !newIdentity {
+		// Bare continuation: keep driving whatever feature was already set.
+		return false
+	}
 	if hadPrior && newIdentity && prevSlug != slug && prevFeature != feature {
-		_ = b.Reset()
+		_ = b.resetLocked()
 		switched = true
 	}
 	b.session.Feature = feature
@@ -252,11 +302,23 @@ func (b *Bridge) SetFeature(feature, slug string) (switched bool) {
 }
 
 // Paused reports whether a turn has been requested during this process run.
-func (b *Bridge) Paused() bool { return b != nil && b.paused }
+func (b *Bridge) Paused() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.paused
+}
 
 // Pending returns the turn awaiting a host-agent answer, if any.
 func (b *Bridge) Pending() (Turn, bool) {
-	if b == nil || b.pending == nil {
+	if b == nil {
+		return Turn{}, false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pending == nil {
 		return Turn{}, false
 	}
 	return *b.pending, true
@@ -272,6 +334,8 @@ func (b *Bridge) Lookup(operation, checkpoint, model, system, user string, maxTo
 	if b == nil {
 		return "", ErrTurnRequired
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	hash := Hash(operation, system, user)
 	// The ordinal is consumed even when the hash hits, so that the Nth call to
 	// an operation keeps the same ordinal across runs regardless of which
@@ -330,7 +394,12 @@ func (b *Bridge) Lookup(operation, checkpoint, model, system, user string, maxTo
 // Fulfil records the host agent's answer to the pending turn and clears it.
 // The recorded response is indexed under both keys so the next replay hits.
 func (b *Bridge) Fulfil(content string) (Turn, error) {
-	if b == nil || b.pending == nil {
+	if b == nil {
+		return Turn{}, ErrNoPendingTurn
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pending == nil {
 		return Turn{}, ErrNoPendingTurn
 	}
 	if strings.TrimSpace(content) == "" {
@@ -367,6 +436,15 @@ func (b *Bridge) Reset() error {
 	if b == nil {
 		return nil
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.resetLocked()
+}
+
+// resetLocked is Reset's body, factored out so SetFeature — which already
+// holds mu when it decides a feature switch requires a reset — can call it
+// directly instead of re-entering the non-reentrant mutex via Reset itself.
+func (b *Bridge) resetLocked() error {
 	for _, name := range []string{pendingFile, responsesFile, sessionFile} {
 		if err := os.Remove(filepath.Join(b.dir, name)); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("reset %s: %w", name, err)
@@ -388,6 +466,8 @@ func (b *Bridge) Stats() Stats {
 	if b == nil {
 		return Stats{}
 	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	s := Stats{Session: b.session, Responses: len(b.byHash), Drifted: b.drifted}
 	if b.pending != nil {
 		p := *b.pending
