@@ -828,7 +828,13 @@ func specYAMLContext(spec *cmdtest.TestSpec) string {
 // Without an LLMPipe (no provider configured): a Markdown stub is written.
 // When a pre-generated spec.yml (from `forge test spec`) exists it is loaded
 // to enrich the LLM call via InvokeWithKnowledge and surfaced in the detail.
-func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
+// dryRun, when true, never writes to disk — matches the documented
+// `--dry-run` contract and checkTest's existing precedent. See ISSUE 3 in
+// docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md (ai-marketing-platfrom repo):
+// before this fix, a --dry-run run still created .forge/specs/<slug>/ and
+// wrote workspace-context.md and a spec.md stub for any not-yet-generated
+// feature, regardless of the flag.
+func checkSpec(root, description, specName string, pipe *LLMPipe, dryRun bool) Checkpoint {
 	cp := Checkpoint{Name: "Spec"}
 	// G-011: surface recent spec failures as context for the LLM.
 	recentSpecFailures := loadRecentFailures(root, "spec", 3)
@@ -851,7 +857,15 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		// G-009 (workspace-context phase): collect deterministic project context
 		// before any LLM call so the spec reflects the actual tech stack,
 		// conventions, recent changes, and existing features.
-		wsCtx := collectWorkspaceContext(root, slug)
+		// Skipped during --dry-run: collectWorkspaceContext writes
+		// workspace-context.md unconditionally, and a preview must not create
+		// files (ISSUE 3). pipe is already guaranteed nil in dry-run (see
+		// newLLMPipeInteractive), so no LLM call below ever consumes wsSection
+		// anyway.
+		var wsCtx WorkspaceContextResult
+		if !dryRun {
+			wsCtx = collectWorkspaceContext(root, slug)
+		}
 		wsSection := ""
 		if wsCtx.Content != "" {
 			wsSection = "\n\n## Workspace Context\n" + wsCtx.Content
@@ -961,6 +975,17 @@ func checkSpec(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		}
 
 		// spec.md does not exist.
+		if dryRun {
+			cp.Status = "ok"
+			if ySpec != nil {
+				cp.Detail = fmt.Sprintf(
+					"dry-run: would generate spec.md from spec.yml (%d cases) for %q — no files written",
+					len(ySpec.Cases), description)
+			} else {
+				cp.Detail = fmt.Sprintf("dry-run: would generate spec.md for %q — no files written", description)
+			}
+			return cp
+		}
 		// If a YAML spec is present, generate spec.md from it (KB-enriched when LLM available).
 		if ySpec != nil {
 			if err := os.MkdirAll(filepath.Join(specsDir, slug), 0o755); err == nil {
@@ -2143,7 +2168,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 
 	if needs("spec") {
 		beforeCheckpoint("spec")
-		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe)
+		results["spec"] = checkSpec(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 	}
 
 	// P1 DAG: run arch and test in parallel when both are needed — they are
@@ -2157,7 +2182,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 	case serial:
 		if runArch {
 			beforeCheckpoint("arch")
-			archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+			archCP = checkArch(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 		}
 		if runTest && !agentPaused() {
 			beforeCheckpoint("test")
@@ -2171,7 +2196,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 			beforeCheckpoint("arch")
 			go func() {
 				defer dagWG.Done()
-				archCP = checkArch(root, opts.Description, opts.SpecName, pipe)
+				archCP = checkArch(root, opts.Description, opts.SpecName, pipe, opts.DryRun)
 			}()
 		}
 		if runTest {

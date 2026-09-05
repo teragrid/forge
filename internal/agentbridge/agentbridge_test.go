@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -516,5 +517,53 @@ func TestSetFeature_BareContinuationPreservesIdentity(t *testing.T) {
 	b2 := mustOpen(t, root, DefaultSession)
 	if feature, slug := b2.Feature(); feature != "blog inbound hub" || slug != "blog-inbound-hub" {
 		t.Fatalf("reopened session must preserve identity across processes, got feature=%q slug=%q", feature, slug)
+	}
+}
+
+// TestLookup_ConcurrentCallsAreSafe is a regression test for ISSUE 5 in
+// docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md (ai-marketing-platfrom repo):
+// `forge ship --agent-mode` observed hanging with zero output for minutes
+// mid-arch-debate. checkArch's runParallelArchDebate (arch.go) fires one
+// goroutine per reviewer role and every one calls Lookup — through
+// LLMPipe.invokeViaBridge — against the same operation name
+// ("arch-parallel-debate") and the same Bridge, concurrently. Before Bridge
+// gained its mutex, this unsynchronized concurrent access to the
+// seen/byHash/byOrdinal maps and the pending/paused fields was a data race:
+// `go test -race` would have caught it immediately, and in production it
+// could surface as a runtime panic or, plausibly, the observed hang (the map
+// implementation spinning on state corrupted by a concurrent write). This
+// test reproduces the exact shape — N goroutines, one Lookup call each,
+// same operation, different prompts — and must complete without panicking
+// or deadlocking, and must leave the bridge in a single, consistent paused
+// state (exactly one pending turn) rather than a torn one.
+func TestLookup_ConcurrentCallsAreSafe(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	b := mustOpen(t, root, DefaultSession)
+
+	const roles = 6
+	var wg sync.WaitGroup
+	errs := make([]error, roles)
+	for i := 0; i < roles; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, err := b.Lookup("arch-parallel-debate", "arch",
+				"", "persona system prompt", strings.Repeat("x", idx+1), 300)
+			errs[idx] = err
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if !errors.Is(err, ErrTurnRequired) {
+			t.Fatalf("role %d: expected ErrTurnRequired (a pause, not a real failure), got %v", i, err)
+		}
+	}
+	if !b.Paused() {
+		t.Fatal("bridge must be paused after any Lookup miss")
+	}
+	if _, ok := b.Pending(); !ok {
+		t.Fatal("exactly one pending turn must be recorded, not zero")
 	}
 }

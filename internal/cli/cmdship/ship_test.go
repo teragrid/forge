@@ -793,7 +793,7 @@ func TestCheckSpec_LLM_GeneratesNewSpec(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Spec: add login\n\n## What\nAdd a login form.\n"),
 	}
-	cp := checkSpec(root, "add login", "", mockPipe(root, mock))
+	cp := checkSpec(root, "add login", "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -832,7 +832,7 @@ func TestCheckSpec_LLM_ReviewsExistingSpec(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Enhanced Spec\n\n## What\nImproved content.\n"),
 	}
-	cp := checkSpec(root, "review feature", "", mockPipe(root, mock))
+	cp := checkSpec(root, "review feature", "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -852,7 +852,7 @@ func TestCheckSpec_LLM_ProviderFails_GracefulDegradation(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
-	cp := checkSpec(root, "failing feature", "", mockPipe(root, mock))
+	cp := checkSpec(root, "failing feature", "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("provider error must not fail the spec checkpoint; got %q: %s", cp.Status, cp.Detail)
@@ -865,7 +865,7 @@ func TestCheckSpec_LLM_NoDescription_Warning(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	mock := &llmprovider.MockProvider{Response: mockResponse("ignored")}
-	cp := checkSpec(root, "", "", mockPipe(root, mock))
+	cp := checkSpec(root, "", "", mockPipe(root, mock), false)
 
 	if cp.Status != "warning" {
 		t.Fatalf("expected warning with no description, got %q: %s", cp.Status, cp.Detail)
@@ -940,7 +940,7 @@ func TestCheckSpec_YAML_WithLLM_KBEnrichedReview(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Enhanced Spec\n## What\nKB-enriched.\n"),
 	}
-	cp := checkSpec(root, feature, "", mockPipe(root, mock))
+	cp := checkSpec(root, feature, "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -978,7 +978,7 @@ func TestCheckSpec_YAML_NoLLM_DetailShowsCaseCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, "", nil)
+	cp := checkSpec(root, feature, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1005,7 +1005,7 @@ func TestCheckSpec_YAML_ZeroCases_StillOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, "", nil)
+	cp := checkSpec(root, feature, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("spec with 0 cases must still be ok; got %q: %s", cp.Status, cp.Detail)
@@ -1031,7 +1031,7 @@ func TestCheckSpec_YAML_CorruptYAML_FallsBackToSpecMD(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, "", nil)
+	cp := checkSpec(root, feature, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("corrupt spec.yml must not fail checkpoint; got %q: %s", cp.Status, cp.Detail)
@@ -1054,8 +1054,8 @@ func TestCheckSpec_YAML_Idempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp1 := checkSpec(root, feature, "", nil)
-	cp2 := checkSpec(root, feature, "", nil)
+	cp1 := checkSpec(root, feature, "", nil, false)
+	cp2 := checkSpec(root, feature, "", nil, false)
 
 	if cp1.Status != "ok" || cp2.Status != "ok" {
 		t.Fatalf("both calls must be ok; got %q, %q", cp1.Status, cp2.Status)
@@ -1084,7 +1084,7 @@ func TestCheckSpec_YAML_Regression_SpecMDOnly(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Enhanced\n"),
 	}
-	cp := checkSpec(root, feature, "", mockPipe(root, mock))
+	cp := checkSpec(root, feature, "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("spec.md-only path must be ok; got %q: %s", cp.Status, cp.Detail)
@@ -1110,7 +1110,7 @@ func TestCheckSpec_YAML_DataAccuracy_DetailHasCaseCountAndFamilies(t *testing.T)
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, feature, "", nil)
+	cp := checkSpec(root, feature, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1145,7 +1145,7 @@ func TestCheckSpec_YAML_FalsePositiveGuard_NoYAML_NoFailure(t *testing.T) {
 		t.Fatal("test pre-condition: spec.yml must not exist")
 	}
 
-	cp := checkSpec(root, feature, "", nil)
+	cp := checkSpec(root, feature, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("absent spec.yml must not fail; got %q: %s", cp.Status, cp.Detail)
@@ -1169,7 +1169,7 @@ func TestCheckSpec_YAML_OnlyYAML_GeneratesSpecMD(t *testing.T) {
 	mock := &llmprovider.MockProvider{
 		Response: mockResponse("# Generated from YAML\n## Acceptance Criteria\n- happy path\n"),
 	}
-	cp := checkSpec(root, feature, "", mockPipe(root, mock))
+	cp := checkSpec(root, feature, "", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok when generating from spec.yml; got %q: %s", cp.Status, cp.Detail)
@@ -1205,7 +1205,7 @@ func TestCheckSpec_SpecName_HappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, "add login feature", "login", nil)
+	cp := checkSpec(root, "add login feature", "login", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok with --name login override, got %q: %s", cp.Status, cp.Detail)
@@ -1232,7 +1232,7 @@ func TestCheckSpec_SpecName_WithYAML_KBEnriched(t *testing.T) {
 		Response: mockResponse("# Auth Spec Enhanced\n"),
 	}
 
-	cp := checkSpec(root, "authentication flow", "auth", mockPipe(root, mock))
+	cp := checkSpec(root, "authentication flow", "auth", mockPipe(root, mock), false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1258,7 +1258,7 @@ func TestCheckSpec_SpecName_Empty_FallsBackToSlug(t *testing.T) {
 	}
 
 	// specName="" â†’ must resolve via slugify(feature).
-	cp := checkSpec(root, feature, "", nil)
+	cp := checkSpec(root, feature, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("empty specName must use derived slug %q; got %q: %s", slug, cp.Status, cp.Detail)
@@ -1274,7 +1274,7 @@ func TestCheckSpec_SpecName_NoSuchDir_GeneratesStub(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
-	cp := checkSpec(root, "my feature", "unknown-spec", nil)
+	cp := checkSpec(root, "my feature", "unknown-spec", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("missing spec dir should produce stub, not fail; got %q: %s", cp.Status, cp.Detail)
@@ -1298,8 +1298,8 @@ func TestCheckSpec_SpecName_Idempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp1 := checkSpec(root, "some description", "my-feature", nil)
-	cp2 := checkSpec(root, "some description", "my-feature", nil)
+	cp1 := checkSpec(root, "some description", "my-feature", nil, false)
+	cp2 := checkSpec(root, "some description", "my-feature", nil, false)
 
 	if cp1.Status != "ok" || cp2.Status != "ok" {
 		t.Fatalf("both calls must be ok; got %q, %q", cp1.Status, cp2.Status)
@@ -1325,7 +1325,7 @@ func TestCheckSpec_SpecName_Regression_NoFlag_DescriptionSlugWorks(t *testing.T)
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, desc, "", nil)
+	cp := checkSpec(root, desc, "", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("description-derived slug path must still work; got %q: %s", cp.Status, cp.Detail)
@@ -1345,7 +1345,7 @@ func TestCheckSpec_SpecName_DataAccuracy_DetailContainsSpecName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, "admin dashboard feature", "dashboard", nil)
+	cp := checkSpec(root, "admin dashboard feature", "dashboard", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
@@ -1392,7 +1392,7 @@ func TestCheckSpec_SpecName_OnlySpecName_NoDescription(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp := checkSpec(root, "", "login", nil)
+	cp := checkSpec(root, "", "login", nil, false)
 
 	if cp.Status != "ok" {
 		t.Fatalf("spec-name-only (no description) must be ok; got %q: %s", cp.Status, cp.Detail)

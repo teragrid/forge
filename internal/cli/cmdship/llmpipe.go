@@ -81,23 +81,22 @@ type LLMPipe struct {
 	checkpoint string
 }
 
-// newLLMPipe detects the active LLM provider from the environment and returns
-// an initialized *LLMPipe. Returns nil (not an error) if no provider is
-// configured so callers silently fall back to structural dry-run behavior.
-func newLLMPipe(root string) *LLMPipe {
-	p, err := llmprovider.Detect()
-	if err != nil {
-		return nil
-	}
-	return newLLMPipeWithProvider(p, root)
-}
-
-// newLLMPipeInteractive is like newLLMPipe but prompts the user for an API key
-// when no provider is detected and dryRun is false. In dry-run mode it falls
-// back to nil silently, matching the old behaviour.
+// newLLMPipeInteractive detects the active LLM provider and returns an
+// initialized *LLMPipe, prompting the user for an API key when none is
+// detected and dryRun is false.
+//
+// dryRun always returns nil, never a live pipe. ISSUE 3
+// (docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md, ai-marketing-platfrom repo):
+// this used to detect and return a live provider pipe whenever credentials
+// were configured — dry-run or not — contradicting the documented --dry-run
+// contract in cobra's own help text ("preview what would happen without
+// making LLM calls or git operations"). A --dry-run run with a working API
+// key could silently dial (and bill) the real provider. Every checkpoint's
+// own nil-pipe branch is the long-standing, well-tested "no provider
+// configured" preview path, so dry-run doesn't need a parallel one.
 func newLLMPipeInteractive(root string, dryRun bool) *LLMPipe {
 	if dryRun {
-		return newLLMPipe(root)
+		return nil
 	}
 	p, err := llmprovider.DetectOrPrompt(nil, nil) // nil → os.Stdin / os.Stderr
 	if err != nil {
