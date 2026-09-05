@@ -281,3 +281,31 @@ func TestGitleaksCM_ForcePreservesUserRules(t *testing.T) {
 		t.Error("canonical block not restored after ApplyForce")
 	}
 }
+
+// TestCanonicalGitignoreBlock_CoversForgeScratchState guards against a real
+// gap: the managed .gitignore block only listed .forge/scratch/ and
+// .forge/cache/, so .forge/.snapshots/, .forge/agent/ (the agent-mode bridge
+// state — pending.json/responses.jsonl/session.json), .forge/learned/,
+// .forge/trash/, and .forge/token-ledger.jsonl all showed up as untracked in
+// `git status`. Confirmed live: a fresh agent-mode run left `git status
+// --porcelain` reporting `?? .forge/`, which countChangedFiles (ship.go) then
+// counted as evidence of real code changes — the Code checkpoint reported
+// "N modified file(s)" for a run where the only real source file was
+// untouched.
+func TestCanonicalGitignoreBlock_CoversForgeScratchState(t *testing.T) {
+	t.Parallel()
+	for _, pattern := range []string{
+		".forge/scratch/",
+		".forge/cache/",
+		".forge/.snapshots/",
+		".forge/agent/",
+		".forge/learned/",
+		".forge/trash/",
+		".forge/token-ledger.jsonl",
+	} {
+		if !strings.Contains(canonicalGitignoreBlock, pattern) {
+			t.Errorf("canonicalGitignoreBlock missing %q — this forge-owned path will show up as untracked "+
+				"in git status and can be miscounted as real code changes", pattern)
+		}
+	}
+}
