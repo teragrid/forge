@@ -4,6 +4,8 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.5] — 2026-09-06 — Agent mode stopped running the host test suite itself, and the arch debate stopped fanning out
+
 ### Fixed
 
 - **`forge ship --agent-mode` could run the host project's entire native test suite itself and hang for many minutes with zero output.** The `qa-verify` checkpoint's Phase 2 called `runQATestSuite`, which shells out to `npm test` / `go test ./...` / `pytest` on the target repo — with no agent-mode guard. On a large host project that is a multi-minute blocking run with its own output stream, and forge's `procspawn` timeout does not reliably reap a killed runner's orphaned worker processes on Windows (jest/vitest workers keep the stdout pipe open, so the read never sees EOF). When the pipeline reached `qa-verify` without pausing first — e.g. after `checkArch` short-circuits on an already-present `arch.md` from an earlier answered turn — the result was `forge ship --agent-mode` silently executing the caller's full test suite and appearing to hang. In agent mode the host agent *is* the QA agent (the checkpoint's own description: "QA agent: probe MCP server tools or run native test suite"), so `qa-verify` now emits an advisory telling the host agent to run and report the suite instead of running it itself. Non-agent-mode runs are unchanged.
