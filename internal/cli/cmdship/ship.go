@@ -1987,6 +1987,26 @@ func checkQAVerify(root, description, specName string, pipe *LLMPipe) Checkpoint
 	}
 
 	// ── Phase 2: automated test suite ───────────────────────────────────────
+	// In agent mode the host agent *is* the QA agent — the checkpoint's own
+	// description is "QA agent: probe MCP server tools or run native test
+	// suite". forge must not shell out to `npm test` / `go test ./...` /
+	// `pytest` itself here: on a large host project that is a multi-minute
+	// blocking run with its own output stream, and forge's procspawn timeout
+	// does not reliably reap a killed runner's orphaned worker processes on
+	// Windows (jest/vitest workers keep the stdout pipe open) — the shape
+	// behind "forge ship --agent-mode hangs for 15 min with zero output"
+	// reports where the pipeline reached qa-verify without pausing. Emit an
+	// advisory instead and let the host agent run and report the suite.
+	if pipe != nil && pipe.Bridge() != nil {
+		cp.Status = "warning"
+		cp.Detail = "QA-Verify (agent mode): native test suite not run by forge — " +
+			"the host agent runs and reports it (4-stage testing pipeline, stage 1/2)"
+		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
+			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+		}
+		return cp
+	}
+
 	cp.Status, cp.Detail = runQATestSuite(root)
 
 	// Append spec audit warnings to detail regardless of runner.

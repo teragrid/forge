@@ -19,6 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/teragrid/forge/internal/agentbridge"
 )
 
 // ── snapshot.go ──────────────────────────────────────────────────────────────
@@ -591,6 +594,58 @@ func TestRunParallelArchDebate_EmptyDocNoPanic(t *testing.T) {
 		}
 	}()
 	_ = runParallelArchDebate(nil, "feat", "", 100)
+}
+
+// TestRunParallelArchDebate_AgentModeSerialNoFanOut is a regression test for the
+// recurring "forge ship --agent-mode hangs with zero output mid-arch-debate"
+// reports (docs/plans/FORGE_SHIP_ISSUES_2026-09-04.md ISSUE 5). The 1.10.4 fix
+// added a mutex to Bridge, which stopped the data race but not the underlying
+// hazard: six goroutines still fanned out against a bridge that can only ever
+// surface one pending turn, piling up behind Bridge.mu while the first holds it
+// across savePending()'s file I/O. In agent mode the debate must instead run
+// sequentially and stop at the first owed turn.
+func TestRunParallelArchDebate_AgentModeSerialNoFanOut(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	bridge, err := agentbridge.Open(root, agentbridge.DefaultSession)
+	if err != nil {
+		t.Fatalf("open bridge: %v", err)
+	}
+	pipe := newLLMPipeAgent(root, bridge)
+
+	done := make(chan string, 1)
+	go func() { done <- runParallelArchDebate(pipe, "feat", "# Arch Doc", 300) }()
+
+	var out string
+	select {
+	case out = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("runParallelArchDebate hung in agent mode — it must run sequentially and return at the first owed turn")
+	}
+
+	// Every role still appears in the appended section (unanswered ones as
+	// placeholders), so the arch document shape is unchanged.
+	if !strings.Contains(out, "## Reviewer Concerns (parallel debate)") {
+		t.Fatalf("missing Reviewer Concerns section:\n%s", out)
+	}
+	for _, r := range defaultArchRoles() {
+		if !strings.Contains(out, "### "+r.name) {
+			t.Errorf("role %q missing from debate output", r.name)
+		}
+	}
+
+	// Exactly one turn is owed — the first role's — not six, and the bridge
+	// state is coherent (not corrupted by concurrent writes).
+	st := bridge.Stats()
+	if st.Pending == nil {
+		t.Fatal("expected one pending turn after the agent-mode debate, got none")
+	}
+	if st.Pending.Operation != "arch-parallel-debate" {
+		t.Fatalf("pending turn operation = %q, want arch-parallel-debate", st.Pending.Operation)
+	}
+	if !bridge.Paused() {
+		t.Fatal("bridge must be paused once the first role's turn is owed")
+	}
 }
 
 // ── DAG parallel pipeline ──────────────────────────────────────────────────
