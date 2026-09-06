@@ -57,9 +57,21 @@ func defaultArchRoles() []archRoleDebate {
 	}
 }
 
-// runParallelArchDebate concurrently invokes all arch reviewer roles and
-// collects their concerns. Results are appended to the arch document as a
-// "## Reviewer Concerns" section. A nil pipe is a no-op.
+// runParallelArchDebate invokes all arch reviewer roles and collects their
+// concerns. Results are appended to the arch document as a "## Reviewer
+// Concerns" section. A nil pipe is a no-op.
+//
+// Concurrency: the roles run in parallel goroutines only when the reasoning
+// plane is a real provider. In agent mode (pipe.Bridge() != nil) they run
+// sequentially and stop at the first pause. Fanning out against the bridge
+// there is pointless and unsafe: the bridge can only surface one pending turn
+// per run, so every goroutine after the first miss does throwaway work that is
+// redone on the next replay anyway — and it serialises six goroutines behind
+// Bridge.mu while the first holds it across file I/O in savePending(), the
+// exact shape behind the "forge ship --agent-mode hangs with zero output
+// mid-arch-debate" reports (the 1.10.4 mutex stopped the data race but not the
+// pile-up). Sequential + early-exit removes the hazard at the source and
+// matches RunWithOptions's own `serial` intent for agent mode.
 func runParallelArchDebate(pipe *LLMPipe, description, archDoc string, maxTokens int) string {
 	if pipe == nil {
 		return ""
@@ -70,27 +82,42 @@ func runParallelArchDebate(pipe *LLMPipe, description, archDoc string, maxTokens
 		concern string
 	}
 	results := make([]result, len(roles))
-	var wg sync.WaitGroup
 
-	for i, role := range roles {
-		wg.Add(1)
-		go func(idx int, r archRoleDebate) {
-			defer wg.Done()
-			concern, err := pipe.InvokeDebateRound(
-				"arch-parallel-debate",
-				description,
-				r.persona,
-				archDoc,
-				"",
-				maxTokens,
-			)
-			if err != nil || strings.TrimSpace(concern) == "" {
-				concern = "(no concerns raised)"
-			}
-			results[idx] = result{name: r.name, concern: concern}
-		}(i, role)
+	askRole := func(idx int, r archRoleDebate) {
+		concern, err := pipe.InvokeDebateRound(
+			"arch-parallel-debate",
+			description,
+			r.persona,
+			archDoc,
+			"",
+			maxTokens,
+		)
+		if err != nil || strings.TrimSpace(concern) == "" {
+			concern = "(no concerns raised)"
+		}
+		results[idx] = result{name: r.name, concern: concern}
 	}
-	wg.Wait()
+
+	if bridge := pipe.Bridge(); bridge != nil {
+		// Agent mode: sequential, and stop as soon as a turn is owed.
+		for i, role := range roles {
+			if bridge.Paused() {
+				results[i] = result{name: role.name, concern: "(no concerns raised)"}
+				continue
+			}
+			askRole(i, role)
+		}
+	} else {
+		var wg sync.WaitGroup
+		for i, role := range roles {
+			wg.Add(1)
+			go func(idx int, r archRoleDebate) {
+				defer wg.Done()
+				askRole(idx, r)
+			}(i, role)
+		}
+		wg.Wait()
+	}
 
 	var sb strings.Builder
 	sb.WriteString("\n\n## Reviewer Concerns (parallel debate)\n\n")
