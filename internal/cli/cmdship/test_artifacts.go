@@ -116,10 +116,30 @@ func expectedTestArtifactNames(root, slug string) []string {
 
 // allTestArtifactsExist returns true when all of this project's expected
 // artifacts (per its detected stack, J5) are present.
+// testArtefactDirs is the set of directories an artefact may live in: the
+// preferred one for new writes, plus the legacy "tests/" for repos scaffolded
+// before pickTestsDir existed. A file present in ANY of them counts as written.
+func testArtefactDirs(root string) []string {
+	preferred := pickTestsDir(root)
+	legacy := filepath.Join(root, "tests")
+	if preferred == legacy {
+		return []string{preferred}
+	}
+	return []string{preferred, legacy}
+}
+
+func artefactExists(root, name string) bool {
+	for _, d := range testArtefactDirs(root) {
+		if _, err := os.Stat(filepath.Join(d, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func allTestArtifactsExist(root, slug string) bool { //nolint:unused // used in ship dry-run gate
-	testsDir := filepath.Join(root, "tests")
 	for _, name := range expectedTestArtifactNames(root, slug) {
-		if _, err := os.Stat(filepath.Join(testsDir, name)); err != nil {
+		if !artefactExists(root, name) {
 			return false
 		}
 	}
@@ -129,10 +149,9 @@ func allTestArtifactsExist(root, slug string) bool { //nolint:unused // used in 
 // missingTestArtifacts lists the expected artifact filenames (per this
 // project's detected stack, J5) that are absent.
 func missingTestArtifacts(root, slug string) []string {
-	testsDir := filepath.Join(root, "tests")
 	var missing []string
 	for _, name := range expectedTestArtifactNames(root, slug) {
-		if _, err := os.Stat(filepath.Join(testsDir, name)); err != nil {
+		if !artefactExists(root, name) {
 			missing = append(missing, name)
 		}
 	}
@@ -332,8 +351,23 @@ func CheckTestFilesExist(files []string) CheckTestFilesResult {
 // paused attempt. Returning the error instead lets the caller keep the
 // "not yet written" state so the next run's Lookup call replays the real
 // answer into the actual file.
+// pickTestsDir chooses where to scaffold test artefacts. A hardcoded
+// "<root>/tests" lands outside the collected path on the many JS/TS projects
+// whose runner roots are "src" (Jest `roots: ["src"]`, CRA, Next.js
+// conventions) — the files then show up as "unreachable / will never run". If
+// one of the common already-collected test directories exists, prefer it;
+// otherwise fall back to "tests".
+func pickTestsDir(root string) string {
+	for _, rel := range []string{"src/test", "src/__tests__", "src/tests", "test", "__tests__"} {
+		if fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil && fi.IsDir() {
+			return filepath.Join(root, filepath.FromSlash(rel))
+		}
+	}
+	return filepath.Join(root, "tests")
+}
+
 func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFrameworkContext, pipe *LLMPipe) (TestArtifactPaths, error) {
-	testsDir := filepath.Join(root, "tests")
+	testsDir := pickTestsDir(root)
 	if err := os.MkdirAll(testsDir, 0o755); err != nil {
 		return TestArtifactPaths{}, nil
 	}
@@ -423,8 +457,14 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 
 			integFn := func() (string, bool, error) {
 				return pipe.InvokeChecked("ship:test:integration", "",
-					"You are writing failing integration test stubs ("+runnerTitle+" + supertest) for TDD. "+
-						"Tests MUST fail. Import test functions from \""+runner+"\", never a different test framework.",
+					"You are writing failing integration test stubs for TDD using "+runnerTitle+". "+
+						"Import test functions from \""+runner+"\", never a different test framework. "+
+						"Exercise the feature end-to-end (API routes, RPCs, DB). Follow the project's "+
+						"existing integration-test convention — use supertest ONLY if the project already "+
+						"depends on it and exposes a single HTTP entrypoint; otherwise invoke route "+
+						"handlers / service functions directly (e.g. a Next.js App Router handler, or a "+
+						"Supabase client's .rpc()). Do not import a package the project does not have. "+
+						"Tests MUST compile but MUST fail at runtime until implemented.",
 					ctx+"Generate failing integration test stubs for feature: "+feature, 6000)
 			}
 			gen, complete, err = generateWithValidation(integFn)

@@ -77,6 +77,70 @@ func isForgeTrash(rel string) bool {
 	return rel == forgeTrashRel || strings.HasPrefix(rel, forgeTrashRel+"/")
 }
 
+// IncludeIgnored disables the default behaviour of skipping git-ignored paths
+// (outside .forge/) during classification. Set by `forge clean --include-ignored`.
+// Left as a package var so Run/RunDryRun/RunWithTrash keep their existing
+// signatures (ship.go and the test suite call them directly).
+var IncludeIgnored bool
+
+// gitignoreFilter identifies paths git ignores so `forge clean` leaves other
+// tools' ignored working files alone (e.g. .playwright-mcp/ console logs,
+// editor caches, sibling .claude/worktrees/). Forge's OWN ignored scratch
+// under .forge/ is still classified — tidying that is the point of the command.
+type gitignoreFilter struct {
+	files map[string]bool // exact ignored paths (slash-separated, root-relative)
+	dirs  []string        // ignored directory prefixes, each ending in "/"
+}
+
+// newGitignoreFilter builds the ignore set via `git ls-files`. When
+// includeIgnored is true, or git is unavailable, it returns a filter that
+// matches nothing (pre-1.10.6 behaviour).
+func newGitignoreFilter(root string, includeIgnored bool) *gitignoreFilter {
+	f := &gitignoreFilter{files: map[string]bool{}}
+	if includeIgnored {
+		return f
+	}
+	// -o -i --exclude-standard --directory: list ignored paths, collapsing a
+	// fully-ignored directory to a single "dir/" entry instead of every file.
+	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "-o", "-i",
+		"--exclude-standard", "--directory")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return f // git unavailable — degrade to "filter nothing"
+	}
+	for _, entry := range strings.Split(out.String(), "\x00") {
+		if entry == "" {
+			continue
+		}
+		entry = filepath.ToSlash(entry)
+		if strings.HasSuffix(entry, "/") {
+			f.dirs = append(f.dirs, entry)
+		} else {
+			f.files[entry] = true
+		}
+	}
+	return f
+}
+
+// ignored reports whether rel (slash-separated, root-relative) is git-ignored
+// and lives outside forge's own .forge/ tree.
+func (f *gitignoreFilter) ignored(rel string) bool {
+	if rel == ".forge" || strings.HasPrefix(rel, ".forge/") {
+		return false // forge still cleans its own scratch even when gitignored
+	}
+	if f.files[rel] {
+		return true
+	}
+	relDir := rel + "/"
+	for _, d := range f.dirs {
+		if strings.HasPrefix(relDir, d) {
+			return true
+		}
+	}
+	return false
+}
+
 // loadMerged loads scratch/managed patterns from both .forge/manifest and
 // .forge/hygiene.yml (if present), returning the union of both. This ensures
 // forge clean is consistent with forge hygiene's pattern set (issue #15).
@@ -164,17 +228,19 @@ func init() {
 // New returns the cobra command.
 func New() *cobra.Command {
 	var (
-		root   string
-		check  bool
-		dryRun bool
-		apply  bool
-		asJSON bool
+		root           string
+		check          bool
+		dryRun         bool
+		apply          bool
+		asJSON         bool
+		includeIgnored bool
 	)
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Find/remove unmanaged scratch files.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			IncludeIgnored = includeIgnored
 			modes := 0
 			if check {
 				modes++
@@ -242,6 +308,8 @@ func New() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be deleted without deleting")
 	cmd.Flags().BoolVar(&apply, "apply", false, "move found candidates to .forge/trash/<run-id>/")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit machine-readable JSON")
+	cmd.Flags().BoolVar(&includeIgnored, "include-ignored", false,
+		"also classify git-ignored paths outside .forge/ (pre-1.10.6 behaviour)")
 	return cmd
 }
 
@@ -258,6 +326,7 @@ func Run(root string, apply bool) (*Result, error) {
 		mode = "apply"
 	}
 	res := &Result{Root: root, ManifestPath: mf.Path, Mode: mode}
+	gi := newGitignoreFilter(root, IncludeIgnored)
 
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -276,6 +345,13 @@ func Run(root string, apply bool) (*Result, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		if isForgeTrash(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if gi.ignored(rel) {
+			// git-ignored working file from another tool — not forge's to remove.
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -322,6 +398,7 @@ func RunDryRun(root string) (*Result, error) {
 		return nil, err
 	}
 	res := &Result{Root: root, ManifestPath: mf.Path, Mode: "dry-run"}
+	gi := newGitignoreFilter(root, IncludeIgnored)
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil || p == root {
 			return werr
@@ -332,6 +409,13 @@ func RunDryRun(root string) (*Result, error) {
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
 		if isForgeTrash(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if gi.ignored(rel) {
+			// git-ignored working file from another tool — not forge's to remove.
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -357,6 +441,7 @@ func RunWithTrash(root string) (*Result, error) {
 		return nil, err
 	}
 	res := &Result{Root: root, ManifestPath: mf.Path, Mode: "apply"}
+	gi := newGitignoreFilter(root, IncludeIgnored)
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil || p == root {
 			return werr
@@ -367,6 +452,13 @@ func RunWithTrash(root string) (*Result, error) {
 		rel, _ := filepath.Rel(root, p)
 		rel = filepath.ToSlash(rel)
 		if isForgeTrash(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if gi.ignored(rel) {
+			// git-ignored working file from another tool — not forge's to remove.
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

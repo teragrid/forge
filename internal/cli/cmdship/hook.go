@@ -278,6 +278,36 @@ func isHookDisabled(cfg HookConfig, hookName string) bool {
 	return false
 }
 
+// ctxSpecSlug resolves the spec-directory name a hook should look in. The
+// --name/-n override (HookContext.SpecName) always wins over a slug derived
+// from the feature description: agent-mode and `forge ship <cp> -n <slug>`
+// write every artefact under .forge/specs/<SpecName>/, so a gate that only
+// slugified the (often paragraph-long) description looked in the wrong
+// directory and reported every artefact "not found".
+func ctxSpecSlug(ctx HookContext) string {
+	if s := strings.TrimSpace(ctx.SpecName); s != "" {
+		return s
+	}
+	return slugify(ctx.Description)
+}
+
+// readSpecArtefact reads the first of names[] that exists in the spec dir for
+// ctx, returning its bytes and the basename that matched. Lets a gate accept
+// both the canonical filename and the aliases agent-mode / older pipelines
+// write (arch.md vs adr.md, test.md vs tests.md, code-plan.md vs impl-notes.md).
+func readSpecArtefact(ctx HookContext, names ...string) ([]byte, string, error) {
+	dir := filepath.Join(ctx.Root, ".forge", "specs", ctxSpecSlug(ctx))
+	var lastErr error
+	for _, n := range names {
+		data, err := os.ReadFile(filepath.Join(dir, n))
+		if err == nil {
+			return data, n, nil
+		}
+		lastErr = err
+	}
+	return nil, "", lastErr
+}
+
 // ── Default hooks ─────────────────────────────────────────────────────────────
 
 // selfReviewGate checks for placeholder text and hedging language in the
@@ -289,16 +319,21 @@ var selfReviewGate = Hook{
 	Gate:  "", // applies to ALL checkpoints
 	Handler: func(ctx HookContext) HookResult {
 		// Map each checkpoint to the artefact files it produces.
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		base := filepath.Join(ctx.Root, ".forge", "specs", slug)
+		// Each checkpoint lists every filename it might have produced. The
+		// canonical name comes first; the rest are the names agent-mode and
+		// older pipeline versions actually write (test-stubs.md, code-plan.md,
+		// …). A gate that scanned only the canonical name reported UNVERIFIED
+		// on every agent-mode run.
 		artifactsByCheckpoint := map[string][]string{
 			"spec":      {filepath.Join(base, "spec.md")},
 			"arch":      {filepath.Join(base, "arch.md"), filepath.Join(base, "adr.md")},
-			"test":      {filepath.Join(base, "tests.md")},
-			"breakdown": {filepath.Join(base, "tasks.md")},
-			"code":      {filepath.Join(base, "impl-notes.md")},
-			"ship":      {filepath.Join(base, "ship-checklist.md")},
-			"qa-verify": {filepath.Join(base, "qa-report.md")},
+			"test":      {filepath.Join(base, "tests.md"), filepath.Join(base, "test.md"), filepath.Join(base, "test-stubs.md")},
+			"breakdown": {filepath.Join(base, "tasks.md"), filepath.Join(base, "breakdown.md")},
+			"code":      {filepath.Join(base, "impl-notes.md"), filepath.Join(base, "code.md"), filepath.Join(base, "code-plan.md")},
+			"ship":      {filepath.Join(base, "ship-checklist.md"), filepath.Join(base, "ship.md")},
+			"qa-verify": {filepath.Join(base, "qa-report.md"), filepath.Join(base, "qa-verify.md")},
 		}
 		filesToScan, ok := artifactsByCheckpoint[ctx.CheckpointName]
 		if !ok {
@@ -343,7 +378,7 @@ var specCompletenessGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		specPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "spec.md")
 		data, err := os.ReadFile(specPath)
 		if err != nil {
@@ -376,7 +411,7 @@ var taskCompletionGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		tasksPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "tasks.md")
 		data, err := os.ReadFile(tasksPath)
 		if err != nil {
@@ -406,11 +441,9 @@ var adrQualityGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
-		adrPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "adr.md")
-		data, err := os.ReadFile(adrPath)
+		data, _, err := readSpecArtefact(ctx, "adr.md", "arch.md")
 		if err != nil {
-			return gateUnknown("adr-quality-gate: adr.md not found — architecture decision unverified")
+			return gateUnknown("adr-quality-gate: adr.md / arch.md not found — architecture decision unverified")
 		}
 		content := strings.ToLower(string(data))
 		// Look for at least 2 alternative headings or list items.
@@ -434,7 +467,7 @@ var archFileLint = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		archPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "arch.md")
 		data, err := os.ReadFile(archPath)
 		if err != nil {
@@ -470,11 +503,9 @@ var tddGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
-		testsPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "tests.md")
-		data, err := os.ReadFile(testsPath)
+		data, _, err := readSpecArtefact(ctx, "tests.md", "test.md", "test-stubs.md")
 		if err != nil {
-			return gateUnknown("tdd-gate: tests.md not found — test quality unverified")
+			return gateUnknown("tdd-gate: tests.md / test.md not found — test quality unverified")
 		}
 		content := string(data)
 		// Detect always-passing anti-patterns.
@@ -507,7 +538,7 @@ var breakdownCompletenessGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		tasksPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "tasks.md")
 		data, err := os.ReadFile(tasksPath)
 		if err != nil {
@@ -539,11 +570,9 @@ var securityHygieneGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
-		implPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "impl-notes.md")
-		data, err := os.ReadFile(implPath)
+		data, _, err := readSpecArtefact(ctx, "impl-notes.md", "code.md", "code-plan.md")
 		if err != nil {
-			return gateUnknown("security-hygiene-gate: impl-notes.md not found — implementation notes unscanned")
+			return gateUnknown("security-hygiene-gate: impl-notes.md / code-plan.md not found — implementation notes unscanned")
 		}
 		content := string(data)
 		// Secret-like patterns.
@@ -577,7 +606,7 @@ var qaCoverageGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		specPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "spec.md")
 		qaPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "qa-report.md")
 
@@ -674,7 +703,7 @@ var manualTestPlanGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		slug := slugify(ctx.Description)
+		slug := ctxSpecSlug(ctx)
 		planPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "manual-test-plan.md")
 		data, err := os.ReadFile(planPath)
 		if err != nil {

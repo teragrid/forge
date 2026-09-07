@@ -1239,7 +1239,7 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 		} else {
 			cp.Detail = fmt.Sprintf("%d test file(s) found; missing artifacts: %s", len(testFiles), strings.Join(missing, ", "))
 		}
-		applyReachability(root, testFiles, &cp)
+		applyReachability(root, artefactFilesForReachability(root, slug), &cp)
 		if pipe != nil {
 			if _, err := generateTestStubs(root, description, slug, pipe); err != nil {
 				if agentPauseCheckpoint(&cp, "ship:test:generate", err) {
@@ -1270,7 +1270,7 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 	if pipe == nil {
 		cp.Detail += " (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)"
 	}
-	applyReachability(root, findTestFiles(root), &cp)
+	applyReachability(root, artefactFilesForReachability(root, slug), &cp)
 	return cp
 }
 
@@ -1373,6 +1373,34 @@ func findTestFiles(root string) []string {
 	return out
 }
 
+// slugTestArtefactPaths returns the absolute paths of the test artefacts forge
+// itself scaffolds for slug (across every supported layout) that currently
+// exist on disk. The Test checkpoint's reachability check must run against
+// *these* files only — running it against every *_test/*.spec file in the repo
+// (findTestFiles) drags in the project's pre-existing e2e/staging/smoke suites,
+// which are deliberately outside the unit runner, and reports them as
+// "unreachable" — noise that buried the one signal that mattered.
+func artefactFilesForReachability(root, slug string) []string {
+	cands := []string{
+		"tests/" + slug + ".test.ts",
+		"tests/" + slug + ".integration.test.ts",
+		"tests/" + slug + ".rls.test.ts",
+		"src/test/" + slug + ".test.ts",
+		"src/test/" + slug + ".integration.test.ts",
+		"src/test/" + slug + ".rls.test.ts",
+		"src/__tests__/" + slug + ".test.ts",
+		"test/" + slug + ".test.ts",
+	}
+	var out []string
+	for _, c := range cands {
+		p := filepath.Join(root, filepath.FromSlash(c))
+		if _, err := os.Stat(p); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // checkBreakdown looks for a task-breakdown file in .forge/specs/<slug>/ and,
 // when an LLMPipe is available, generates one if it does not exist.
 // specName, when non-empty, overrides the slug derived from description.
@@ -1437,6 +1465,7 @@ func checkBreakdown(root, description, specName string, pipe *LLMPipe) Checkpoin
 func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	cp := Checkpoint{Name: "Code"}
 	changedFiles := countChangedFiles(root)
+	changedSource := countChangedSourceFiles(root)
 
 	// Determine slug: --name/-n takes priority over slug derived from description.
 	slug := specName
@@ -1450,10 +1479,10 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 			return cp
 		}
 		if err != nil {
-			if changedFiles > 0 {
+			if changedSource > 0 {
 				cp.Status = "ok"
-				cp.Detail = fmt.Sprintf("%d modified file(s) [LLM:%s — %s]",
-					changedFiles, pipe.ProviderName(), llmErrNote(err))
+				cp.Detail = fmt.Sprintf("%d changed source file(s) [LLM:%s — %s]",
+					changedSource, pipe.ProviderName(), llmErrNote(err))
 			} else {
 				cp.Status = "warning"
 				cp.Detail = fmt.Sprintf("no code changes detected [LLM:%s — %s]",
@@ -1462,14 +1491,25 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 			return cp
 		}
 		if plan != "" {
-			if changedFiles > 0 {
+			// A plan is not an implementation. Only claim the checkpoint is
+			// satisfied when actual source files changed this run; otherwise
+			// report the plan as the deliverable and ask for implementation.
+			// Ambient dirty files (.forge/, docs/, other sessions' scratch) are
+			// excluded by countChangedSourceFiles so they can't fake a pass —
+			// this was forge-expert known-gap #5.
+			ambient := ""
+			if changedFiles > changedSource {
+				ambient = fmt.Sprintf(" (%d other working-tree change(s) not attributed to this checkpoint)",
+					changedFiles-changedSource)
+			}
+			if changedSource > 0 {
 				cp.Status = "ok"
-				cp.Detail = fmt.Sprintf("%d modified file(s); code plan written by %s (see .forge/specs/%s/code-plan.md)",
-					changedFiles, pipe.ProviderName(), slug)
+				cp.Detail = fmt.Sprintf("%d changed source file(s); code plan written by %s (see .forge/specs/%s/code-plan.md)%s",
+					changedSource, pipe.ProviderName(), slug, ambient)
 			} else {
-				cp.Status = "ok"
-				cp.Detail = fmt.Sprintf("code plan written by %s (see .forge/specs/%s/code-plan.md) — implement then rerun",
-					pipe.ProviderName(), slug)
+				cp.Status = "warning"
+				cp.Detail = fmt.Sprintf("code plan written by %s (see .forge/specs/%s/code-plan.md) — no source files changed yet; implement then rerun forge ship code%s",
+					pipe.ProviderName(), slug, ambient)
 			}
 			return cp
 		}
@@ -1484,9 +1524,9 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	}
 
 	// Structural fallback (no LLM or no spec/breakdown context).
-	if changedFiles > 0 {
+	if changedSource > 0 {
 		cp.Status = "ok"
-		cp.Detail = fmt.Sprintf("%d modified file(s) detected in working tree", changedFiles)
+		cp.Detail = fmt.Sprintf("%d changed source file(s) detected in working tree", changedSource)
 		return cp
 	}
 	cp.Status = "warning"
@@ -1520,6 +1560,46 @@ func countChangedFiles(root string) int {
 		return 0
 	}
 	return len(statuses)
+}
+
+// sourceLikeExts are the extensions countChangedSourceFiles treats as "code
+// this checkpoint could have produced". Deliberately excludes docs, images,
+// lockfiles and forge's own scratch/ledger files.
+var sourceLikeExts = map[string]bool{
+	".go": true, ".ts": true, ".tsx": true, ".js": true, ".jsx": true,
+	".py": true, ".sql": true, ".rs": true, ".java": true, ".rb": true,
+	".kt": true, ".swift": true, ".c": true, ".cc": true, ".cpp": true,
+	".h": true, ".hpp": true, ".cs": true, ".php": true, ".scala": true,
+	".vue": true, ".svelte": true, ".sh": true,
+}
+
+// countChangedSourceFiles counts working-tree changes that plausibly belong to
+// an implementation: source-code extensions, and never under .forge/, docs/,
+// or other ambient locations. This stops the Code checkpoint from reporting
+// "N modified file(s)" (and status ok) purely because of unrelated dirty files
+// — another session's .forge/token-ledger.jsonl, stray screenshots, growth/
+// notes — when in fact no feature code was written this run.
+func countChangedSourceFiles(root string) int {
+	svc, err := gitservice.New(root)
+	if err != nil {
+		return 0
+	}
+	statuses, err := svc.Status()
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, st := range statuses {
+		p := filepath.ToSlash(st.Path)
+		if strings.HasPrefix(p, ".forge/") || strings.HasPrefix(p, "docs/") ||
+			strings.HasPrefix(p, "growth/") || strings.Contains(p, "/node_modules/") {
+			continue
+		}
+		if sourceLikeExts[strings.ToLower(filepath.Ext(p))] {
+			n++
+		}
+	}
+	return n
 }
 
 // checkVerify runs the security scanner, clean check, checks the manifest,

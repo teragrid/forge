@@ -1770,8 +1770,15 @@ func TestCheckCode_LLM_GeneratesCodePlan(t *testing.T) {
 	}
 	cp := checkCode(root, "code plan feature", "", mockPipe(root, mock))
 
-	if cp.Status != "ok" {
-		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	// A plan is not an implementation: with no source files changed (this
+	// TempDir isn't a git repo), the checkpoint reports "warning" and asks for
+	// implementation rather than a misleading "ok" — countChangedSourceFiles /
+	// forge-expert gap #5 fix.
+	if cp.Status != "warning" {
+		t.Fatalf("expected warning (plan written, no code yet), got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "code-plan.md") {
+		t.Fatalf("detail should reference the written plan: %s", cp.Detail)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "code-plan.md"))
 	if err != nil {
@@ -1814,8 +1821,13 @@ func TestCheckCode_LLM_HonorsSpecNameOverride(t *testing.T) {
 	}
 	cp := checkCode(root, description, "custom-slug", mockPipe(root, mock))
 
-	if cp.Status != "ok" {
-		t.Fatalf("expected ok, got %q: %s", cp.Status, cp.Detail)
+	// "warning" (plan written, no source changed) — see gap #5 fix. What this
+	// test guards is that the plan lands under the --name dir, not the status.
+	if cp.Status != "warning" {
+		t.Fatalf("expected warning (plan written, no code yet), got %q: %s", cp.Status, cp.Detail)
+	}
+	if !strings.Contains(cp.Detail, "custom-slug/code-plan.md") {
+		t.Fatalf("detail should point at the --name override dir: %s", cp.Detail)
 	}
 	if mock.Calls() == 0 {
 		t.Fatal("MockProvider.Complete was not called — generateCodePlan did not find spec.md/breakdown.md under the --name override directory")
