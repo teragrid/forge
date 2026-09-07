@@ -341,7 +341,12 @@ var selfReviewGate = Hook{
 				ctx.CheckpointName)
 		}
 
-		badPatterns := []string{"TODO", "TBD", "<fill", "...", "might consider", "could perhaps"}
+		// Bare "..." is deliberately NOT in this list: real specs use it in
+		// prose elisions, range shorthands (P1-01 … P1-09) and code snippets
+		// ({ ... }). An unfilled ellipsis placeholder is caught by the
+		// per-line check below instead (a line that is *only* dots, or a
+		// "key: ..." / "= ..." stub), which does not fire on legitimate use.
+		badPatterns := []string{"TODO", "TBD", "<fill", "might consider", "could perhaps"}
 		scanned := 0
 		for _, fp := range filesToScan {
 			data, err := os.ReadFile(fp)
@@ -350,9 +355,27 @@ var selfReviewGate = Hook{
 			}
 			scanned++
 			content := string(data)
+			inFence := false
 			for _, pat := range badPatterns {
 				if strings.Contains(content, pat) {
 					return gateFail("self-review-gate: placeholder/hedging in %s: %q", filepath.Base(fp), pat)
+				}
+			}
+			for _, ln := range strings.Split(content, "\n") {
+				t := strings.TrimSpace(ln)
+				if strings.HasPrefix(t, "```") {
+					inFence = !inFence
+					continue
+				}
+				if inFence {
+					continue
+				}
+				t = strings.TrimLeft(t, "-*># ") // list/quote/heading markers
+				if t == "..." || t == "…" ||
+					strings.HasSuffix(t, ": ...") || strings.HasSuffix(t, "= ...") ||
+					strings.HasSuffix(t, ": …") || strings.HasSuffix(t, "= …") {
+					return gateFail("self-review-gate: unfilled placeholder line in %s: %q",
+						filepath.Base(fp), strings.TrimSpace(ln))
 				}
 			}
 		}
