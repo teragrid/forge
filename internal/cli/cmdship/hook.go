@@ -526,9 +526,11 @@ var tddGate = Hook{
 		if ctx.Result == nil || ctx.Result.Status == "fail" {
 			return gateNotApplicable()
 		}
-		data, _, err := readSpecArtefact(ctx, "tests.md", "test.md", "test-stubs.md")
+		// Prefer the actual stub file (test-stubs.md) over forge's thin
+		// test.md summary for a *quality* check.
+		data, _, err := readSpecArtefact(ctx, "tests.md", "test-stubs.md", "test.md")
 		if err != nil {
-			return gateUnknown("tdd-gate: tests.md / test.md not found — test quality unverified")
+			return gateUnknown("tdd-gate: tests.md / test-stubs.md not found — test quality unverified")
 		}
 		content := string(data)
 		// Detect always-passing anti-patterns.
@@ -541,10 +543,22 @@ var tddGate = Hook{
 				return gateFail("tdd-gate: always-passing or skipped test pattern detected: %q", pat)
 			}
 		}
-		// Must reference at least one Given/When/Then or test scenario.
-		if !strings.Contains(content, "Given ") && !strings.Contains(content, "Scenario:") &&
-			!strings.Contains(content, "func Test") {
-			return gateFail("tdd-gate: tests.md must contain at least one test scenario (Given/When/Then or func Test*)")
+		// Must reference at least one test scenario — Gherkin (Given/When/Then,
+		// Scenario:), Go (func Test*), or a JS/TS runner block (it(/test(/
+		// describe(), which is how Jest/Vitest/Jasmine/Mocha express one.
+		scenarioMarkers := []string{
+			"Given ", "Scenario:", "func Test",
+			"it(", "it('", "it(\"", "test(", "describe(",
+		}
+		hasScenario := false
+		for _, m := range scenarioMarkers {
+			if strings.Contains(content, m) {
+				hasScenario = true
+				break
+			}
+		}
+		if !hasScenario {
+			return gateFail("tdd-gate: no test scenario found (Given/When/Then, func Test*, or it()/test()/describe())")
 		}
 		return gatePass()
 	},
