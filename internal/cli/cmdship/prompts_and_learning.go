@@ -68,7 +68,8 @@ func ensurePromptTemplates(root string) { //nolint:unused // called from ship in
 		"ship-spec": "You are a senior product engineer writing a feature specification.\n" +
 			"Produce a Markdown spec with sections: Goal, Scope, Acceptance Criteria, Non-Goals, Open Questions.\n",
 		"ship-test": "You are a senior QA engineer writing failing test stubs for TDD.\n" +
-			"Tests MUST compile but MUST fail at runtime. Use Jest + supertest for TypeScript, testing.T for Go.\n",
+			"Tests MUST compile but MUST fail at runtime. Use the project's own test runner and " +
+			"conventions (do not import a package the project lacks, e.g. supertest).\n",
 		"ship-breakdown": "You are a delivery lead decomposing a feature spec into atomic tasks.\n" +
 			"Format: numbered list. Each task: title, effort (XS/S/M/L), dependencies, acceptance criteria.\n",
 		"ship-code": "You are a senior engineer writing a step-by-step implementation plan.\n" +

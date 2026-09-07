@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -330,9 +331,21 @@ func readAnswer(cmd *cobra.Command, args []string, fromFile string) (string, err
 		}
 		return string(data), nil
 	case fromFile != "":
-		data, err := os.ReadFile(fromFile)
+		// Normalise the path: collapse "..", unify separators, and resolve a
+		// relative path against the working directory. Without this, a caller
+		// passing e.g. "C:\a\b/../c/x.md" (mixed separators + parent refs, as
+		// shells and scratch-dir helpers routinely produce) hit
+		// "cannot find the path specified" even though the file exists.
+		p := filepath.FromSlash(fromFile)
+		if !filepath.IsAbs(p) {
+			if wd, werr := os.Getwd(); werr == nil {
+				p = filepath.Join(wd, p)
+			}
+		}
+		p = filepath.Clean(p)
+		data, err := os.ReadFile(p)
 		if err != nil {
-			return "", errcode.New(ErrAgentFailed, "read answer file", err)
+			return "", errcode.New(ErrAgentFailed, "read answer file "+p, err)
 		}
 		return string(data), nil
 	default:
