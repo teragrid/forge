@@ -63,8 +63,16 @@ var testingPipelineStages = []testingPipelineStage{
 // evidence for the current feature. Mirrors manualTestPlanGate's and
 // qaCoverageGate's own artefact path convention exactly
 // (.forge/specs/<slug>/<name>.md).
-func testingPipelineEvidencePath(root, description string) string {
-	return filepath.Join(root, ".forge", "specs", slugify(description), "testing-pipeline.md")
+func testingPipelineEvidencePath(root, nameOrDesc string) string {
+	// Treat an argument that already looks like a slug (no spaces/separators)
+	// as one; slugify a raw description. This makes a resolved --name/-n slug
+	// and a feature description land on the same directory the rest of the
+	// pipeline writes to — agent-mode always passes the former.
+	slug := nameOrDesc
+	if strings.ContainsAny(slug, " \t/\\") {
+		slug = slugify(nameOrDesc)
+	}
+	return filepath.Join(root, ".forge", "specs", slug, "testing-pipeline.md")
 }
 
 // missingTestingPipelineStages reports which stage keywords are absent from
@@ -93,7 +101,7 @@ var fourStageTestingGate = Hook{
 			return gateNotApplicable()
 		}
 
-		path := testingPipelineEvidencePath(ctx.Root, ctx.Description)
+		path := testingPipelineEvidencePath(ctx.Root, ctxSpecSlug(ctx))
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if !ctx.StrictTesting {
@@ -143,7 +151,7 @@ var fourStageTestingReminder = Hook{
 			b.WriteString("  (--strict-testing is ON: qa-verify already enforced this via testing-pipeline.md)\n")
 		} else {
 			b.WriteString(fmt.Sprintf("  Advisory only. Document evidence in %s and re-run with\n  --strict-testing to make this a blocking gate.\n",
-				filepath.Base(testingPipelineEvidencePath(ctx.Root, ctx.Description))))
+				filepath.Base(testingPipelineEvidencePath(ctx.Root, ctxSpecSlug(ctx)))))
 		}
 		fmt.Fprint(os.Stderr, b.String())
 		return gatePass()
