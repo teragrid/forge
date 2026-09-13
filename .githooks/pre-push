@@ -90,8 +90,27 @@ echo "━━━  forge pre-push quality gate  (13 checks)  ━━━"
 echo ""
 
 # ── 1. formatting ────────────────────────────────────────────────────────────
+# `gofmt -s -l .` / `goimports -l .` walk every .go file under the given
+# directory, including ones under a dot- or underscore-prefixed path segment
+# (e.g. .forge/scratch/plan3.go, tests/fixtures/.../_scratch_idea.go). Unlike
+# `go build`/`go vet`/`go list`, which silently skip such paths per Go's own
+# package-discovery convention (`go help packages`: "directories with names
+# starting with '.' or '_' are ignored"), gofmt/goimports have no such rule
+# and simply try to parse every .go file they find. tests/fixtures/hygiene-
+# corpus intentionally contains syntactically-invalid .go scratch-file
+# fixtures (DEV-M0-32) that forge's own hygiene scanner is tested against —
+# gofmt/goimports choking on them is a false positive, not a real formatting
+# issue, and previously blocked every push in the repo unconditionally.
+# GOFILES applies the same dot/underscore-prefix exclusion Go's own tools
+# already use, so this stage checks exactly the .go files the rest of this
+# hook (go vet/build/test, golangci-lint, all of which use `./...`) checks.
+mapfile -t GOFILES < <(git ls-files '*.go' | grep -vE '(^|/)[._][^/]*($|/)')
 echo "[1/12] formatting (gofmt + goimports)"
-FMT_OUT=$(gofmt -s -l . 2>/dev/null || true)
+if [[ ${#GOFILES[@]} -eq 0 ]]; then
+  FMT_OUT=""
+else
+  FMT_OUT=$(gofmt -s -l "${GOFILES[@]}" 2>/dev/null || true)
+fi
 if [[ -n "$FMT_OUT" ]]; then
   fail "gofmt -s"
   echo "      Files needing formatting:"
@@ -102,7 +121,11 @@ else
 fi
 
 if need goimports; then
-  IMP_OUT=$(goimports -l . 2>/dev/null || true)
+  if [[ ${#GOFILES[@]} -eq 0 ]]; then
+    IMP_OUT=""
+  else
+    IMP_OUT=$(goimports -l "${GOFILES[@]}" 2>/dev/null || true)
+  fi
   if [[ -n "$IMP_OUT" ]]; then
     fail "goimports"
     echo "      Files with import issues:"
