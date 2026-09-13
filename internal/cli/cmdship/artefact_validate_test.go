@@ -103,6 +103,60 @@ func TestLooksComplete_ListItemWithUnclosedInlineCode_Truncated(t *testing.T) {
 	}
 }
 
+// TestLooksComplete_EndsOnWrappedListContinuation_NotTruncated is the
+// regression test for the incident that motivated this check: root-caused
+// 2026-09-13 (dogfooding on ai-marketing-platfrom, forge ship agent-mode) —
+// a complete, well-formed spec.md answer was submitted via
+// `forge agent submit`, but its last physical line was an indented
+// continuation of a "- [x] ..." checklist item (the bullet's text wrapped
+// onto a second, hanging-indented line). isListItem only recognizes a
+// bullet's own first line, so the continuation line — ending in ordinary
+// prose with no terminal punctuation — was misclassified as truncated, and
+// the checkpoint silently discarded the answer and kept re-serving a stub.
+func TestLooksComplete_EndsOnWrappedListContinuation_NotTruncated(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"# Spec\n\n## DoD\n- [x] Migration applied and verified against local Postgres test DB (real\n      RPC call: idempotency + P0002 unknown-subscription path confirmed)",
+		"# Spec\n\n## Tasks\n1. Implement the RPC, following the exact pattern already used by\n   the sibling wrapper functions in this file",
+		"# Spec\n\n## Out of Scope\n- Automatic retry of the failed charge, since no such flow exists\n  anywhere in the app yet",
+	}
+	for _, c := range cases {
+		if !looksComplete(c) {
+			t.Errorf("content ending on a wrapped list-item continuation line should not be flagged truncated: %q", c)
+		}
+	}
+}
+
+// TestLooksComplete_IndentedProseNotUnderListItem_StillTruncated guards
+// against over-broadening the fix above: an indented line that is NOT
+// actually a continuation of a list item (its nearest less-indented
+// ancestor is plain prose, not a bullet) must still be judged on its own
+// terminal shape, same as before.
+func TestLooksComplete_IndentedProseNotUnderListItem_StillTruncated(t *testing.T) {
+	t.Parallel()
+	// The indented second line continues a plain paragraph, not a list item —
+	// isWrappedListContinuation must not fire, so this stays truncated exactly
+	// as it was before the fix.
+	truncated := "# Spec\n\nThe acceptance criteria for this feature are as follows\n  and they continue onto this indented line and"
+	if looksComplete(truncated) {
+		t.Error("an indented continuation of plain prose (not a list item) should still be flagged truncated")
+	}
+}
+
+// TestLooksComplete_WrappedListContinuationCutMidWord_StillTruncated guards
+// the other direction: a wrapped continuation line that itself is cut off
+// mid-word inside an unclosed inline code span must still be flagged
+// truncated — isWrappedListContinuation only overrides the terminal-shape
+// fallback at the very end of looksComplete, never the unclosed-backtick
+// check that already runs earlier on every line unconditionally.
+func TestLooksComplete_WrappedListContinuationCutMidWord_StillTruncated(t *testing.T) {
+	t.Parallel()
+	truncated := "# Spec\n\n- [x] See the handler at\n      `src/app/api/billing/payment-"
+	if looksComplete(truncated) {
+		t.Error("a wrapped continuation line cut off inside an unclosed inline code span should still be flagged truncated")
+	}
+}
+
 func TestLooksComplete_EndsMidSentence_Truncated(t *testing.T) {
 	t.Parallel()
 	// No terminal punctuation, not a heading, not a list item, not a closing fence.
