@@ -80,10 +80,18 @@ func looksComplete(s string) bool {
 		return false // unbalanced fenced code block — cut off mid-block
 	}
 
-	last := lastNonEmptyLine(trimmed)
-	if last == "" {
+	lines := strings.Split(trimmed, "\n")
+	lastIdx := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) != "" {
+			lastIdx = i
+			break
+		}
+	}
+	if lastIdx == -1 {
 		return false
 	}
+	last := strings.TrimRight(lines[lastIdx], " \t\r")
 	if strings.HasSuffix(last, "```") {
 		return true
 	}
@@ -114,6 +122,17 @@ func looksComplete(s string) bool {
 		// happens inside an inline code span, which is the shape actually
 		// observed to recur.
 	}
+	if isWrappedListContinuation(lines, lastIdx) {
+		return true // ends on an indented continuation line of an earlier
+		// list item — e.g. a checklist item whose text wraps onto a
+		// hanging-indented second line. isListItem above only recognizes
+		// the bullet's own first physical line, so a document that
+		// legitimately ends mid-continuation-line was previously always
+		// flagged truncated (root-caused 2026-09-13, dogfooding on
+		// ai-marketing-platfrom: a complete, well-formed spec answer
+		// submitted via `forge agent submit` was silently discarded for
+		// exactly this reason).
+	}
 	runes := []rune(last)
 	switch runes[len(runes)-1] {
 	case '.', '!', '?', ':', ')', ']', '"', '\'', '`', '|', '>':
@@ -136,16 +155,38 @@ func isListItem(line string) bool {
 		i+1 < len(line) && line[i+1] == ' '
 }
 
-// lastNonEmptyLine returns the last non-blank line of s, or "" if s has none.
-func lastNonEmptyLine(s string) string {
-	lines := strings.Split(s, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		l := strings.TrimRight(lines[i], " \t\r")
-		if l != "" {
-			return l
-		}
+// isWrappedListContinuation reports whether the line at idx is an indented
+// continuation of an earlier Markdown list item on the same bullet — e.g. a
+// checklist item whose text wraps onto a second, hanging-indented line:
+//
+//   - [x] Migration applied and verified against local Postgres test DB (real
+//     RPC call: idempotency + P0002 unknown-subscription path confirmed)
+//
+// isListItem only recognizes the bullet's own first physical line (the one
+// starting with "- "/"1. "/etc.); walking backward over consecutively
+// indented lines finds that first line so the same "normal, intentional
+// document ending" rationale isListItem already applies here too.
+func isWrappedListContinuation(lines []string, idx int) bool {
+	indent := leadingWhitespace(lines[idx])
+	if indent == "" {
+		return false // not indented — cannot be a hanging continuation
 	}
-	return ""
+	for i := idx - 1; i >= 0; i-- {
+		l := lines[i]
+		if strings.TrimSpace(l) == "" {
+			return false // blank line breaks the block — not a continuation
+		}
+		if len(leadingWhitespace(l)) >= len(indent) {
+			continue // still inside the same wrapped block — keep walking back
+		}
+		return isListItem(strings.TrimSpace(l))
+	}
+	return false
+}
+
+// leadingWhitespace returns the leading run of spaces/tabs in s.
+func leadingWhitespace(s string) string {
+	return s[:len(s)-len(strings.TrimLeft(s, " \t"))]
 }
 
 // generateWithValidation runs invoke, validates the result (J8/J9/J11), and
