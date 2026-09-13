@@ -4,6 +4,20 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.7] — 2026-09-13 — `looksComplete` stopped discarding valid spec answers that end mid-checklist-item, and the pre-push gate stopped choking on its own test fixtures
+
+### Fixed
+
+- **`looksComplete` misclassified a complete, well-formed artefact as truncated whenever its last physical line was an indented continuation of an earlier Markdown list item** — e.g. a checklist item whose text wraps onto a second, hanging-indented line:
+
+  ```
+  - [x] Migration applied and verified against local Postgres test DB (real
+        RPC call: idempotency + P0002 unknown-subscription path confirmed)
+  ```
+
+  `isListItem` only recognises a bullet's own first physical line (the one starting with `- `/`1. `/etc.); the wrapped continuation line ends in ordinary prose with no terminal punctuation, heading, or list marker of its own, so it fell through to `looksComplete`'s final "everything else is truncated" branch. Root-caused dogfooding `forge ship --agent-mode` on a real repo (ai-marketing-platfrom, 2026-09-13): a complete spec.md answer was submitted via `forge agent submit`, silently discarded, and the checkpoint kept re-serving a stub on every subsequent re-entry with no error beyond a `spec review truncated/incomplete after retry` digest line. `looksComplete` now also accepts an indented continuation of an earlier list item (`isWrappedListContinuation`), found by walking backward over consecutively-indented lines to the bullet's own first line — same "normal, intentional document ending" rationale the existing list-item check already uses. A continuation line that is itself cut off mid-word inside an unclosed inline code span is still flagged truncated (the unclosed-backtick check runs first, unconditionally), and an indented continuation of plain prose that is *not* under an actual list item is still judged on its own terminal shape, unchanged from before.
+- **`.githooks/pre-push`'s formatting stage (`gofmt -s -l .` / `goimports -l .`) failed unconditionally on every push in this repo**, because `tests/fixtures/hygiene-corpus` intentionally contains syntactically-invalid `.go` scratch-file fixtures (DEV-M0-32) that forge's own hygiene scanner is tested against (`.forge/scratch/plan3.go`, `_scratch_idea.go`). Unlike `go build`/`go vet`/`go list ./...`, which already skip any path with a dot- or underscore-prefixed segment per Go's own package-discovery convention (`go help packages`), gofmt/goimports have no equivalent rule and simply try to parse every `.go` file they are given. The formatting stage now builds its file list via `git ls-files` filtered through that same dot/underscore-prefix exclusion, so it checks exactly the files every other `./...`-based stage in the hook already does.
+
 ## [1.10.6] — 2026-09-07 — `forge ship --agent-mode` now certifies a real repo end-to-end: gates find their artefacts, `forge clean` leaves other tools' ignored files alone, and the Code checkpoint tells the truth
 
 All nine fixes were found by driving `forge ship --agent-mode` by hand through a
