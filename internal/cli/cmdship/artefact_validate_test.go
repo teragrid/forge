@@ -395,3 +395,75 @@ func mustWriteFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// ── related_repos ────────────────────────────────────────────────────────────
+
+// TestFindUnverifiedFileReferences_ResolvesRelatedRepos — a spec for one repo
+// of a multi-repo system legitimately cites files that live in a sibling repo.
+// Without forge.yml's related_repos those were flagged as hallucinated.
+func TestFindUnverifiedFileReferences_ResolvesRelatedRepos(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "web-app")
+	sibling := filepath.Join(parent, "agent-service")
+	for _, f := range []string{
+		filepath.Join(root, "src", "here.ts"),
+		filepath.Join(sibling, "src", "queue", "handler.py"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "forge.yml"),
+		[]byte("llm:\n  provider: anthropic\nrelated_repos:\n  - ../agent-service\n  - ../does-not-exist\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	content := "See `src/here.ts`, `src/queue/handler.py`, `agent-service/src/queue/handler.py` " +
+		"and the invented `src/queue/ghost.py`."
+	got := findUnverifiedFileReferences(root, content)
+	if len(got) != 1 || got[0] != "src/queue/ghost.py" {
+		t.Fatalf("only the genuinely missing path may be flagged, got %v", got)
+	}
+}
+
+// Without related_repos the sibling-repo citation is still flagged — the check
+// must not silently become more permissive.
+func TestFindUnverifiedFileReferences_NoRelatedReposStillFlags(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "web-app")
+	sibling := filepath.Join(parent, "agent-service")
+	for _, d := range []string{root, filepath.Join(sibling, "src")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "src", "handler.py"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := findUnverifiedFileReferences(root, "`agent-service/src/handler.py`")
+	if len(got) != 1 {
+		t.Fatalf("a sibling-repo path with no related_repos must still be flagged, got %v", got)
+	}
+}
+
+func TestLoadRelatedRepos_BadOrMissingConfig(t *testing.T) {
+	t.Parallel()
+	if got := loadRelatedRepos(""); got != nil {
+		t.Errorf("empty root: %v", got)
+	}
+	root := t.TempDir()
+	if got := loadRelatedRepos(root); got != nil {
+		t.Errorf("no forge.yml: %v", got)
+	}
+	if err := os.WriteFile(filepath.Join(root, "forge.yml"), []byte(":\n  - [unbalanced"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRelatedRepos(root); got != nil {
+		t.Errorf("malformed forge.yml must yield none, got %v", got)
+	}
+}

@@ -31,6 +31,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // validateArtefact strips conversational preamble from raw and reports
@@ -240,6 +242,73 @@ func generateWithValidation(invoke func() (string, bool, error)) (content string
 // ordinary prose sentences don't get flagged.
 var filePathRefPattern = regexp.MustCompile("`((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+\\.[A-Za-z0-9]{1,6})`")
 
+// loadRelatedRepos returns the absolute roots of the sibling repositories a
+// project declares in forge.yml:
+//
+//	related_repos:
+//	  - ../ai-agent-system
+//
+// Many projects are several repositories (a web app and its agent service, an
+// API and its SDK), and a spec or ADR for one legitimately cites files that
+// live in another. Without this, the unverified-file-reference check could only
+// ever look inside the current worktree and flagged every cross-repo citation
+// as "may be hallucinated". Relative entries resolve against root. Entries that
+// do not exist are dropped; an unreadable or absent forge.yml yields none.
+func loadRelatedRepos(root string) []string {
+	if root == "" {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(root, "forge.yml"))
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		RelatedRepos []string `yaml:"related_repos"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	var out []string
+	for _, r := range doc.RelatedRepos {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		if !filepath.IsAbs(r) {
+			r = filepath.Join(root, filepath.FromSlash(r))
+		}
+		r = filepath.Clean(r)
+		if fi, statErr := os.Stat(r); statErr == nil && fi.IsDir() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// pathExistsInRepos reports whether the repo-relative candidate exists under
+// root or any related repo. A candidate may also be prefixed with a related
+// repo's directory name ("ai-agent-system/src/x.py"), the way a spec cites a
+// file in a sibling repo, in which case the prefix is stripped for that repo.
+func pathExistsInRepos(root string, related []string, candidate string) bool {
+	rel := filepath.FromSlash(candidate)
+	if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+		return true
+	}
+	for _, repo := range related {
+		if _, err := os.Stat(filepath.Join(repo, rel)); err == nil {
+			return true
+		}
+		prefix := filepath.Base(repo) + "/"
+		if strings.HasPrefix(candidate, prefix) {
+			stripped := filepath.FromSlash(strings.TrimPrefix(candidate, prefix))
+			if _, err := os.Stat(filepath.Join(repo, stripped)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // findUnverifiedFileReferences scans generated Markdown for backtick-wrapped
 // file-path-shaped references and returns the ones that do not exist on disk
 // under root, deduplicated and in first-seen order.
@@ -259,6 +328,7 @@ func findUnverifiedFileReferences(root, content string) []string {
 	}
 	seen := make(map[string]bool)
 	var unverified []string
+	related := loadRelatedRepos(root)
 	for _, m := range filePathRefPattern.FindAllStringSubmatch(content, -1) {
 		candidate := m[1]
 		if seen[candidate] {
@@ -270,7 +340,7 @@ func findUnverifiedFileReferences(root, content string) []string {
 		if strings.HasPrefix(candidate, ".forge/") {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(candidate))); os.IsNotExist(err) {
+		if !pathExistsInRepos(root, related, candidate) {
 			unverified = append(unverified, candidate)
 		}
 	}
@@ -292,7 +362,7 @@ func appendUnverifiedPathsWarning(root, content string) string {
 	if !strings.HasSuffix(content, "\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString("\n---\n\n> **⚠ Unverified file references (automated check):** the following paths mentioned above were not found in this repository — verify before relying on them, they may be hallucinated:\n")
+	b.WriteString("\n---\n\n> **⚠ Unverified file references (automated check):** the following paths mentioned above were not found in this repository or its forge.yml related_repos — verify before relying on them, they may be hallucinated:\n")
 	for _, p := range unverified {
 		b.WriteString("> - `" + p + "`\n")
 	}

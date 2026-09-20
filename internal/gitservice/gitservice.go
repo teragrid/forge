@@ -177,6 +177,53 @@ func (s *Service) ChangedFilesSince(ref string) ([]string, error) {
 	return files, nil
 }
 
+// baseRefCandidates are tried in order by ChangedFilesOnBranch. Remote-tracking
+// refs come first: a local main that lags origin would understate the branch's
+// own work, and one that is ahead of origin would overstate it.
+var baseRefCandidates = []string{"origin/main", "origin/master", "main", "master"}
+
+// ChangedFilesOnBranch returns the files changed on the current branch relative
+// to the repository's default branch (merge-base diff, so commits already on
+// the default branch are not counted), plus any uncommitted paths.
+//
+// ok is false when no base ref can be resolved — a repo with no main/master, a
+// detached HEAD on the base itself, or git failing. Callers must treat that as
+// "unknown", never as "nothing changed": reporting a fact forge could not
+// establish is the false-green this exists to prevent.
+func (s *Service) ChangedFilesOnBranch() (files []string, ok bool) {
+	seen := make(map[string]bool)
+	add := func(f string) {
+		f = strings.TrimSpace(f)
+		if f != "" && !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	for _, base := range baseRefCandidates {
+		if _, err := s.run("rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
+			continue
+		}
+		out, err := s.run("diff", "--name-only", base+"...HEAD")
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(out, "\n") {
+			add(line)
+		}
+		ok = true
+		break
+	}
+	if !ok {
+		return nil, false
+	}
+	if statuses, err := s.Status(); err == nil {
+		for _, st := range statuses {
+			add(st.Path)
+		}
+	}
+	return files, true
+}
+
 // GoFileCommitTimes returns the last-commit timestamp for each Go source file
 // that has been committed to this repository. Map keys are repo-relative paths
 // with forward slashes. Files with no commits (new/untracked) are absent.

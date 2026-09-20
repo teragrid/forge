@@ -85,6 +85,12 @@ forge ship auth/email arch
 # Run only the QA agent checkpoint
 forge ship auth/email qa-verify
 
+# Stop after arch so the spec and ADR can be reviewed before any code exists
+forge ship auth/email --until arch
+
+# Then continue from the next checkpoint
+forge ship auth/email --from test
+
 # Skip the QA agent (no test runner configured)
 forge ship auth/email --skip-checkpoint qa-verify
 
@@ -112,7 +118,24 @@ forge ship --tag v1.2.3
 | `--no-branch` | false | Do not create or switch to a feature branch; run on current branch |
 | `--tag <version>` | — | After a clean pipeline, tag and push a release |
 | `--skip-checkpoint <name>` | — | Skip a named checkpoint (e.g. `qa-verify` when no test runner is configured) |
+| `--until <checkpoint>` | — | Stop after the named checkpoint (e.g. `--until arch` runs spec and arch, then stops so you can review before test/breakdown/code). Repeat it on every `--agent-mode` continuation; resume later with `--from <next>` |
 | `--strict-testing` | false | Enforce the 4-stage testing pipeline (local → pre-push/CI → staging → production) as a blocking `qa-verify` gate instead of an advisory reminder — see below |
+
+## Multi-repository projects (`related_repos`)
+
+A spec or ADR for one repository often cites files that live in a sibling
+repository (a web app and its agent service, an API and its SDK). List those
+siblings in `forge.yml` and forge will (a) resolve cited paths against them
+instead of flagging every cross-repo citation as "may be hallucinated", and
+(b) tell the model they exist, with their detected stacks, in the workspace
+context it is given.
+
+```yaml
+related_repos:
+  - ../ai-agent-system   # relative to the project root, or an absolute path
+```
+
+Entries that do not exist are ignored.
 
 ## The 4-stage testing pipeline (`--strict-testing`)
 
