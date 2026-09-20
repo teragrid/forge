@@ -383,3 +383,30 @@ func TestChangedFilesOnBranch_CommittedUncommittedAndBaseDrift(t *testing.T) {
 		t.Errorf("a commit that landed on main after the branch point was counted as branch work: %v", files)
 	}
 }
+
+// TestService_IgnoresInheritedGitDir is the regression guard for the incident
+// where a test run from git's pre-push hook (which exports GIT_DIR) operated on
+// the real repository instead of the directory the Service was opened on:
+// commits, a force-renamed main and a rewritten .git/config landed in the wrong
+// repo. The Service must answer for its own root whatever GIT_DIR says.
+func TestService_IgnoresInheritedGitDir(t *testing.T) {
+	skipIfNoGit(t)
+	mine := initRepo(t)
+	decoy := initRepo(t)
+	commitFile(t, decoy, "decoy.go", "package decoy\n")
+
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	t.Setenv("GIT_WORK_TREE", decoy)
+
+	svc, err := gitservice.New(mine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := svc.Log(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 || !strings.Contains(commits[0].Subject, "initial commit") {
+		t.Fatalf("Service read the decoy repo via GIT_DIR instead of its own root: %+v", commits)
+	}
+}

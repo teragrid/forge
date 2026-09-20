@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -259,6 +260,7 @@ func (s *Service) GoFileCommitTimes() map[string]time.Time {
 func (s *Service) run(args ...string) (string, error) {
 	cmd := exec.Command("git", args...) //nolint:gosec // args are caller-controlled
 	cmd.Dir = s.root
+	cmd.Env = scrubbedGitEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -268,4 +270,34 @@ func (s *Service) run(args ...string) (string, error) {
 			err)
 	}
 	return stdout.String(), nil
+}
+
+// repoPointingEnv are the variables git exports to hooks (and honours from any
+// parent) that redirect it to a specific repository, index or object store.
+var repoPointingEnv = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR",
+	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+}
+
+// scrubbedGitEnv returns env without the variables that would make git ignore
+// the directory the Service was opened on. A Service is created for an explicit
+// root; when forge runs inside a git hook (or under `git rebase --exec`) the
+// inherited GIT_DIR would otherwise silently point every command at the hook's
+// repository instead — reporting that repository's status and history for the
+// wrong directory.
+func scrubbedGitEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		drop := false
+		for _, name := range repoPointingEnv {
+			if strings.HasPrefix(kv, name+"=") {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
