@@ -4,6 +4,30 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.8] — 2026-09-21 — Agent-mode arch debate no longer discards answers, `ship` stops claiming false progress, and the pre-push hook stops inheriting git's `GIT_DIR`
+
+All fixes below were found dogfooding `forge ship --agent-mode` through the spec and arch checkpoints of a real feature on a Next.js/Supabase + Python two-repo system, plus a hook bug found while pushing this very change.
+
+### Added
+
+- `forge ship --until <checkpoint>` — stop after the named checkpoint so spec/arch can be reviewed before test/breakdown/code exist.
+
+### Fixed
+
+- **Agent-mode arch debate discarded a submitted answer.** In agent mode, `checkArch` wrote `arch.md` with `(no concerns raised)` placeholders for all six reviewer roles while the first debate turn was still owed. The next run hit the "arch.md exists" shortcut, so the debate never resumed and the answer that had actually been submitted was lost. It now pauses without writing `arch.md` and asks each role in turn.
+- **Arch prompt never asked for alternatives, although `adr-quality-gate` requires at least two.** The generation prompt now asks for an Alternatives Considered section.
+- **`ship` reported false progress on a branch with no source changes** — status `ok` plus a "spec-vs-code audit found no blocking gaps" evidence line. It now warns ("nothing to ship") and withholds that claim; unknown git state keeps the prior behaviour (new `gitservice.ChangedFilesOnBranch`).
+- **Test checkpoint reported the whole repository's test-file count** instead of the feature's own. It now reports the feature's tests and warns when it has none.
+- **Agent-mode banner said `YOLO` even when `--yolo` was not passed.** It now describes agent mode accurately.
+- **Unverified-file-reference check flagged legitimate cross-repo citations as hallucinated.** `forge.yml`'s `related_repos` is now resolved and sibling repos are listed in the workspace context.
+- **Workspace context under-detected the stack** (only "Node.js" / "GitHub Actions CI" on a Next.js + Supabase + TypeScript project) and listed the feature being planned as an existing spec. Frameworks are now detected from `package.json` / `tsconfig.json` / `supabase/`, and the in-progress feature's own directory no longer counts as a pre-existing spec.
+- **Failure history injected into spec prompts included stale, unrelated-feature failures and duplicate lines.** It is now scoped to the current feature (recent others only) and de-duplicated.
+- **`.githooks/pre-push` and `gitservice` inherited git's exported `GIT_DIR` (and related variables).** Any test or tool that shells out to git in a temp dir therefore operated on the repository being pushed instead of the temp dir: it committed fixtures onto the pushed branch, force-renamed branches (overwriting `main`), and rewrote `.git/config` (`core.bare`, `user.name`). Seen on a real push from a linked worktree. The hook now unsets the repo-pointing variables before running, and `gitservice` no longer passes them to the git processes it starts — a `Service` opened on an explicit root now answers for that root regardless of the parent environment.
+
+### Deliberately not changed
+
+- `self-review-gate` reporting `UNVERIFIED` on a first run — its docstring already treats scanning zero files as not a clean bill of health.
+
 ## [1.10.7] — 2026-09-13 — `looksComplete` stopped discarding valid spec answers that end mid-checklist-item, and the pre-push gate stopped choking on its own test fixtures
 
 ### Fixed
