@@ -4,6 +4,18 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+
+- **`forge scan security` was permanently red on real projects because of `generic-bearer` false positives.** The built-in `generic-bearer` heuristic flagged quoted 16+ character literals on test fixtures and documentation placeholders (`test_access_token`, `whsec_placeholder`, `mock-refresh-token`, `sbp_your_token_here`). On a real Next.js/Supabase repo that was 56 findings, every one a placeholder, drowning out real hits. The rule now recognises a placeholder *structurally* — a phrase of plain words that either contains a marker word (`test`, `mock`, `fake`, `dummy`, `example`, `placeholder`, `invalid`, `your`, …) or sits in test code — and stops reporting it. Opaque values (`sk_live_…`, `sk_test_…`, hex, UUIDs, base62, JWT headers, mixed-case or letter/digit blends) are still reported in production code **and** in test files, and phrase-shaped values with no marker are still reported outside tests. Only `generic-bearer` changed; the AWS, `sk-`, GitHub-token and private-key rules are untouched. Measured on the repo that produced the findings: 56 → 3, and the 3 that remain (a documented public verify token and two camelCase fixtures) are exactly the cases a heuristic should not guess.
+- **The waiver registry (`.forge/waivers/`, DEV-M1-17) existed but was never consulted by the scanner**, so there was no in-tool way to accept a specific finding. `forge scan <family>` and the `forge ship` security checkpoint now apply waivers: matching findings are removed from the result and counted in the new `waived` field (JSON) / `waived:` line (text) and do not affect the exit code. A waiver missing `rationale`, `approved_by` or `expires_at` fails the scan instead of silently exempting findings; an expired waiver is never honoured and is named in the result `note`.
+- **`waiver.Registry.IsWaived` returned "expired" as soon as it met an expired waiver, even when a valid waiver for the same rule and file followed it.** A lapsed waiver could therefore not be renewed by adding a new entry. A valid match now wins; "expired" is returned only when every matching waiver has lapsed.
+
+### Added
+
+- `ScanResult.Waived` (`"waived"` in `--json`) — number of findings suppressed by waivers.
+- `docs/verbs/scan.md`: how `generic-bearer` treats placeholders, and the waiver file format.
+
+
 ## [1.10.8] — 2026-09-21 — Agent-mode arch debate no longer discards answers, `ship` stops claiming false progress, and the pre-push hook stops inheriting git's `GIT_DIR`
 
 All fixes below were found dogfooding `forge ship --agent-mode` through the spec and arch checkpoints of a real feature on a Next.js/Supabase + Python two-repo system, plus a hook bug found while pushing this very change.

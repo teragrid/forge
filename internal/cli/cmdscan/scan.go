@@ -54,6 +54,9 @@ type ScanResult struct {
 	Count    int       `json:"count"`
 	Status   string    `json:"status"` // "clean", "suspicious", "found"
 	Note     string    `json:"note,omitempty"`
+	// Waived counts findings suppressed by a valid .forge/waivers entry. They are
+	// removed from Findings and do not affect Count, Status or the exit code.
+	Waived int `json:"waived,omitempty"`
 }
 
 func init() {
@@ -175,6 +178,11 @@ func New() *cobra.Command {
 
 			// G-022: assign confidence scores.
 			res.Findings = AssignConfidence(res.Findings)
+
+			// DEV-M1-17: drop findings covered by a valid, unexpired .forge/waivers entry.
+			if err := ApplyWaivers(root, res); err != nil {
+				return err
+			}
 
 			// G-023: --since diff against baseline.
 			if since != "" {
@@ -769,12 +777,20 @@ func scanWithBuiltinPatterns(root string) []Finding {
 		{"private-key-block", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
 		// generic-bearer: require the value to be a quoted string literal so that
 		// variable-name references (e.g. token = csrfTokenVar) are not flagged.
-		{"generic-bearer", regexp.MustCompile(`(?i)(bearer|api[_-]?key|token|secret|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{16,}["']`)},
+		// The value is captured (group 2) so recognisable placeholders can be
+		// dropped — see isPlaceholderCredential.
+		{"generic-bearer", regexp.MustCompile(`(?i)(bearer|api[_-]?key|token|secret|password)\s*[:=]\s*["']([A-Za-z0-9_\-]{16,})["']`)},
 	}
 	return scanFiles(root, func(rel string, line int, text string) []Finding {
 		var out []Finding
 		for _, r := range rules {
-			if loc := r.Pattern.FindStringIndex(text); loc != nil {
+			if loc := r.Pattern.FindStringSubmatchIndex(text); loc != nil {
+				// A phrase-shaped literal that says it is not real (marker word) or that
+				// lives in test code is a fixture/doc placeholder, not a leaked secret.
+				if r.Name == "generic-bearer" && len(loc) >= 6 &&
+					isPlaceholderCredential(rel, text[loc[4]:loc[5]]) {
+					continue
+				}
 				out = append(out, Finding{
 					File: rel, Line: line, Rule: r.Name,
 					Match: truncate(text, 80), Secret: text[loc[0]:loc[1]],
@@ -1088,6 +1104,9 @@ func renderText(cmd *cobra.Command, r *ScanResult) {
 	fmt.Fprintf(w, "forge scan\n")
 	fmt.Fprintf(w, "findings: %d\n", r.Count)
 	fmt.Fprintf(w, "status:   %s\n", r.Status)
+	if r.Waived > 0 {
+		fmt.Fprintf(w, "waived:   %d\n", r.Waived)
+	}
 	if r.Note != "" {
 		fmt.Fprintf(w, "note:     %s\n", r.Note)
 	}

@@ -131,9 +131,12 @@ func LoadDefault(root string) (*Registry, error) {
 // a valid, non-expired waiver.
 //
 // filePath may be empty to match any file.
-// Returns ErrWaiverExpired if a matching waiver was found but is expired
-// (caller should surface this as an error, not silently pass the finding).
+// Returns ErrWaiverExpired if matching waivers were found but every one of them
+// is expired (caller should surface this as an error, not silently pass the
+// finding). A valid waiver wins over an expired one that also matches, so a
+// lapsed waiver can be renewed by adding a new entry without deleting the old.
 func (r *Registry) IsWaived(ruleID, filePath string) (bool, error) {
+	var expired error
 	for _, w := range r.waivers {
 		if w.RuleID != ruleID {
 			continue
@@ -143,9 +146,15 @@ func (r *Registry) IsWaived(ruleID, filePath string) (bool, error) {
 			continue
 		}
 		if w.Expired() {
-			return false, fmt.Errorf("%w: rule=%s id=%s expires=%s", ErrWaiverExpired, ruleID, w.ID, w.ExpiresAt)
+			if expired == nil {
+				expired = fmt.Errorf("%w: rule=%s id=%s expires=%s", ErrWaiverExpired, ruleID, w.ID, w.ExpiresAt)
+			}
+			continue
 		}
 		return true, nil
+	}
+	if expired != nil {
+		return false, expired
 	}
 	return false, nil
 }
