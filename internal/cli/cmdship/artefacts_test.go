@@ -15,11 +15,14 @@
 package cmdship
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teragrid/forge/internal/errcode"
 	"github.com/teragrid/forge/internal/llmprovider"
@@ -203,7 +206,7 @@ func TestLearningLoop_AppendAndRead(t *testing.T) {
 	appendFailure(root, "spec", "my-feature", "acceptance criteria missing")
 	appendFailure(root, "spec", "my-feature", "second failure detail")
 
-	got := loadRecentFailures(root, "spec", 3)
+	got := loadRecentFailures(root, "spec", "my-feature", 3)
 	if got == "" {
 		t.Fatal("loadRecentFailures returned empty string after appendFailure")
 	}
@@ -218,7 +221,7 @@ func TestLearningLoop_AppendAndRead(t *testing.T) {
 func TestLearningLoop_NoFileReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	got := loadRecentFailures(root, "spec", 3)
+	got := loadRecentFailures(root, "spec", "my-feature", 3)
 	if got != "" {
 		t.Errorf("expected empty string when no failure file exists, got %q", got)
 	}
@@ -228,14 +231,86 @@ func TestLearningLoop_RespectsLimit(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 
+	// Distinct details: identical records are collapsed to one (see
+	// TestLearningLoop_CollapsesIdenticalRecords).
 	for i := 0; i < 5; i++ {
-		appendFailure(root, "test", "feature-x", "failure")
+		appendFailure(root, "test", "feature-x", fmt.Sprintf("failure %d", i))
 	}
 
 	// Request only 2 recent failures.
-	got := loadRecentFailures(root, "test", 2)
+	got := loadRecentFailures(root, "test", "feature-x", 2)
 	// The header mentions "last 2".
 	if !strings.Contains(got, "last 2") {
 		t.Errorf("expected \"last 2\" in output, got:\n%s", got)
+	}
+}
+
+// writeFailureRecords writes raw failure records with explicit timestamps.
+func writeFailureRecords(t *testing.T, root, checkpoint string, recs []FailureRecord) {
+	t.Helper()
+	dir := filepath.Join(root, ".forge", "learned")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, r := range recs {
+		line, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.Write(line)
+		b.WriteString("\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, checkpoint+"-failures.jsonl"), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLearningLoop_StaleOtherFeatureFailuresAreDropped — a failure recorded for
+// an unrelated feature days ago used to be injected into every spec prompt
+// ("Recent spec failures: [2026-09-13] billing-past-due-visibility ...").
+func TestLearningLoop_StaleOtherFeatureFailuresAreDropped(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	old := time.Now().UTC().Add(-9 * 24 * time.Hour).Format(time.RFC3339)
+	writeFailureRecords(t, root, "spec", []FailureRecord{
+		{TS: old, Checkpoint: "spec", Feature: "billing-past-due-visibility", Detail: "truncated after retry"},
+	})
+	if got := loadRecentFailures(root, "spec", "prospect-finder", 3); got != "" {
+		t.Errorf("a 9-day-old failure for an unrelated feature must not reach the prompt, got:\n%s", got)
+	}
+}
+
+// False-positive guards: the same feature's history is kept however old, and a
+// fresh failure for another feature is still shown.
+func TestLearningLoop_KeepsSameFeatureAndRecentOthers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	old := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)
+	fresh := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	writeFailureRecords(t, root, "spec", []FailureRecord{
+		{TS: old, Checkpoint: "spec", Feature: "Prospect Finder", Detail: "own old lesson"},
+		{TS: fresh, Checkpoint: "spec", Feature: "other-feature", Detail: "fresh other lesson"},
+	})
+	got := loadRecentFailures(root, "spec", "prospect-finder", 3)
+	if !strings.Contains(got, "own old lesson") {
+		t.Errorf("same feature's history must be kept regardless of age (slug vs description forms):\n%s", got)
+	}
+	if !strings.Contains(got, "fresh other lesson") {
+		t.Errorf("a recent failure for another feature is still useful context:\n%s", got)
+	}
+}
+
+// TestLearningLoop_CollapsesIdenticalRecords — the same failure recorded on
+// every retry filled the whole window with copies of one line.
+func TestLearningLoop_CollapsesIdenticalRecords(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for i := 0; i < 3; i++ {
+		appendFailure(root, "spec", "feat", "spec review truncated")
+	}
+	got := loadRecentFailures(root, "spec", "feat", 3)
+	if strings.Count(got, "spec review truncated") != 1 || !strings.Contains(got, "(last 1)") {
+		t.Errorf("identical records should be shown once:\n%s", got)
 	}
 }

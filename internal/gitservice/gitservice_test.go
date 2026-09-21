@@ -295,3 +295,118 @@ func TestGoFileCommitTimes_TracksGoFiles(t *testing.T) {
 			times["main.go"], times["main_test.go"])
 	}
 }
+
+// ── ChangedFilesOnBranch ──────────────────────────────────────────────────────
+
+// gitIn runs a git command in dir and fails the test on error.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func commitFile(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "add", name)
+	gitIn(t, dir, "commit", "-m", "add "+name)
+}
+
+// A repo with no main/master/origin ref: forge cannot say what "this branch's
+// changes" are, and must say so (ok=false) rather than report zero.
+func TestChangedFilesOnBranch_NoBaseRefIsUnknown(t *testing.T) {
+	skipIfNoGit(t)
+	dir := initRepo(t)
+	gitIn(t, dir, "branch", "-M", "trunk")
+	svc, err := gitservice.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, ok := svc.ChangedFilesOnBranch()
+	if ok || len(files) != 0 {
+		t.Fatalf("no base ref must be unknown, got ok=%v files=%v", ok, files)
+	}
+}
+
+func TestChangedFilesOnBranch_CleanBranchIsKnownAndEmpty(t *testing.T) {
+	skipIfNoGit(t)
+	dir := initRepo(t)
+	gitIn(t, dir, "branch", "-M", "main")
+	gitIn(t, dir, "checkout", "-b", "feature/x")
+	svc, _ := gitservice.New(dir)
+	files, ok := svc.ChangedFilesOnBranch()
+	if !ok {
+		t.Fatal("main exists, result must be known")
+	}
+	if len(files) != 0 {
+		t.Fatalf("clean feature branch must report no changes, got %v", files)
+	}
+}
+
+// Committed work, uncommitted work, and — the false-positive guard — commits
+// that landed on main after the branch point must NOT be counted.
+func TestChangedFilesOnBranch_CommittedUncommittedAndBaseDrift(t *testing.T) {
+	skipIfNoGit(t)
+	dir := initRepo(t)
+	gitIn(t, dir, "branch", "-M", "main")
+	gitIn(t, dir, "checkout", "-b", "feature/x")
+	commitFile(t, dir, "feature.go", "package x\n")
+	if err := os.WriteFile(filepath.Join(dir, "wip.ts"), []byte("export {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// main moves on after the branch point.
+	gitIn(t, dir, "checkout", "main")
+	commitFile(t, dir, "upstream.go", "package up\n")
+	gitIn(t, dir, "checkout", "feature/x")
+
+	svc, _ := gitservice.New(dir)
+	files, ok := svc.ChangedFilesOnBranch()
+	if !ok {
+		t.Fatal("expected a known result")
+	}
+	got := map[string]bool{}
+	for _, f := range files {
+		got[f] = true
+	}
+	if !got["feature.go"] {
+		t.Errorf("committed branch file missing: %v", files)
+	}
+	if !got["wip.ts"] {
+		t.Errorf("uncommitted file missing: %v", files)
+	}
+	if got["upstream.go"] {
+		t.Errorf("a commit that landed on main after the branch point was counted as branch work: %v", files)
+	}
+}
+
+// TestService_IgnoresInheritedGitDir is the regression guard for the incident
+// where a test run from git's pre-push hook (which exports GIT_DIR) operated on
+// the real repository instead of the directory the Service was opened on:
+// commits, a force-renamed main and a rewritten .git/config landed in the wrong
+// repo. The Service must answer for its own root whatever GIT_DIR says.
+func TestService_IgnoresInheritedGitDir(t *testing.T) {
+	skipIfNoGit(t)
+	mine := initRepo(t)
+	decoy := initRepo(t)
+	commitFile(t, decoy, "decoy.go", "package decoy\n")
+
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	t.Setenv("GIT_WORK_TREE", decoy)
+
+	svc, err := gitservice.New(mine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits, err := svc.Log(5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 || !strings.Contains(commits[0].Subject, "initial commit") {
+		t.Fatalf("Service read the decoy repo via GIT_DIR instead of its own root: %+v", commits)
+	}
+}

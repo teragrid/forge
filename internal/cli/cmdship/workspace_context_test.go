@@ -531,3 +531,88 @@ func writeFile(t *testing.T, dir, name, content string) {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
+
+// ── framework / platform detection ───────────────────────────────────────────
+
+// TestDetectTechStack_NextSupabaseTypeScript pins the regression behind the
+// arch hallucinations: a Next.js + Supabase + TypeScript project was described
+// to the model as just "GitHub Actions CI, Node.js", so it invented the
+// infrastructure it could not see.
+func TestDetectTechStack_NextSupabaseTypeScript(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json",
+		`{"dependencies":{"next":"15.0.0","react":"19.0.0","@supabase/supabase-js":"2.0.0","stripe":"1.0.0"},`+
+			`"devDependencies":{"typescript":"5.0.0","jest":"29.0.0"}}`)
+	writeFile(t, root, "tsconfig.json", "{}")
+	if err := os.MkdirAll(filepath.Join(root, "supabase", "migrations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "supabase", "functions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stack := strings.Join(detectTechStack(root), " | ")
+	for _, want := range []string{
+		"Node.js", "Next.js", "React", "Supabase client", "Stripe", "TypeScript", "Jest",
+		"Supabase (Postgres migrations, RLS)", "Supabase Edge Functions (Deno)",
+	} {
+		if !strings.Contains(stack, want) {
+			t.Errorf("stack %q missing %q", stack, want)
+		}
+	}
+	// TypeScript comes from both package.json and tsconfig.json — listed once.
+	if strings.Count(stack, "TypeScript") != 1 {
+		t.Errorf("TypeScript must be listed once, got: %s", stack)
+	}
+}
+
+// False-positive guard: a plain Node project must not gain frameworks it does
+// not use, and a malformed package.json must not break detection.
+func TestDetectTechStack_PlainNodeAndMalformedPackageJSON(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"dependencies":{"left-pad":"1.0.0"}}`)
+	stack := strings.Join(detectTechStack(root), " | ")
+	if strings.Contains(stack, "Next.js") || strings.Contains(stack, "Supabase") {
+		t.Errorf("frameworks reported for a project that uses none: %s", stack)
+	}
+
+	bad := t.TempDir()
+	writeFile(t, bad, "package.json", "{not json")
+	if got := detectTechStack(bad); len(got) != 1 || got[0] != "Node.js" {
+		t.Errorf("malformed package.json should still yield just Node.js, got %v", got)
+	}
+}
+
+func TestCollectWorkspaceContext_ListsRelatedRepos(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "web")
+	agent := filepath.Join(parent, "agent")
+	for _, d := range []string{root, agent} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, agent, "requirements.txt", "fastapi\n")
+	writeFile(t, root, "forge.yml", "related_repos:\n  - ../agent\n")
+
+	res := collectWorkspaceContext(root, "feat")
+	if !strings.Contains(res.Content, "## Related Repositories") ||
+		!strings.Contains(res.Content, "- agent — Python (requirements.txt)") {
+		t.Errorf("related repo and its stack should be in the snapshot:\n%s", res.Content)
+	}
+}
+
+// The feature being planned is not an existing spec to avoid duplicating —
+// including once its own directory exists (arch and later checkpoints).
+func TestListExistingSpecs_ExcludesCurrentSlugEvenWhenDirExists(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"old-feature", "this-feature"} {
+		if err := os.MkdirAll(filepath.Join(root, ".forge", "specs", d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := listExistingSpecs(root, "this-feature")
+	if len(got) != 1 || got[0] != "old-feature" {
+		t.Fatalf("got %v, want [old-feature]", got)
+	}
+}

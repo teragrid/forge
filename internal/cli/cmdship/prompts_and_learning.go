@@ -123,9 +123,23 @@ func appendFailure(root, checkpoint, feature, detail string) {
 	_, _ = f.WriteString("\n")
 }
 
-// loadRecentFailures reads the last n failure records for a checkpoint.
-// Returns a human-readable summary suitable for prepending to an LLM prompt.
-func loadRecentFailures(root, checkpoint string, n int) string {
+// failureContextMaxAge bounds how long a failure recorded for a DIFFERENT
+// feature keeps being shown as context. Those records are infrastructure
+// noise as often as lessons ("spec review truncated after retry"), and a
+// nine-day-old one for an unrelated feature only spends prompt budget and
+// invites a model to "avoid" something that has nothing to do with the task.
+const failureContextMaxAge = 72 * time.Hour
+
+// loadRecentFailures reads up to n recent failure records for a checkpoint and
+// returns a human-readable summary suitable for prepending to an LLM prompt.
+//
+// feature is the feature being worked on now (a slug or a description).
+// Records for that feature are always eligible, however old — they are the
+// directly relevant history. Records for other features are eligible only if
+// newer than failureContextMaxAge. Identical records (same feature and
+// detail) are shown once: a checkpoint that fails the same way on each retry
+// otherwise fills the whole window with copies of one line.
+func loadRecentFailures(root, checkpoint, feature string, n int) string {
 	path := filepath.Join(root, ".forge", "learned", checkpoint+"-failures.jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -135,21 +149,40 @@ func loadRecentFailures(root, checkpoint string, n int) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	// Take the last n non-empty lines.
+	currentSlug := slugify(feature)
+	now := time.Now().UTC()
+	seen := make(map[string]bool)
+	// Take the last n eligible, distinct lines (newest first).
 	var recent []string
 	for i := len(lines) - 1; i >= 0 && len(recent) < n; i-- {
 		if lines[i] == "" {
 			continue
 		}
 		var rec FailureRecord
-		if err := json.Unmarshal([]byte(lines[i]), &rec); err == nil {
-			recent = append(recent, fmt.Sprintf("  [%s] %s: %s", rec.TS[:10], rec.Feature, rec.Detail))
+		if err := json.Unmarshal([]byte(lines[i]), &rec); err != nil {
+			continue
 		}
+		sameFeature := currentSlug != "" && slugify(rec.Feature) == currentSlug
+		if !sameFeature {
+			if ts, tsErr := time.Parse(time.RFC3339, rec.TS); tsErr != nil || now.Sub(ts) > failureContextMaxAge {
+				continue
+			}
+		}
+		key := rec.Feature + "|" + rec.Detail
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		day := rec.TS
+		if len(day) >= 10 {
+			day = day[:10]
+		}
+		recent = append(recent, fmt.Sprintf("  [%s] %s: %s", day, rec.Feature, rec.Detail))
 	}
 	if len(recent) == 0 {
 		return ""
 	}
-	out := fmt.Sprintf("\u26a0\ufe0f Recent %s failures (last %d):\n", checkpoint, len(recent))
+	out := fmt.Sprintf("⚠️ Recent %s failures (last %d):\n", checkpoint, len(recent))
 	for _, r := range recent {
 		out += r + "\n"
 	}

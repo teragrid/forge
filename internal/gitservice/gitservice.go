@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -177,6 +178,53 @@ func (s *Service) ChangedFilesSince(ref string) ([]string, error) {
 	return files, nil
 }
 
+// baseRefCandidates are tried in order by ChangedFilesOnBranch. Remote-tracking
+// refs come first: a local main that lags origin would understate the branch's
+// own work, and one that is ahead of origin would overstate it.
+var baseRefCandidates = []string{"origin/main", "origin/master", "main", "master"}
+
+// ChangedFilesOnBranch returns the files changed on the current branch relative
+// to the repository's default branch (merge-base diff, so commits already on
+// the default branch are not counted), plus any uncommitted paths.
+//
+// ok is false when no base ref can be resolved — a repo with no main/master, a
+// detached HEAD on the base itself, or git failing. Callers must treat that as
+// "unknown", never as "nothing changed": reporting a fact forge could not
+// establish is the false-green this exists to prevent.
+func (s *Service) ChangedFilesOnBranch() (files []string, ok bool) {
+	seen := make(map[string]bool)
+	add := func(f string) {
+		f = strings.TrimSpace(f)
+		if f != "" && !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	for _, base := range baseRefCandidates {
+		if _, err := s.run("rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
+			continue
+		}
+		out, err := s.run("diff", "--name-only", base+"...HEAD")
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(out, "\n") {
+			add(line)
+		}
+		ok = true
+		break
+	}
+	if !ok {
+		return nil, false
+	}
+	if statuses, err := s.Status(); err == nil {
+		for _, st := range statuses {
+			add(st.Path)
+		}
+	}
+	return files, true
+}
+
 // GoFileCommitTimes returns the last-commit timestamp for each Go source file
 // that has been committed to this repository. Map keys are repo-relative paths
 // with forward slashes. Files with no commits (new/untracked) are absent.
@@ -212,6 +260,7 @@ func (s *Service) GoFileCommitTimes() map[string]time.Time {
 func (s *Service) run(args ...string) (string, error) {
 	cmd := exec.Command("git", args...) //nolint:gosec // args are caller-controlled
 	cmd.Dir = s.root
+	cmd.Env = scrubbedGitEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -221,4 +270,34 @@ func (s *Service) run(args ...string) (string, error) {
 			err)
 	}
 	return stdout.String(), nil
+}
+
+// repoPointingEnv are the variables git exports to hooks (and honours from any
+// parent) that redirect it to a specific repository, index or object store.
+var repoPointingEnv = []string{
+	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_COMMON_DIR",
+	"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+}
+
+// scrubbedGitEnv returns env without the variables that would make git ignore
+// the directory the Service was opened on. A Service is created for an explicit
+// root; when forge runs inside a git hook (or under `git rebase --exec`) the
+// inherited GIT_DIR would otherwise silently point every command at the hook's
+// repository instead — reporting that repository's status and history for the
+// wrong directory.
+func scrubbedGitEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		drop := false
+		for _, name := range repoPointingEnv {
+			if strings.HasPrefix(kv, name+"=") {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	return out
 }

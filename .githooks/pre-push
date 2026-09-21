@@ -50,6 +50,19 @@
 
 set -euo pipefail
 
+# ── isolate from git's own hook environment ─────────────────────────────────
+# git exports GIT_DIR (and, depending on version and worktree layout,
+# GIT_WORK_TREE / GIT_INDEX_FILE / GIT_COMMON_DIR / ...) to hooks. Every child
+# process below inherits them, so ANY test that shells out to git in a temp dir
+# (`git init`, `git commit`, `git branch -M`, `git checkout -b`, ...) silently
+# operates on THIS repository instead: it commits test fixtures onto the
+# branch being pushed, force-renames branches (clobbering `main`), and rewrites
+# .git/config (core.bare, user.name/email). Seen on a real push from a linked
+# worktree. Cleared here so every stage — and everything they spawn — resolves
+# the repository from the working directory, as it does outside a hook.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR \
+      GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
+
 # ── emergency bypass ────────────────────────────────────────────────────────
 if [[ "${SKIP_PRE_PUSH:-}" == "1" ]]; then
   echo "⚠ SKIP_PRE_PUSH=1: all pre-push checks skipped — use only in emergencies"

@@ -36,8 +36,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/teragrid/forge/internal/agentbridge"
 	"github.com/teragrid/forge/internal/llmprovider"
 )
 
@@ -704,5 +706,144 @@ func TestCheckArch_LLM_SupabaseRPCResponse(t *testing.T) {
 	style := detectAPIStyle(string(openapiData))
 	if style != "supabase-rpc" {
 		t.Errorf("expected supabase-rpc style detected from extracted openapi.yaml, got %q", style)
+	}
+}
+
+// TestCheckArch_AgentMode_AsksEveryRoleAndKeepsTheAnswers is a regression test
+// for the agent-mode arch debate silently collapsing to a single turn.
+//
+// checkArch used to run the debate, notice nothing, and write arch.md straight
+// away even though the bridge had just paused on the first role's turn. The
+// file therefore contained "(no concerns raised)" for every role, and the next
+// run hit the "arch.md already exists" idempotency shortcut — the debate never
+// resumed, and the answer the host agent had just submitted was discarded.
+// Seen on a real run: six roles, one answered, all six read "(no concerns
+// raised)" in the final document.
+//
+// Contract pinned here: while any role's turn is owed the checkpoint pauses and
+// writes nothing; once every role has answered, arch.md holds every answer and
+// no placeholder.
+func TestCheckArch_AgentMode_AsksEveryRoleAndKeepsTheAnswers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const slug = "debate-feat"
+
+	specDir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(specDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(specDir, "spec.md"),
+		[]byte("# Spec: debate feat\n\n## What\nSomething.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archPath := filepath.Join(specDir, "arch.md")
+
+	bridge, err := agentbridge.Open(root, agentbridge.DefaultSession)
+	if err != nil {
+		t.Fatalf("open bridge: %v", err)
+	}
+	pipe := newLLMPipeAgent(root, bridge)
+
+	const adr = "# Architecture Decision Record: Debate Feat\n\n" +
+		"## 1. Component Topology\n\nOne handler.\n\n" +
+		"## 2. API Contracts\n\nREST.\n\n" +
+		"## ADR Summary\n\n- Status: Proposed.\n- Decision: build it.\n\n" +
+		"```yaml\nopenapi: 3.1.0\ninfo:\n  title: Debate Feat\n  version: 1.0.0\npaths: {}\n```\n"
+
+	roles := defaultArchRoles()
+	debateTurns := 0
+	maxIterations := len(roles) + 6
+	done := false
+	for i := 0; i < maxIterations && !done; i++ {
+		cp := checkArch(root, slug, slug, pipe, false)
+		if !cp.AgentPaused {
+			done = true
+			break
+		}
+		if _, statErr := os.Stat(archPath); statErr == nil {
+			t.Fatalf("iteration %d: arch.md was written while a host-agent turn was still owed", i)
+		}
+		pending, ok := bridge.Pending()
+		if !ok {
+			t.Fatalf("iteration %d: checkpoint paused but no turn is pending", i)
+		}
+		answer := adr
+		if pending.Operation == "arch-parallel-debate" {
+			debateTurns++
+			answer = fmt.Sprintf("concern-from-role-%d: check the boundary", debateTurns)
+		}
+		if _, ferr := bridge.Fulfil(answer); ferr != nil {
+			t.Fatalf("iteration %d: fulfil %s: %v", i, pending.Operation, ferr)
+		}
+	}
+	if !done {
+		t.Fatalf("checkArch never completed within %d iterations", maxIterations)
+	}
+	if debateTurns != len(roles) {
+		t.Fatalf("host agent was asked %d debate turn(s), want one per role (%d)", debateTurns, len(roles))
+	}
+
+	data, err := os.ReadFile(archPath)
+	if err != nil {
+		t.Fatalf("arch.md missing after completion: %v", err)
+	}
+	doc := string(data)
+	for n := 1; n <= len(roles); n++ {
+		if want := fmt.Sprintf("concern-from-role-%d", n); !strings.Contains(doc, want) {
+			t.Errorf("arch.md lost the answer %q", want)
+		}
+	}
+	if strings.Contains(doc, "(no concerns raised)") {
+		t.Errorf("arch.md contains a placeholder although every role answered:\n%s", doc)
+	}
+}
+
+// TestCheckArch_PromptAsksForAlternatives pins the agreement between the arch
+// generation prompt and the adr-quality-gate. The gate fails an ADR that
+// evaluates fewer than two alternatives, but the prompt used to list six
+// sections and never mention alternatives — so a model that followed the
+// prompt to the letter tripped forge's own gate on the first try.
+func TestCheckArch_PromptAsksForAlternatives(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	slug := slugify("prompt alternatives")
+	dir := filepath.Join(root, ".forge", "specs", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "spec.md"), []byte("# Spec\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		mu      sync.Mutex
+		systems []string
+	)
+	mock := &llmprovider.MockProvider{
+		Fn: func(req *llmprovider.Request) (*llmprovider.Response, error) {
+			mu.Lock()
+			systems = append(systems, req.SystemPrompt)
+			mu.Unlock()
+			return mockResponse("# Architecture\n\n## 1. Component Topology\n\nOne service.\n"), nil
+		},
+	}
+	_ = checkArch(root, "prompt alternatives", "", mockPipe(root, mock), false)
+
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, s := range systems {
+		if strings.Contains(s, "Structure the document with these sections") {
+			found = true
+			if !strings.Contains(s, "Alternatives Considered") {
+				t.Errorf("arch generation prompt must ask for an Alternatives Considered section; got:\n%s", s)
+			}
+			if !strings.Contains(s, "Consequences") {
+				t.Errorf("arch generation prompt must ask for Consequences; got:\n%s", s)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("arch generation system prompt was never sent to the provider")
 	}
 }

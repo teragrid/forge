@@ -237,7 +237,10 @@ func checkArch(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 			"3) Data Model & Consistency — data entities, migration strategy, consistency model; " +
 			"4) Non-Functional Requirements — p99 latency, throughput, availability SLOs; " +
 			"5) Security Threat Model — STRIDE threats, mitigations, auth/authz boundaries; " +
-			"6) Deployment & Observability — topology, health checks, metrics, tracing, DR plan. " +
+			"6) Deployment & Observability — topology, health checks, metrics, tracing, DR plan; " +
+			"7) Alternatives Considered — at least two genuinely different options you rejected " +
+			"(label them Alternative A, Alternative B, ...), each with the reason it lost; the ADR " +
+			"quality gate fails an ADR that evaluates fewer than two. " +
 			"End with a concise ADR summary: Status, Context, Decision, Consequences. " +
 			"After the ADR, append a fenced ```yaml block containing a valid OpenAPI 3.1.0 contract " +
 			"for all API endpoints introduced by this feature. " +
@@ -287,6 +290,21 @@ func checkArch(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 			archContent, openapiContent = extractOpenAPIBlock(generated, description)
 			// P1: run parallel role debate and append reviewer concerns.
 			debateSuffix := runParallelArchDebate(pipe, description, archContent, 300)
+			// Agent mode: a role's turn is owed. Nothing may be written yet.
+			// Writing arch.md here with placeholder "(no concerns raised)"
+			// sections made the next run hit the "arch.md already exists"
+			// idempotency shortcut above, so the debate never resumed and the
+			// answer the host agent submitted was silently discarded (seen on
+			// a real run: all six roles read "(no concerns raised)" although
+			// one had been answered). Return before the write; on the next
+			// run the recorded generate answer and the answered roles replay,
+			// and the next unanswered role is asked.
+			if b := pipe.Bridge(); b != nil && b.Paused() {
+				cp.Status = "ok"
+				cp.Detail = "awaiting host-agent turn for arch-parallel-debate — run: forge agent prompt"
+				cp.AgentPaused = true
+				return cp
+			}
 			if debateSuffix != "" {
 				archContent += debateSuffix
 			}

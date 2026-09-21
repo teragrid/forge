@@ -144,6 +144,39 @@ func agentPauseCheckpoint(cp *Checkpoint, operation string, genErr error) bool {
 	return true
 }
 
+// untilCheckpoints returns the checkpoints to run for `--until order[pos]`.
+// When names is empty the full pipeline is meant, so every checkpoint up to and
+// including pos runs. When names is already narrowed (--from, --quick) it is
+// intersected with that prefix so the flags compose instead of the later one
+// silently winning.
+func untilCheckpoints(names, order []string, pos int) []string {
+	allowed := make(map[string]bool, pos+1)
+	for _, cp := range order[:pos+1] {
+		allowed[cp] = true
+	}
+	src := names
+	if len(src) == 0 {
+		src = order
+	}
+	out := make([]string, 0, len(src))
+	for _, n := range src {
+		if allowed[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// nextCheckpointAfter names the checkpoint that follows order[pos], for the
+// "continue with" hint. It returns "qa-verify" at the end of the order, which
+// is harmless: --until qa-verify has nothing left to continue to.
+func nextCheckpointAfter(order []string, pos int) string {
+	if pos+1 < len(order) {
+		return order[pos+1]
+	}
+	return order[len(order)-1]
+}
+
 // ExitAgentTurn is the process exit code for a paused agent-mode run.
 //
 // 78 is chosen from the sysexits.h convention (EX_CONFIG, "configuration
@@ -196,8 +229,13 @@ type AgentAction struct {
 }
 
 type ShipResult struct {
-	DryRun        bool         `json:"dry_run"`
-	Yolo          bool         `json:"yolo,omitempty"`
+	DryRun bool `json:"dry_run"`
+	Yolo   bool `json:"yolo,omitempty"`
+	// AgentMode is true when the run was driven through the agent bridge.
+	// Agent mode has no stdin for y/N gates, so it sets Yolo internally; this
+	// field lets the header say so instead of announcing "YOLO" to a user who
+	// never passed --yolo.
+	AgentMode     bool         `json:"agent_mode,omitempty"`
 	Interactive   bool         `json:"interactive,omitempty"`
 	DebateEnabled bool         `json:"debate_enabled,omitempty"`
 	Checkpoints   []Checkpoint `json:"checkpoints"`
@@ -242,6 +280,7 @@ func init() {
 			"--skip-checkpoint qa-verify (skip QA agent; useful when no test runner is configured)",
 			"--dry-run (validate checkpoints without executing; default in MVP)",
 			"--description <msg> (what this change does; required for full pipeline in M1)",
+			"--until <checkpoint> (stop after the named checkpoint, e.g. --until arch to review the spec and ADR before test/breakdown/code)",
 			"--yolo (skip all approval gates — activates 6-role self-debate for quality polishing)",
 			"--json (machine-readable output; also disables interactive prompts)",
 			"--no-branch (skip automatic feature-branch creation; work on the current branch)",
@@ -290,6 +329,7 @@ func New() *cobra.Command {
 		quick          bool   // --quick: lightweight spec+code only (skip test+breakdown+verify)
 		yes            bool   // --yes: auto-approve all gates (alias for --yolo for non-YOLO users)
 		from           string // --from: resume from a named checkpoint
+		until          string // --until: stop after a named checkpoint
 		skipCheckpoint string // --skip-checkpoint: skip a named checkpoint
 		pr             bool   // --pr: create a draft GitHub PR after all checkpoints pass
 		resume         bool   // --resume: resume from first incomplete checkpoint (G-002)
@@ -312,6 +352,8 @@ func New() *cobra.Command {
 		c.Flags().BoolVarP(&quick, "quick", "Q", false, "lightweight run: spec+code only (skips test, breakdown, verify)")
 		c.Flags().BoolVarP(&yes, "yes", "y", false, "auto-approve all checkpoint gates (alias for --yolo)")
 		c.Flags().StringVarP(&from, "from", "f", "", "resume pipeline from this checkpoint (e.g. --from=code)")
+		c.Flags().StringVar(&until, "until", "",
+			"stop after this checkpoint (e.g. --until=arch runs spec and arch, then stops so you can review before test/breakdown/code)")
 		c.Flags().StringVarP(&skipCheckpoint, "skip-checkpoint", "s", "", "skip a specific checkpoint by name")
 		c.Flags().BoolVarP(&pr, "pr", "p", false, "create a draft GitHub PR after all checkpoints pass (requires gh CLI)")
 		c.Flags().StringVarP(&rootDir, "root", "r", "", "project root (default: cwd)")
@@ -393,6 +435,29 @@ func New() *cobra.Command {
 				return errcode.Newf(ErrShipFailed, nil,
 					"--from: unknown checkpoint %q; one of: spec, arch, test, breakdown, code, ship, qa-verify", from)
 			}
+		}
+
+		// --until: keep only the checkpoints up to and including the named one.
+		// Before this flag a full-pipeline call could not be stopped for review
+		// between arch and test: every continuation ran on to the end, writing
+		// stubs for checkpoints nobody had asked for.
+		if until != "" {
+			order := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
+			pos := -1
+			for i, cp := range order {
+				if cp == until {
+					pos = i
+					break
+				}
+			}
+			if pos < 0 {
+				return errcode.Newf(ErrShipFailed, nil,
+					"--until: unknown checkpoint %q; one of: spec, arch, test, breakdown, code, ship, qa-verify", until)
+			}
+			names = untilCheckpoints(names, order, pos)
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"note: --until %s — stopping after %s (repeat --until on every continuation of this run); to go on: forge ship --agent-mode --from %s\n",
+				until, until, nextCheckpointAfter(order, pos))
 		}
 
 		// --skip-checkpoint: remove a named checkpoint from the run list.
@@ -530,6 +595,7 @@ func New() *cobra.Command {
 		}
 
 		res.Yolo = yolo
+		res.AgentMode = bridge != nil
 		res.Interactive = gate != nil
 		res.DebateEnabled = runOpts.DebateOpts != nil
 		if branchRes.Branch != "" && branchRes.Warning == "" {
@@ -837,7 +903,11 @@ func specYAMLContext(spec *cmdtest.TestSpec) string {
 func checkSpec(root, description, specName string, pipe *LLMPipe, dryRun bool) Checkpoint {
 	cp := Checkpoint{Name: "Spec"}
 	// G-011: surface recent spec failures as context for the LLM.
-	recentSpecFailures := loadRecentFailures(root, "spec", 3)
+	failureFeature := specName
+	if failureFeature == "" {
+		failureFeature = description
+	}
+	recentSpecFailures := loadRecentFailures(root, "spec", failureFeature, 3)
 	specsDir := filepath.Join(root, ".forge", "specs")
 	if description != "" || specName != "" {
 		// Determine the spec directory name: --name/-n flag takes priority over the
@@ -1234,10 +1304,23 @@ func checkTest(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 	if len(testFiles) > 0 {
 		cp.Status = "ok"
 		missing := missingTestArtifacts(root, slug)
+		// testFiles is every test in the repository. On a real project that is
+		// hundreds of files and says nothing about this feature — "671 test
+		// file(s) found" read like coverage while none of them belonged to it.
+		// Report the feature's own tests first, the repo total as context.
+		own := featureTestFiles(root, slug, testFiles)
 		if len(missing) == 0 {
-			cp.Detail = fmt.Sprintf("%d test file(s) found; all 4 named artifacts present (tests/%s.*)", len(testFiles), slug)
+			cp.Detail = fmt.Sprintf("%d test file(s) for this feature (%d in repo); all %d named artifacts present",
+				len(own), len(testFiles), len(expectedTestArtifactNames(root, slug)))
 		} else {
-			cp.Detail = fmt.Sprintf("%d test file(s) found; missing artifacts: %s", len(testFiles), strings.Join(missing, ", "))
+			cp.Detail = fmt.Sprintf("%d test file(s) for this feature (%d in repo); forge-scaffolded artifacts not present: %s "+
+				"(if this project keeps its tests elsewhere they may already exist under other names)",
+				len(own), len(testFiles), strings.Join(missing, ", "))
+			// Nothing of the feature's own exists yet: existing tests for other
+			// features must not earn this checkpoint an unqualified ok.
+			if len(own) == 0 {
+				cp.Status = "warning"
+			}
 		}
 		applyReachability(root, artefactFilesForReachability(root, slug), &cp)
 		if pipe != nil {
@@ -1370,6 +1453,42 @@ func findTestFiles(root string) []string {
 		}
 		return nil
 	})
+	return out
+}
+
+// featureTestFiles narrows the repo-wide test file list to the ones that belong
+// to slug: forge's own scaffolded artefacts, plus any test file whose path
+// contains the slug (compared with separators stripped, so "add-rate-limit"
+// matches add_rate_limit.test.ts and addRateLimit.spec.ts).
+func featureTestFiles(root, slug string, all []string) []string {
+	norm := func(s string) string {
+		r := strings.NewReplacer("-", "", "_", "", ".", "", "/", "", "\\", "", " ", "")
+		return strings.ToLower(r.Replace(s))
+	}
+	want := norm(slug)
+	seen := make(map[string]bool)
+	var out []string
+	add := func(p string) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, p := range artefactFilesForReachability(root, slug) {
+		add(p)
+	}
+	if want == "" {
+		return out
+	}
+	for _, p := range all {
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			rel = p
+		}
+		if strings.Contains(norm(filepath.ToSlash(rel)), want) {
+			add(p)
+		}
+	}
 	return out
 }
 
@@ -1602,6 +1721,34 @@ func countChangedSourceFiles(root string) int {
 	return n
 }
 
+// branchSourceChangeCount counts source-code files changed on the current
+// branch (relative to the default branch) plus uncommitted ones, using the same
+// "does this plausibly belong to an implementation" filter as
+// countChangedSourceFiles. known is false when git cannot answer — not a repo,
+// or no default branch to compare against — and callers must then say nothing
+// rather than claim there is nothing to ship.
+func branchSourceChangeCount(root string) (n int, known bool) {
+	svc, err := gitservice.New(root)
+	if err != nil {
+		return 0, false
+	}
+	files, ok := svc.ChangedFilesOnBranch()
+	if !ok {
+		return 0, false
+	}
+	for _, f := range files {
+		p := filepath.ToSlash(f)
+		if strings.HasPrefix(p, ".forge/") || strings.HasPrefix(p, "docs/") ||
+			strings.HasPrefix(p, "growth/") || strings.Contains(p, "/node_modules/") {
+			continue
+		}
+		if sourceLikeExts[strings.ToLower(filepath.Ext(p))] {
+			n++
+		}
+	}
+	return n, true
+}
+
 // checkVerify runs the security scanner, clean check, checks the manifest,
 // and (TG-39) audits spec artefacts for incomplete tasks and authz gaps.
 // M1-10: forge clean --check is now wired here.
@@ -1689,6 +1836,18 @@ func checkVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	}
 
 	cp.Status = "ok"
+	// Nothing to ship: the branch and working tree carry no source-code change.
+	// The scan and hygiene checks below still ran and are still reported, but
+	// "ok" plus a "spec-vs-code audit found no blocking gaps" line on a branch
+	// with no code reads as a clean bill of health for work that does not
+	// exist (seen on a real spec-only run: ship ✓ with zero code changes).
+	// Downgrade to a warning and withhold the audit claim. Unknown (no git, no
+	// default branch) keeps the old behaviour — silence, not a guess.
+	srcChanged, srcKnown := branchSourceChangeCount(root)
+	nothingToShip := srcKnown && srcChanged == 0
+	if nothingToShip {
+		cp.Status = "warning"
+	}
 	// M1: the ship checkpoint has no post-checkpoint gates to earn its green
 	// from, so it records its own. Unlike most "ok" assignments in this file,
 	// these are real observations — the scanner and the hygiene checker were
@@ -1697,7 +1856,7 @@ func checkVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		fmt.Sprintf("%d finding(s) total, %d high-confidence", len(scanRes.Findings), len(highFindings)))
 	cp.AddEvidence(SourceExternalTool, "hygiene check found no unmanaged files",
 		fmt.Sprintf("%d manifest pattern(s)", patternCount))
-	if auditRes.SpecFound {
+	if auditRes.SpecFound && !nothingToShip {
 		cp.AddEvidence(SourceReadBack, "spec-vs-code audit found no blocking gaps",
 			fmt.Sprintf("%d warning-level gap(s)", len(auditRes.Gaps)))
 	}
@@ -1711,6 +1870,10 @@ func checkVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 	if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
 		// Warning-only gaps — note them but don't fail.
 		cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
+	}
+	if nothingToShip {
+		cp.Detail = "nothing to ship: no source-code changes on this branch or in the working tree " +
+			"(docs/, growth/ and .forge/ do not count) — " + cp.Detail
 	}
 	return cp
 }
@@ -2715,7 +2878,13 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	if r.DryRun {
 		mode = " --dry-run"
 	}
-	if r.Yolo {
+	switch {
+	case r.AgentMode:
+		// Not "YOLO": the user did not ask to skip review. Agent mode simply
+		// has no terminal for y/N prompts — the host agent answers each turn.
+		// The only way to get a review stop is --until <checkpoint>.
+		mode += " [agent-mode — no interactive approval prompts; use --until <checkpoint> to stop for review]"
+	case r.Yolo:
 		mode += " [YOLO — approval gates disabled]"
 	}
 	fmt.Fprintf(w, "forge ship%s\n", mode)

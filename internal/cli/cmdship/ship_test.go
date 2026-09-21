@@ -2617,3 +2617,115 @@ func TestAgentMode_ArchPauseDoesNotStubTheArtefact(t *testing.T) {
 		t.Fatalf("never reached the arch generation turn within %d turns", maxTurns)
 	}
 }
+
+// ── --until ──────────────────────────────────────────────────────────────────
+
+// TestUntilCheckpoints covers the prefix selection behind `forge ship --until`.
+func TestUntilCheckpoints(t *testing.T) {
+	t.Parallel()
+	order := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
+	cases := []struct {
+		name  string
+		names []string
+		pos   int
+		want  []string
+	}{
+		{"full pipeline stops after arch", nil, 1, []string{"spec", "arch"}},
+		{"until spec keeps only spec", nil, 0, []string{"spec"}},
+		{"until last keeps everything", nil, 6, order},
+		{"composes with --from", []string{"test", "breakdown", "code"}, 3, []string{"test", "breakdown"}},
+		{"composes with --quick", []string{"spec", "code"}, 1, []string{"spec"}},
+		{"from beyond until is empty", []string{"code", "ship"}, 1, []string{}},
+	}
+	for _, tc := range cases {
+		got := untilCheckpoints(tc.names, order, tc.pos)
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if got := nextCheckpointAfter(order, 1); got != "test" {
+		t.Errorf("nextCheckpointAfter(arch) = %q, want test", got)
+	}
+}
+
+// TestShip_UntilStopsAfterNamedCheckpoint pins the user-visible behaviour: a
+// full-pipeline call with --until arch reports spec and arch and nothing else,
+// so a reviewer can stop between arch and test. It must not run — or write
+// artefacts for — the later checkpoints.
+func TestShip_UntilStopsAfterNamedCheckpoint(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cmd := New()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"add rate limiting", "--root", root, "--dry-run", "--json", "--until", "arch"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s\n%s", err, out.String(), errOut.String())
+	}
+	var res ShipResult
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatalf("decode result: %v\n%s", err, out.String())
+	}
+	var names []string
+	for _, cp := range res.Checkpoints {
+		names = append(names, strings.ToLower(cp.Name))
+	}
+	if strings.Join(names, ",") != "spec,arch" {
+		t.Errorf("checkpoints = %v, want [spec arch]", names)
+	}
+	if !strings.Contains(errOut.String(), "--until arch") {
+		t.Errorf("expected a note explaining the stop on stderr, got: %q", errOut.String())
+	}
+	slugDir := filepath.Join(root, ".forge", "specs", "add-rate-limiting")
+	for _, f := range []string{"test.md", "breakdown.md", "code.md", "ship.md"} {
+		if _, err := os.Stat(filepath.Join(slugDir, f)); err == nil {
+			t.Errorf("%s exists — a checkpoint past --until ran", f)
+		}
+	}
+}
+
+// TestShip_UntilRejectsUnknownCheckpoint — a typo must be an error, not a
+// silent full run.
+func TestShip_UntilRejectsUnknownCheckpoint(t *testing.T) {
+	t.Parallel()
+	cmd := New()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"add rate limiting", "--root", t.TempDir(), "--dry-run", "--until", "archh"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--until: unknown checkpoint") {
+		t.Fatalf("expected an unknown-checkpoint error, got %v", err)
+	}
+}
+
+// TestRenderText_AgentModeHeaderIsNotYOLO — agent mode sets Yolo internally
+// because it has no stdin for y/N prompts. Printing "[YOLO — approval gates
+// disabled]" then told a user who never passed --yolo that review had been
+// switched off by them. The header must describe agent mode instead, and a
+// genuine --yolo run must still say YOLO.
+func TestRenderText_AgentModeHeaderIsNotYOLO(t *testing.T) {
+	t.Parallel()
+	render := func(r *ShipResult) string {
+		cmd := New()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		renderText(cmd, r)
+		return out.String()
+	}
+	cps := []Checkpoint{{Name: "Spec", Status: "ok"}, {Name: "Arch", Status: "ok"}}
+
+	agent := render(&ShipResult{Yolo: true, AgentMode: true, Checkpoints: cps})
+	if strings.Contains(agent, "YOLO") {
+		t.Errorf("agent-mode header must not claim YOLO:\n%s", agent)
+	}
+	if !strings.Contains(agent, "agent-mode") || !strings.Contains(agent, "--until") {
+		t.Errorf("agent-mode header should say what happens and how to stop for review:\n%s", agent)
+	}
+
+	yolo := render(&ShipResult{Yolo: true, Checkpoints: cps})
+	if !strings.Contains(yolo, "YOLO") {
+		t.Errorf("a real --yolo run must still be labelled YOLO:\n%s", yolo)
+	}
+}

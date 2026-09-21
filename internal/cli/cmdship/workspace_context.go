@@ -134,6 +134,21 @@ func collectWorkspaceContext(root, slug string) WorkspaceContextResult {
 		sb.WriteString("\n")
 	}
 
+	// 1b. Related repositories declared in forge.yml (related_repos). A change
+	// in a multi-repo system routinely spans them; the model should know they
+	// exist and what they are built with rather than guess.
+	if related := loadRelatedRepos(root); len(related) > 0 {
+		sb.WriteString("## Related Repositories\n")
+		for _, r := range related {
+			label := strings.Join(detectTechStack(r), ", ")
+			if label == "" {
+				label = "stack not detected"
+			}
+			sb.WriteString(fmt.Sprintf("- %s — %s\n", filepath.Base(r), label))
+		}
+		sb.WriteString("\n")
+	}
+
 	// 2. Project overview from README.md — orient the LLM to the project's purpose.
 	if overview := readProjectOverview(root); overview != "" {
 		res.ProjectOverview = overview
@@ -204,7 +219,7 @@ func collectWorkspaceContext(root, slug string) WorkspaceContextResult {
 	}
 
 	// 10. Existing feature specs — helps LLM avoid duplicating existing work.
-	if specs := listExistingSpecs(root); len(specs) > 0 {
+	if specs := listExistingSpecs(root, slug); len(specs) > 0 {
 		sb.WriteString("## Existing Feature Specs (avoid duplicates)\n")
 		sb.WriteString("- " + strings.Join(specs, ", ") + "\n\n")
 	}
@@ -241,8 +256,93 @@ func detectTechStack(root string) []string {
 	if _, err := os.Stat(filepath.Join(root, ".github")); err == nil {
 		found = append(found, "GitHub Actions CI")
 	}
+	// Frameworks and platforms, not just the language runtime. A bare
+	// "Node.js" tells a model nothing about whether it is looking at Next.js
+	// + Supabase or an Express service, and a model told nothing invents
+	// infrastructure to fill the gap (Redis, DataDog, NextAuth.js on a project
+	// that uses none of them — the arch hallucination this snapshot exists to
+	// prevent).
+	found = append(found, detectFrameworkStack(root)...)
+	found = dedupeStrings(found)
 	sort.Strings(found)
 	return found
+}
+
+// nodeFrameworkLabels maps an npm package name to the stack label it implies.
+// Deliberately short: only packages whose presence changes what an
+// architecture or spec should say.
+var nodeFrameworkLabels = map[string]string{
+	"next":                      "Next.js",
+	"react":                     "React",
+	"vue":                       "Vue",
+	"nuxt":                      "Nuxt",
+	"svelte":                    "Svelte",
+	"@angular/core":             "Angular",
+	"express":                   "Express",
+	"fastify":                   "Fastify",
+	"@nestjs/core":              "NestJS",
+	"typescript":                "TypeScript",
+	"tailwindcss":               "Tailwind CSS",
+	"@supabase/supabase-js":     "Supabase client",
+	"@supabase/ssr":             "Supabase client",
+	"prisma":                    "Prisma",
+	"drizzle-orm":               "Drizzle ORM",
+	"stripe":                    "Stripe",
+	"jest":                      "Jest",
+	"vitest":                    "Vitest",
+	"@playwright/test":          "Playwright",
+	"@modelcontextprotocol/sdk": "MCP SDK",
+}
+
+// detectFrameworkStack derives framework/platform labels from package.json
+// dependencies and from well-known directories. Deterministic, no LLM.
+func detectFrameworkStack(root string) []string {
+	var out []string
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		var pkg struct {
+			Dependencies    map[string]json.RawMessage `json:"dependencies"`
+			DevDependencies map[string]json.RawMessage `json:"devDependencies"`
+		}
+		if json.Unmarshal(data, &pkg) == nil {
+			for _, deps := range []map[string]json.RawMessage{pkg.Dependencies, pkg.DevDependencies} {
+				for name := range deps {
+					if label, ok := nodeFrameworkLabels[name]; ok {
+						out = append(out, label)
+					}
+				}
+			}
+		}
+	}
+	if fileExists(filepath.Join(root, "tsconfig.json")) {
+		out = append(out, "TypeScript")
+	}
+	if fileExists(filepath.Join(root, "supabase", "config.toml")) ||
+		dirExists(filepath.Join(root, "supabase", "migrations")) {
+		out = append(out, "Supabase (Postgres migrations, RLS)")
+	}
+	if dirExists(filepath.Join(root, "supabase", "functions")) {
+		out = append(out, "Supabase Edge Functions (Deno)")
+	}
+	return out
+}
+
+// dedupeStrings returns in with duplicates removed, first occurrence kept.
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// dirExists reports whether path is an existing directory.
+func dirExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
 }
 
 // readGoModSummary returns a short "module/path go X.Y" string from go.mod,
@@ -533,7 +633,7 @@ func recentGitLog(root string, n int) string {
 
 // listExistingSpecs returns the slugs of feature specs already in .forge/specs/.
 // The current slug is excluded (it is the feature being planned).
-func listExistingSpecs(root string) []string {
+func listExistingSpecs(root, currentSlug string) []string {
 	specsDir := filepath.Join(root, ".forge", "specs")
 	entries, err := os.ReadDir(specsDir)
 	if err != nil {
@@ -541,7 +641,12 @@ func listExistingSpecs(root string) []string {
 	}
 	var specs []string
 	for _, e := range entries {
-		if e.IsDir() {
+		// The feature being planned is not an "existing" spec to avoid
+		// duplicating. This used to hold only by accident — while its
+		// directory did not exist yet — so on the arch and later checkpoints
+		// (spec.md already written) the feature was listed as a duplicate of
+		// itself.
+		if e.IsDir() && e.Name() != currentSlug {
 			specs = append(specs, e.Name())
 		}
 	}
