@@ -777,12 +777,20 @@ func scanWithBuiltinPatterns(root string) []Finding {
 		{"private-key-block", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
 		// generic-bearer: require the value to be a quoted string literal so that
 		// variable-name references (e.g. token = csrfTokenVar) are not flagged.
-		{"generic-bearer", regexp.MustCompile(`(?i)(bearer|api[_-]?key|token|secret|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{16,}["']`)},
+		// The value is captured (group 2) so recognisable placeholders can be
+		// dropped — see isPlaceholderCredential.
+		{"generic-bearer", regexp.MustCompile(`(?i)(bearer|api[_-]?key|token|secret|password)\s*[:=]\s*["']([A-Za-z0-9_\-]{16,})["']`)},
 	}
 	return scanFiles(root, func(rel string, line int, text string) []Finding {
 		var out []Finding
 		for _, r := range rules {
-			if loc := r.Pattern.FindStringIndex(text); loc != nil {
+			if loc := r.Pattern.FindStringSubmatchIndex(text); loc != nil {
+				// A phrase-shaped literal that says it is not real (marker word) or that
+				// lives in test code is a fixture/doc placeholder, not a leaked secret.
+				if r.Name == "generic-bearer" && len(loc) >= 6 &&
+					isPlaceholderCredential(rel, text[loc[4]:loc[5]]) {
+					continue
+				}
 				out = append(out, Finding{
 					File: rel, Line: line, Rule: r.Name,
 					Match: truncate(text, 80), Secret: text[loc[0]:loc[1]],
