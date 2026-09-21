@@ -4,6 +4,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.9] — 2026-09-21 — `forge scan security` stops failing on test fixtures, and `.forge/waivers` is finally honoured
+
+Both fixes were found running `forge scan security` on a real Next.js/Supabase repo, where it exited non-zero on 56 findings that were all placeholders. Patch release: bug fixes plus one additive result field (`waived`); no breaking change.
+
 ### Fixed
 
 - **`forge scan security` was permanently red on real projects because of `generic-bearer` false positives.** The built-in `generic-bearer` heuristic flagged quoted 16+ character literals on test fixtures and documentation placeholders (`test_access_token`, `whsec_placeholder`, `mock-refresh-token`, `sbp_your_token_here`). On a real Next.js/Supabase repo that was 56 findings, every one a placeholder, drowning out real hits. The rule now recognises a placeholder *structurally* — a phrase of plain words that either contains a marker word (`test`, `mock`, `fake`, `dummy`, `example`, `placeholder`, `invalid`, `your`, …) or sits in test code — and stops reporting it. Opaque values (`sk_live_…`, `sk_test_…`, hex, UUIDs, base62, JWT headers, mixed-case or letter/digit blends) are still reported in production code **and** in test files, and phrase-shaped values with no marker are still reported outside tests. Only `generic-bearer` changed; the AWS, `sk-`, GitHub-token and private-key rules are untouched. Measured on the repo that produced the findings: 56 → 3, and the 3 that remain (a documented public verify token and two camelCase fixtures) are exactly the cases a heuristic should not guess.
@@ -15,6 +19,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 - `ScanResult.Waived` (`"waived"` in `--json`) — number of findings suppressed by waivers.
 - `docs/verbs/scan.md`: how `generic-bearer` treats placeholders, and the waiver file format.
 
+### Deliberately not changed
+
+- `forge scan --since <ref>` still ignores its ref and reads `.forge/scan-history`, so results can differ between checkouts.
+- `TestCmd_Subcommand_Verify_JSON` (`internal/cli/cmdship`) fails on any checkout with no diff against `main` — it runs `verify` without `--root`, so it inspects the checkout itself, and since 1.10.8 `ship` warns "nothing to ship" there. It is why the nightly macOS/Windows jobs are red on `main` (also at v1.10.8). It is unrelated to this release and does not gate the release workflow.
 
 ## [1.10.8] — 2026-09-21 — Agent-mode arch debate no longer discards answers, `ship` stops claiming false progress, and the pre-push hook stops inheriting git's `GIT_DIR`
 
