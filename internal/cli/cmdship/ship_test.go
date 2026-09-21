@@ -144,7 +144,11 @@ func TestCmd_Subcommand_Verify_JSON(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errBuf) // keep stderr separate so deprecation notice doesn't corrupt stdout JSON
-	cmd.SetArgs([]string{"verify", "--json"})
+	// A fresh, isolated root: without --root, verify inspects the checkout the test
+	// runs in, and since 1.10.8 ship warns "nothing to ship" on any checkout with no
+	// diff against main (the nightly on main, and any branch already merged) — so the
+	// test only passed on branches with unmerged changes.
+	cmd.SetArgs([]string{"verify", "--json", "--root", t.TempDir()})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("verify subcommand failed: %v\n%s", err, out.String())
 	}

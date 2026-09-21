@@ -4,6 +4,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+
+- **`TestCmd_Subcommand_Verify_JSON` failed on any checkout with no diff against `main`** (the nightly macOS/Windows jobs, and any branch already merged). It ran `verify` without `--root`, so it inspected the checkout itself, and since 1.10.8 `ship` warns "nothing to ship" there. The test now uses an isolated `t.TempDir()` root like its sibling tests. Test-only; no behaviour change.
+
 ## [1.10.9] — 2026-09-21 — `forge scan security` stops failing on test fixtures, and `.forge/waivers` is finally honoured
 
 Both fixes were found running `forge scan security` on a real Next.js/Supabase repo, where it exited non-zero on 56 findings that were all placeholders. Patch release: bug fixes plus one additive result field (`waived`); no breaking change.
