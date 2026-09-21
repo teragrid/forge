@@ -1770,6 +1770,13 @@ func checkVerify(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		return cp
 	}
 	scanRes.Findings = cmdscan.AssignConfidence(scanRes.Findings)
+	// Honour .forge/waivers here too, so the ship gate and `forge scan security`
+	// agree about which findings are accepted.
+	if wErr := cmdscan.ApplyWaivers(root, scanRes); wErr != nil {
+		cp.Status = "warning"
+		cp.Detail = fmt.Sprintf("security scan waivers error: %v", wErr)
+		return cp
+	}
 	var highFindings []cmdscan.Finding
 	for _, f := range scanRes.Findings {
 		if f.Confidence == string(cmdscan.ConfidenceHigh) {

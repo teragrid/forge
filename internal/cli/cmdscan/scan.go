@@ -54,6 +54,9 @@ type ScanResult struct {
 	Count    int       `json:"count"`
 	Status   string    `json:"status"` // "clean", "suspicious", "found"
 	Note     string    `json:"note,omitempty"`
+	// Waived counts findings suppressed by a valid .forge/waivers entry. They are
+	// removed from Findings and do not affect Count, Status or the exit code.
+	Waived int `json:"waived,omitempty"`
 }
 
 func init() {
@@ -175,6 +178,11 @@ func New() *cobra.Command {
 
 			// G-022: assign confidence scores.
 			res.Findings = AssignConfidence(res.Findings)
+
+			// DEV-M1-17: drop findings covered by a valid, unexpired .forge/waivers entry.
+			if err := ApplyWaivers(root, res); err != nil {
+				return err
+			}
 
 			// G-023: --since diff against baseline.
 			if since != "" {
@@ -1088,6 +1096,9 @@ func renderText(cmd *cobra.Command, r *ScanResult) {
 	fmt.Fprintf(w, "forge scan\n")
 	fmt.Fprintf(w, "findings: %d\n", r.Count)
 	fmt.Fprintf(w, "status:   %s\n", r.Status)
+	if r.Waived > 0 {
+		fmt.Fprintf(w, "waived:   %d\n", r.Waived)
+	}
 	if r.Note != "" {
 		fmt.Fprintf(w, "note:     %s\n", r.Note)
 	}

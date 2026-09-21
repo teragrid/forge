@@ -147,3 +147,33 @@ func TestMissingDirIsOK(t *testing.T) {
 		t.Fatal("expected non-nil registry for missing dir")
 	}
 }
+
+// A valid waiver must win over an expired one that also matches, so a lapsed
+// waiver can be renewed by adding a new entry.
+func TestIsWaived_ValidBeatsExpiredDuplicate(t *testing.T) {
+	dir := t.TempDir()
+	yesterday := time.Now().AddDate(0, 0, -2).Format("2006-01-02")
+	tomorrow := time.Now().AddDate(0, 0, 2).Format("2006-01-02")
+	writeWaiver(t, dir, "a_old.yml", `
+- id: W-OLD
+  rule_id: SEC-001
+  rationale: "first approval"
+  approved_by: bob
+  expires_at: "`+yesterday+`"
+`)
+	writeWaiver(t, dir, "b_new.yml", `
+- id: W-NEW
+  rule_id: SEC-001
+  rationale: "renewed"
+  approved_by: bob
+  expires_at: "`+tomorrow+`"
+`)
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := r.IsWaived("SEC-001", "")
+	if err != nil || !ok {
+		t.Fatalf("valid waiver should win over an expired duplicate: ok=%v err=%v", ok, err)
+	}
+}
