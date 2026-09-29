@@ -4,6 +4,10 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+## [1.10.10] — 2026-09-30 — agent-mode re-runs stop overwriting real tests
+
+All four `forge ship` fixes were found shipping a real feature on a Next.js/Supabase repo with `--agent-mode`, where each re-run of the pipeline replaced the real tests with the red stubs again. Patch release: bug fixes plus two additive `-n` flags and a new per-feature `test-artifacts.json`; no breaking change.
+
 ### Fixed
 
 - **Re-running `forge ship --agent-mode` overwrote real tests with the red stubs again.** Every run replays the recorded test turns and rewrote `<slug>.test.ts` / `.integration.test.ts` / `.rls.test.ts` (and the Go/Python/Java equivalents) unconditionally, so tests an agent had written in place of the stubs were silently lost on the next run. forge now records the hash of each test artifact it writes in `.forge/specs/<slug>/test-artifacts.json` and only overwrites a file that is still exactly what it wrote; edited or hand-written files are kept (with a `forge: kept …` note on stderr). Deleted artifacts are still recreated. Found on a real Next.js/Supabase feature where real tests were clobbered twice in one session.
