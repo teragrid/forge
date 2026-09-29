@@ -238,6 +238,7 @@ func newStatusCmd() *cobra.Command {
 		filterStatus string // --status flag
 		onlyDone     bool   // --done shorthand
 		asJSON       bool   // --json flag
+		statusName   string // --name/-n flag
 		root         string // --root flag
 	)
 
@@ -274,6 +275,13 @@ Examples:
 				}
 			}
 			specsDir := filepath.Join(r, ".forge", "specs")
+
+			// -n/--name mirrors `forge ship -n <slug>`, which the pipeline
+			// requires on every call — without it `ship status -n x` failed
+			// with "unknown shorthand flag".
+			if statusName != "" && len(args) == 0 {
+				args = []string{statusName}
+			}
 
 			// ── Single-feature detail view ──────────────────────────────────
 			if len(args) == 1 {
@@ -348,6 +356,7 @@ Examples:
 	cmd.Flags().BoolVar(&onlyDone, "done", false, "shorthand for --status done (show only shipped features)")
 	cmd.Flags().BoolVarP(&asJSON, "json", "j", false, "emit machine-readable JSON")
 	cmd.Flags().StringVarP(&root, "root", "r", "", "project root (default: cwd)")
+	cmd.Flags().StringVarP(&statusName, "name", "n", "", "feature slug (same as the positional [slug])")
 
 	return cmd
 }

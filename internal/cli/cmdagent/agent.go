@@ -190,7 +190,7 @@ submit command — without needing to remember anything from the previous turn.`
 	}
 
 	// ── submit ────────────────────────────────────────────────────────────────
-	var fromFile string
+	var fromFile, submitName string
 	submitCmd := &cobra.Command{
 		Use:   "submit [-]",
 		Short: "Answer the pending turn from a file or stdin.",
@@ -215,6 +215,16 @@ from Anthropic is rejected coming from you.
 			if _, ok := b.Pending(); !ok {
 				return errcode.New(ErrNoPending,
 					"nothing to answer in session "+b.SessionName(), nil)
+			}
+			// Refuse to answer another feature's turn: every session shares
+			// one pending slot, and a turn submitted into the wrong feature
+			// corrupts that pipeline (CLAUDE.md "ISSUE 4").
+			if submitName != "" {
+				if _, slug := b.Feature(); slug != "" && slug != submitName {
+					return errcode.Newf(ErrAgentFailed, nil,
+						"pending turn belongs to feature %q, not %q; resume it with `forge ship --agent-mode -n %s`",
+						slug, submitName, slug)
+				}
 			}
 			content, err := readAnswer(cmd, args, fromFile)
 			if err != nil {
@@ -241,6 +251,8 @@ from Anthropic is rejected coming from you.
 	}
 	submitCmd.Flags().StringVarP(&fromFile, "file", "f", "",
 		"read the answer from this file (use '-' as the argument to read stdin instead)")
+	submitCmd.Flags().StringVarP(&submitName, "name", "n", "",
+		"feature slug the answer is for; refuses a pending turn that belongs to another feature")
 
 	// ── reset ─────────────────────────────────────────────────────────────────
 	var confirmReset bool
