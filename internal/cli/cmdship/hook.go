@@ -469,9 +469,7 @@ var adrQualityGate = Hook{
 			return gateUnknown("adr-quality-gate: adr.md / arch.md not found — architecture decision unverified")
 		}
 		content := strings.ToLower(string(data))
-		// Look for at least 2 alternative headings or list items.
-		altCount := strings.Count(content, "alternative") + strings.Count(content, "option ")
-		if altCount < 2 {
+		if adrAlternativeCount(content) < 2 {
 			return gateFail("adr-quality-gate: ADR must evaluate ≥2 alternatives; found fewer markers")
 		}
 		if !strings.Contains(content, "consequence") && !strings.Contains(content, "trade-off") {
@@ -854,4 +852,36 @@ func partitionResults(results []HookResult) (failures, unverified []HookResult) 
 		}
 	}
 	return failures, unverified
+}
+
+// adrAlternativeCount counts the alternatives an ADR evaluates. Keyword
+// mentions ("alternative", "option ") still count, and so does every list
+// item under an "Alternatives"/"Options considered" heading — a plain
+// numbered list there used to count as a single marker (the heading word),
+// failing an ADR that weighed four options (seen 2026-09-29).
+func adrAlternativeCount(lower string) int {
+	count := strings.Count(lower, "alternative") + strings.Count(lower, "option ")
+	inSection := false
+	for _, line := range strings.Split(lower, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "#") {
+			inSection = strings.Contains(t, "alternative") || strings.Contains(t, "options")
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		if strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ") || isNumberedListItem(t) {
+			count++
+		}
+	}
+	return count
+}
+
+func isNumberedListItem(t string) bool {
+	i := 0
+	for i < len(t) && t[i] >= '0' && t[i] <= '9' {
+		i++
+	}
+	return i > 0 && i+1 < len(t) && (t[i] == '.' || t[i] == ')') && t[i+1] == ' '
 }

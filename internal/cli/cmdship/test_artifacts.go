@@ -388,22 +388,22 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 				content = gen
 			}
 		}
-		_ = os.WriteFile(paths.GoTest, []byte(content), 0o600)
+		writeTestArtifact(root, slug, paths.GoTest, stripOuterCodeFence(content))
 
 		if fw.FuzzSupport {
 			paths.GoFuzzTest = filepath.Join(testsDir, slug+"_fuzz_test.go")
-			_ = os.WriteFile(paths.GoFuzzTest, []byte(goFuzzTestStub(slug, feature)), 0o600)
+			writeTestArtifact(root, slug, paths.GoFuzzTest, goFuzzTestStub(slug, feature))
 		}
 
 	case "python":
 		paths.PyTest = filepath.Join(testsDir, "test_"+slug+".py")
 		content := pyTestStub(slug, feature, isFix)
-		_ = os.WriteFile(paths.PyTest, []byte(content), 0o600)
+		writeTestArtifact(root, slug, paths.PyTest, content)
 
 	case "java":
 		paths.JavaTest = filepath.Join(testsDir, slug+"Test.java")
 		content := javaTestStub(slug, feature, isFix)
-		_ = os.WriteFile(paths.JavaTest, []byte(content), 0o600)
+		writeTestArtifact(root, slug, paths.JavaTest, content)
 
 	default:
 		// TypeScript / unknown — fall through to the original G-006 generators.
@@ -491,16 +491,16 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 			}
 		}
 
-		_ = os.WriteFile(paths.UnitTest, []byte(unitContent), 0o600)
-		_ = os.WriteFile(paths.IntegrationTest, []byte(integContent), 0o600)
-		_ = os.WriteFile(paths.RLSTest, []byte(rlsContent), 0o600)
+		writeTestArtifact(root, slug, paths.UnitTest, stripOuterCodeFence(unitContent))
+		writeTestArtifact(root, slug, paths.IntegrationTest, stripOuterCodeFence(integContent))
+		writeTestArtifact(root, slug, paths.RLSTest, stripOuterCodeFence(rlsContent))
 	}
 
 	// ScanBaseline is language-agnostic — always written.
 	paths.ScanBaseline = filepath.Join(testsDir, slug+".scan.baseline.json")
 	baseline := scanBaseline(slug, feature)
 	if data, err := json.MarshalIndent(baseline, "", "  "); err == nil {
-		_ = os.WriteFile(paths.ScanBaseline, data, 0o600)
+		writeTestArtifact(root, slug, paths.ScanBaseline, string(data))
 	}
 
 	return paths, nil
