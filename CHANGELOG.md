@@ -4,6 +4,11 @@ All notable changes to forge will be documented in this file. Format follows [Ke
 
 ## [Unreleased]
 
+### Fixed
+
+- **`go test -race` failed `internal/cli/cmdclean` and `tests/task_tests` on every nightly run (red on `main` since at least 2026-08-31).** `forge clean`'s `RunE` assigned the package-level `cmdclean.IncludeIgnored` from its `--include-ignored` flag, while any other command in the same process (a parallel test, or `forge ship`'s verify checkpoint calling `cmdclean.Run`) read it: a data race. The flag now reaches the walk as a parameter and the command never writes the global; exported `Run` / `RunDryRun` / `RunWithTrash` keep their signatures and still honour `IncludeIgnored` for direct callers.
+- **`forge clean --dry-run` exited non-zero when it found candidates**, contradicting its documented G-061 contract ("exits 0 regardless of findings, unlike `--check`"). A preview failed like a gate. Only `--check` (the default mode) now exits non-zero on findings.
+
 ## [1.10.10] — 2026-09-30 — agent-mode re-runs stop overwriting real tests
 
 All four `forge ship` fixes were found shipping a real feature on a Next.js/Supabase repo with `--agent-mode`, where each re-run of the pipeline replaced the real tests with the red stubs again. Patch release: bug fixes plus two additive `-n` flags and a new per-feature `test-artifacts.json`; no breaking change.

@@ -78,9 +78,16 @@ func isForgeTrash(rel string) bool {
 }
 
 // IncludeIgnored disables the default behaviour of skipping git-ignored paths
-// (outside .forge/) during classification. Set by `forge clean --include-ignored`.
-// Left as a package var so Run/RunDryRun/RunWithTrash keep their existing
-// signatures (ship.go and the test suite call them directly).
+// (outside .forge/) during classification, for the exported Run/RunDryRun/
+// RunWithTrash (ship.go and the test suite call them directly and keep their
+// signatures).
+//
+// `forge clean --include-ignored` does NOT set it: the command passes the flag
+// straight to runCheck/runDryRun/runWithTrash. It used to assign this var from
+// RunE, which is a data race whenever two commands run in one process —
+// parallel tests did, and `go test -race` failed cmdclean and tests/task_tests
+// on every nightly run (a `forge clean` test writing it while a `forge ship`
+// verify checkpoint read it through Run).
 var IncludeIgnored bool
 
 // gitignoreFilter identifies paths git ignores so `forge clean` leaves other
@@ -240,7 +247,6 @@ func New() *cobra.Command {
 		Short: "Find/remove unmanaged scratch files.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			IncludeIgnored = includeIgnored
 			modes := 0
 			if check {
 				modes++
@@ -271,11 +277,11 @@ func New() *cobra.Command {
 			)
 			switch {
 			case apply:
-				res, err = RunWithTrash(root)
+				res, err = runWithTrash(root, includeIgnored)
 			case dryRun:
-				res, err = RunDryRun(root)
+				res, err = runDryRun(root, includeIgnored)
 			default:
-				res, err = Run(root, false)
+				res, err = runCheck(root, false, includeIgnored)
 			}
 
 			if err != nil {
@@ -296,7 +302,10 @@ func New() *cobra.Command {
 					"%d secret file(s) tracked by git; remove from index with 'git rm --cached'",
 					len(res.TrackedSecrets))
 			}
-			if !apply && len(res.Candidates) > 0 {
+			// Only --check exits non-zero on findings. --dry-run is a preview
+			// and exits 0 regardless (G-061, see RunDryRun); it used to fall
+			// into this branch too, so a preview failed like a gate did.
+			if check && len(res.Candidates) > 0 {
 				return errcode.Newf(ErrCleanFound, nil,
 					"%d candidate(s) found; rerun with --apply to delete", len(res.Candidates))
 			}
@@ -316,6 +325,10 @@ func New() *cobra.Command {
 // Run scans root and (optionally) deletes scratch candidates. Exposed for
 // tests + future ship-checkpoint integration.
 func Run(root string, apply bool) (*Result, error) {
+	return runCheck(root, apply, IncludeIgnored)
+}
+
+func runCheck(root string, apply, includeIgnored bool) (*Result, error) {
 	mf, err := loadMerged(root)
 	if err != nil {
 		return nil, err
@@ -326,7 +339,7 @@ func Run(root string, apply bool) (*Result, error) {
 		mode = "apply"
 	}
 	res := &Result{Root: root, ManifestPath: mf.Path, Mode: mode}
-	gi := newGitignoreFilter(root, IncludeIgnored)
+	gi := newGitignoreFilter(root, includeIgnored)
 
 	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil {
@@ -393,12 +406,16 @@ func Run(root string, apply bool) (*Result, error) {
 // RunDryRun lists candidates without deleting them. Exits 0 regardless of
 // findings (unlike --check which exits non-zero). G-061.
 func RunDryRun(root string) (*Result, error) {
+	return runDryRun(root, IncludeIgnored)
+}
+
+func runDryRun(root string, includeIgnored bool) (*Result, error) {
 	mf, err := loadMerged(root)
 	if err != nil {
 		return nil, err
 	}
 	res := &Result{Root: root, ManifestPath: mf.Path, Mode: "dry-run"}
-	gi := newGitignoreFilter(root, IncludeIgnored)
+	gi := newGitignoreFilter(root, includeIgnored)
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil || p == root {
 			return werr
@@ -436,12 +453,16 @@ func RunDryRun(root string) (*Result, error) {
 // RunWithTrash moves scratch candidates to .forge/trash/<run-id>/ for
 // recoverable deletion, and records the operation. G-061.
 func RunWithTrash(root string) (*Result, error) {
+	return runWithTrash(root, IncludeIgnored)
+}
+
+func runWithTrash(root string, includeIgnored bool) (*Result, error) {
 	mf, err := loadMerged(root)
 	if err != nil {
 		return nil, err
 	}
 	res := &Result{Root: root, ManifestPath: mf.Path, Mode: "apply"}
-	gi := newGitignoreFilter(root, IncludeIgnored)
+	gi := newGitignoreFilter(root, includeIgnored)
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
 		if werr != nil || p == root {
 			return werr
