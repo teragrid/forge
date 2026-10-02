@@ -628,3 +628,58 @@ func TestLoadMerged_NeitherFileExists(t *testing.T) {
 		t.Errorf("expected 0 candidates on empty tree, got %v", res.Candidates)
 	}
 }
+
+// ── --include-ignored reaches the run without a package global ───────────────
+
+// TestNew_IncludeIgnoredFlag_IsPerCommand pins both halves of the race fix:
+// the flag still changes what `forge clean` reports, and running the command
+// leaves the package-level IncludeIgnored untouched. RunE used to assign that
+// var, which raced with every other command or Run call in the same process
+// and kept `go test -race` red on cmdclean and tests/task_tests.
+func TestNew_IncludeIgnoredFlag_IsPerCommand(t *testing.T) {
+	t.Parallel()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	if out, err := exec.Command(git, "-C", root, "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeManifestFile(t, filepath.Join(root, ".forge", "manifest"), []string{"_scratch_*"}, nil)
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("_scratch_ignored.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "_scratch_ignored.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates := func(extra ...string) []string {
+		t.Helper()
+		cmd := New()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs(append([]string{"--root", root, "--dry-run", "--json"}, extra...))
+		// --dry-run exits 0 even with candidates (G-061); an error here is a
+		// regression of that contract, not a finding.
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("forge clean --dry-run %v must exit 0: %v\n%s", extra, err, out.String())
+		}
+		var res Result
+		if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &res); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+		}
+		return res.Candidates
+	}
+
+	if got := candidates(); len(got) != 0 {
+		t.Fatalf("a git-ignored scratch file must be skipped by default, got %v", got)
+	}
+	if got := candidates("--include-ignored"); len(got) != 1 || got[0] != "_scratch_ignored.txt" {
+		t.Fatalf("--include-ignored must report the ignored scratch file, got %v", got)
+	}
+	if IncludeIgnored {
+		t.Fatal("running the command must not set the package-level IncludeIgnored")
+	}
+}
