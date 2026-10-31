@@ -2,12 +2,19 @@
 
 All notable changes to forge will be documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.10.11] — 2026-11-01 — `forge ship` gates stop rejecting valid specs and reports
+
+Patch release: bug fixes only, no breaking change. The ship-gate fixes were found shipping real features with `--agent-mode` on a Next.js/Supabase repo.
 
 ### Fixed
 
 - **`go test -race` failed `internal/cli/cmdclean` and `tests/task_tests` on every nightly run (red on `main` since at least 2026-08-31).** `forge clean`'s `RunE` assigned the package-level `cmdclean.IncludeIgnored` from its `--include-ignored` flag, while any other command in the same process (a parallel test, or `forge ship`'s verify checkpoint calling `cmdclean.Run`) read it: a data race. The flag now reaches the walk as a parameter and the command never writes the global; exported `Run` / `RunDryRun` / `RunWithTrash` keep their signatures and still honour `IncludeIgnored` for direct callers.
 - **`forge clean --dry-run` exited non-zero when it found candidates**, contradicting its documented G-061 contract ("exits 0 regardless of findings, unlike `--check`"). A preview failed like a gate. Only `--check` (the default mode) now exits non-zero on findings.
+- **`spec-completeness-gate` rejected valid Given/When/Then prose.** It matched the case-sensitive substrings `"Given "`, `"When "`, `"Then "`, so `Given X, when Y, then Z` and bold `**When**` markers failed. It now matches whole words case-insensitively (`whenever` still does not count).
+- **`qa-coverage-gate` reported `0/13 AC items referenced` for a complete coverage table.** Each AC was keyed by the first 30 characters of its spec line. Numbered criteria are now matched by identifier (`AC-1` never matches `AC-10`); unnumbered `Given` lines keep the prefix match.
+- **`task-completion-gate` demanded post-push work be ticked before the push.** A task tagged `[post-push]` (e.g. staging verification) no longer counts as incomplete.
+- **The Test checkpoint only counted forge-scaffolded filenames.** Tests cited by path in the feature's `tasks.md` or `qa-report.md` now count as the feature's own tests, so projects that keep tests in existing suites no longer get `0 test file(s) for this feature`.
+- **`ship` printed "all checkpoints validated" while a checkpoint showed a warning.** It now prints `ship pipeline ready with N warning(s): <names>`.
 
 ## [1.10.10] — 2026-09-30 — agent-mode re-runs stop overwriting real tests
 

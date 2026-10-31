@@ -113,3 +113,31 @@ func TestTaskCompletionGate_StillCountsOpenTasks(t *testing.T) {
 		t.Fatalf("an open pre-push task must still fail, got %v", res.Verdict)
 	}
 }
+
+// ISSUE 18: tests cited by tasks.md / qa-report.md belong to the feature even
+// when they do not use forge's scaffold filenames.
+func TestFeatureTestFiles_CountsTestsCitedByTasks(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "tests", "unit", "api", "mcp-internal-post-crud.test.ts")
+	other := filepath.Join(root, "tests", "unit", "unrelated.test.ts")
+	for _, p := range []string{existing, other} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("test('x',()=>{})"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeSpecFile(t, root, "mcp-unschedule-post", "tasks.md", "- [x] T1 cases in tests/unit/api/mcp-internal-post-crud.test.ts\n")
+	got := featureTestFiles(root, "mcp-unschedule-post", []string{existing, other})
+	if len(got) != 1 || got[0] != existing {
+		t.Fatalf("want only the cited test, got %v", got)
+	}
+}
+
+func TestWarningCheckpointNames(t *testing.T) {
+	got := warningCheckpointNames([]Checkpoint{{Name: "Spec", Status: "warning"}, {Name: "Arch", Status: "ok"}, {Name: "Test", Status: "warning"}})
+	if len(got) != 2 || got[0] != "Spec" || got[1] != "Test" {
+		t.Fatalf("got %v", got)
+	}
+}
