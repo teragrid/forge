@@ -15,6 +15,7 @@ Patch release: bug fixes only, no breaking change. The ship-gate fixes were foun
 - **`task-completion-gate` demanded post-push work be ticked before the push.** A task tagged `[post-push]` (e.g. staging verification) no longer counts as incomplete.
 - **The Test checkpoint only counted forge-scaffolded filenames.** Tests cited by path in the feature's `tasks.md` or `qa-report.md` now count as the feature's own tests, so projects that keep tests in existing suites no longer get `0 test file(s) for this feature`.
 - **`ship` printed "all checkpoints validated" while a checkpoint showed a warning.** It now prints `ship pipeline ready with N warning(s): <names>`.
+- **`govulncheck` blocked every push** on 10 Go standard-library advisories (crypto/x509, net/http, crypto/tls, net/textproto) fixed in Go 1.26.9/1.26.10. The `go.mod` toolchain is now `go1.26.10`.
 
 ## [1.10.10] — 2026-09-30 — agent-mode re-runs stop overwriting real tests
 
