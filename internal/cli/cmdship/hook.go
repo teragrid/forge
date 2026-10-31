@@ -62,6 +62,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -415,10 +416,7 @@ var specCompletenessGate = Hook{
 			return gateFail("spec-completeness-gate: spec.md missing Acceptance Criteria section")
 		}
 		// At least one Given/When/Then criterion.
-		hasGWT := strings.Contains(content, "Given ") &&
-			strings.Contains(content, "When ") &&
-			strings.Contains(content, "Then ")
-		if !hasGWT {
+		if !hasGivenWhenThen(content) {
 			return gateFail("spec-completeness-gate: spec.md AC missing Given/When/Then format")
 		}
 		return gatePass()
@@ -443,7 +441,9 @@ var taskCompletionGate = Hook{
 		lines := strings.Split(string(data), "\n")
 		incomplete := 0
 		for _, l := range lines {
-			if strings.Contains(l, "- [ ]") {
+			// A [post-push] task (e.g. staging verification) can only happen
+			// after the push that follows this gate, so it must not block it.
+			if strings.Contains(l, "- [ ]") && !strings.Contains(strings.ToLower(l), "[post-push]") {
 				incomplete++
 			}
 		}
@@ -659,16 +659,24 @@ var qaCoverageGate = Hook{
 		covered := 0
 		for _, line := range strings.Split(specContent, "\n") {
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "Given ") || strings.HasPrefix(trimmed, "- AC-") {
-				acCount++
-				// Check if qa-report references the same line (first 30 chars as key).
-				key := trimmed
-				if len(key) > 30 {
-					key = key[:30]
-				}
-				if strings.Contains(qaContent, key) {
+			if !strings.HasPrefix(trimmed, "Given ") && !strings.HasPrefix(trimmed, "- AC-") {
+				continue
+			}
+			acCount++
+			// Numbered criteria are matched by identifier (AC-1 must not match
+			// AC-10); unnumbered Given lines fall back to a 30-char prefix key.
+			if id := acIDPattern.FindString(trimmed); id != "" {
+				if containsACID(qaContent, id) {
 					covered++
 				}
+				continue
+			}
+			key := trimmed
+			if len(key) > 30 {
+				key = key[:30]
+			}
+			if strings.Contains(qaContent, key) {
+				covered++
 			}
 		}
 		if acCount > 0 && covered < acCount {
@@ -884,4 +892,25 @@ func isNumberedListItem(t string) bool {
 		i++
 	}
 	return i > 0 && i+1 < len(t) && (t[i] == '.' || t[i] == ')') && t[i+1] == ' '
+}
+
+var (
+	gwtGiven = regexp.MustCompile(`(?i)\bgiven\b`)
+	gwtWhen  = regexp.MustCompile(`(?i)\bwhen\b`)
+	gwtThen  = regexp.MustCompile(`(?i)\bthen\b`)
+
+	acIDPattern = regexp.MustCompile(`(?i)\bAC-\d+\b`)
+)
+
+// hasGivenWhenThen reports whether the spec contains Given, When and Then as
+// whole words in any case, so natural prose ("Given X, when Y, then Z") and
+// markdown emphasis ("**When**") both count while "whenever" does not.
+func hasGivenWhenThen(content string) bool {
+	return gwtGiven.MatchString(content) && gwtWhen.MatchString(content) && gwtThen.MatchString(content)
+}
+
+// containsACID reports whether text mentions the exact acceptance-criterion id
+// (AC-1 does not match AC-10).
+func containsACID(text, id string) bool {
+	return regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(id) + `\b`).MatchString(text)
 }

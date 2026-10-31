@@ -1477,15 +1477,27 @@ func featureTestFiles(root, slug string, all []string) []string {
 	for _, p := range artefactFilesForReachability(root, slug) {
 		add(p)
 	}
-	if want == "" {
-		return out
+	// Tests the feature's own tasks.md / qa-report.md cite by path count too:
+	// projects that keep tests in existing suites never use forge's filenames.
+	var cited strings.Builder
+	for _, name := range []string{"tasks.md", "qa-report.md"} {
+		if data, err := os.ReadFile(filepath.Join(root, ".forge", "specs", slug, name)); err == nil {
+			cited.Write(data)
+			cited.WriteByte('\n')
+		}
 	}
+	citedText := filepath.ToSlash(cited.String())
 	for _, p := range all {
 		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			rel = p
 		}
-		if strings.Contains(norm(filepath.ToSlash(rel)), want) {
+		rel = filepath.ToSlash(rel)
+		if citedText != "" && strings.Contains(citedText, rel) {
+			add(p)
+			continue
+		}
+		if want != "" && strings.Contains(norm(rel), want) {
 			add(p)
 		}
 	}
@@ -2936,7 +2948,11 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 		}
 	}
 	if r.Ready {
-		fmt.Fprintln(w, "\nship pipeline ready (all checkpoints validated).")
+		if warns := warningCheckpointNames(r.Checkpoints); len(warns) > 0 {
+			fmt.Fprintf(w, "\nship pipeline ready with %d warning(s): %s.\n", len(warns), strings.Join(warns, ", "))
+		} else {
+			fmt.Fprintln(w, "\nship pipeline ready (all checkpoints validated).")
+		}
 		if r.FeatureBranch != "" {
 			fmt.Fprintf(w, "\nfeature branch: %s\n", r.FeatureBranch)
 			fmt.Fprintln(w, "next steps:")
@@ -2947,4 +2963,16 @@ func renderText(cmd *cobra.Command, r *ShipResult) {
 	} else {
 		fmt.Fprintln(w, "\nship blocked by checkpoint failure(s) or reviewer rejection.")
 	}
+}
+
+// warningCheckpointNames lists the checkpoints that finished with a warning, so
+// the "ready" line never claims everything validated while any shows a warning.
+func warningCheckpointNames(cps []Checkpoint) []string {
+	var names []string
+	for _, cp := range cps {
+		if cp.Status == "warning" {
+			names = append(names, cp.Name)
+		}
+	}
+	return names
 }
