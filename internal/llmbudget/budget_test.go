@@ -35,7 +35,9 @@ func TestBudget_DailySpend(t *testing.T) {
 // TC-LB-02: MonthlySpend includes records from different days in the same month.
 func TestBudget_MonthlySpend(t *testing.T) {
 	b := New()
-	now := time.Now().UTC()
+	// Fixed mid-month dates: "yesterday" relative to time.Now() falls in the
+	// previous month on the 1st and made this test fail once a month.
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 	yesterday := now.AddDate(0, 0, -1)
 	b.Add(Record{Timestamp: now, CostUSD: 0.10})
 	b.Add(Record{Timestamp: yesterday, CostUSD: 0.05})

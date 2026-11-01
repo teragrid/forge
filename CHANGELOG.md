@@ -10,6 +10,7 @@ Patch release: bug fixes only, no breaking change.
 
 - **Integration and RLS test answers were replaced by red stubs.** Test answers (TypeScript, Go, and now Python/Java) were checked with the Markdown completeness check, which cuts everything before the first `#` line and requires the answer to end on prose punctuation, so a real Jest suite ending in `});` was judged truncated and the generic stub (importing `supertest` / `../src/app`, or `expect(false)`) was written instead. Test answers are now validated as code: a fenced block is extracted, prose around it is dropped, and the answer is complete when it has no unterminated fence and balanced `()`, `{}`, `[]` outside strings and comments. Python and Java projects now use the submitted answer too (previously always the static stub).
 - **qa-verify requirements were only discoverable by failing.** In agent mode no qa-verify turn is issued, so the first failure revealed one file, the next one more headings. The manual-test-plan and four-stage-testing failures now list all three required files (`manual-test-plan.md` with the six role headings, `testing-pipeline.md` with the four stages, `qa-report.md` referencing every `AC-n`) at once.
+- **`TestBudget_MonthlySpend` failed on the 1st of every month** (its "yesterday" record fell in the previous month). It now uses fixed mid-month dates. Test-only.
 
 ## [1.10.11] — 2026-11-01 — `forge ship` gates stop rejecting valid specs and reports
 
