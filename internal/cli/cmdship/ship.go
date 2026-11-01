@@ -2260,9 +2260,23 @@ func checkQAVerify(root, description, specName string, pipe *LLMPipe) Checkpoint
 	// reports where the pipeline reached qa-verify without pausing. Emit an
 	// advisory instead and let the host agent run and report the suite.
 	if pipe != nil && pipe.Bridge() != nil {
+		// The host agent is the QA agent: ask it for each evidence file the
+		// qa-verify gates read instead of letting them fail one at a time.
+		slug := specName
+		if slug == "" {
+			slug = slugify(description)
+		}
+		pausedOp, problems := requestQAEvidence(root, slug, description, pipe)
+		if pausedOp != "" {
+			agentPauseCheckpoint(&cp, pausedOp, errcode.New(ErrAgentTurn, "", nil))
+			return cp
+		}
 		cp.Status = "warning"
 		cp.Detail = "QA-Verify (agent mode): native test suite not run by forge — " +
 			"the host agent runs and reports it (4-stage testing pipeline, stage 1/2)"
+		if len(problems) > 0 {
+			cp.Detail += "; evidence not accepted: " + strings.Join(problems, "; ")
+		}
 		if auditRes.SpecFound && len(auditRes.Gaps) > 0 {
 			cp.Detail += fmt.Sprintf("; %d spec audit warning(s)", len(auditRes.Gaps))
 		}

@@ -752,25 +752,8 @@ var manualTestPlanGate = Hook{
 		if err != nil {
 			return gateFail("manual-test-plan-gate: manual-test-plan.md not found — run qa-verify with an LLM configured, or write it by hand. %s", qaVerifyChecklist(slug))
 		}
-		content := strings.ToLower(string(data))
 		// Each of the 6 role sections must be identifiable by a heading keyword.
-		requiredSections := []struct {
-			keyword string
-			role    string
-		}{
-			{"product owner", "Product Owner (UAT)"},
-			{"business analyst", "Business Analyst"},
-			{"quality engineer", "Quality Engineer"},
-			{"security", "Security Reviewer"},
-			{"devops", "DevOps / SRE"},
-			{"compliance", "Compliance / CPO"},
-		}
-		var missing []string
-		for _, s := range requiredSections {
-			if !strings.Contains(content, s.keyword) {
-				missing = append(missing, s.role)
-			}
-		}
+		missing := missingManualPlanRoles(string(data))
 		if len(missing) > 0 {
 			return gateFail("manual-test-plan-gate: missing role sections in manual-test-plan.md: %s. %s", strings.Join(missing, ", "), qaVerifyChecklist(slug))
 		}

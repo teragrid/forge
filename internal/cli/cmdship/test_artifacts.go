@@ -366,6 +366,19 @@ func pickTestsDir(root string) string {
 	return filepath.Join(root, "tests")
 }
 
+// pickIntegrationDir chooses where integration and RLS test files go. Unit
+// tests follow the unit runner's roots (pickTestsDir), but projects that split
+// runners usually collect `*.integration.test.*` from tests/ only - the CI
+// integration config never looks under src/test/, so a real answer written
+// there would silently never run. Prefer an existing tests/ directory.
+func pickIntegrationDir(root, fallback string) string {
+	dir := filepath.Join(root, "tests")
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+		return dir
+	}
+	return fallback
+}
+
 func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFrameworkContext, pipe *LLMPipe) (TestArtifactPaths, error) {
 	testsDir := pickTestsDir(root)
 	if err := os.MkdirAll(testsDir, 0o755); err != nil {
@@ -426,8 +439,12 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 	default:
 		// TypeScript / unknown — fall through to the original G-006 generators.
 		paths.UnitTest = filepath.Join(testsDir, slug+".test.ts")
-		paths.IntegrationTest = filepath.Join(testsDir, slug+".integration.test.ts")
-		paths.RLSTest = filepath.Join(testsDir, slug+".rls.test.ts")
+		integDir := pickIntegrationDir(root, testsDir)
+		if err := os.MkdirAll(integDir, 0o755); err != nil {
+			integDir = testsDir
+		}
+		paths.IntegrationTest = filepath.Join(integDir, slug+".integration.test.ts")
+		paths.RLSTest = filepath.Join(integDir, slug+".rls.test.ts")
 
 		unitContent := unitTestStub(slug, feature)
 		integContent := integrationTestStub(slug, feature)
