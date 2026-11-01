@@ -398,11 +398,29 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 	case "python":
 		paths.PyTest = filepath.Join(testsDir, "test_"+slug+".py")
 		content := pyTestStub(slug, feature, isFix)
+		if pipe != nil {
+			gen, err := llmCodeStub(pipe, "ship:test:python", "python", "a senior Python QA engineer writing failing pytest tests for TDD (use pytest only)", feature, specMD)
+			if IsAgentTurn(err) {
+				return TestArtifactPaths{}, err
+			}
+			if gen != "" {
+				content = gen
+			}
+		}
 		writeTestArtifact(root, slug, paths.PyTest, content)
 
 	case "java":
 		paths.JavaTest = filepath.Join(testsDir, slug+"Test.java")
 		content := javaTestStub(slug, feature, isFix)
+		if pipe != nil {
+			gen, err := llmCodeStub(pipe, "ship:test:java", "java", "a senior Java QA engineer writing failing JUnit tests for TDD", feature, specMD)
+			if IsAgentTurn(err) {
+				return TestArtifactPaths{}, err
+			}
+			if gen != "" {
+				content = gen
+			}
+		}
 		writeTestArtifact(root, slug, paths.JavaTest, content)
 
 	default:
@@ -447,7 +465,7 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 					// truncated response is caught rather than written as-is.
 					6000)
 			}
-			gen, complete, err := generateWithValidation(unitFn)
+			gen, complete, err := generateCodeWithValidation("typescript", unitFn)
 			if IsAgentTurn(err) {
 				return TestArtifactPaths{}, err
 			}
@@ -467,7 +485,7 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 						"Tests MUST compile but MUST fail at runtime until implemented.",
 					ctx+"Generate failing integration test stubs for feature: "+feature, 6000)
 			}
-			gen, complete, err = generateWithValidation(integFn)
+			gen, complete, err = generateCodeWithValidation("typescript", integFn)
 			if IsAgentTurn(err) {
 				return TestArtifactPaths{}, err
 			}
@@ -482,7 +500,7 @@ func writeTestArtifactsWithContext(root, slug, feature, specMD string, fw TestFr
 						"\", never a different test framework. Tests MUST fail.",
 					ctx+"Generate failing RLS test stubs for feature: "+feature, 4000)
 			}
-			gen, complete, err = generateWithValidation(rlsFn)
+			gen, complete, err = generateCodeWithValidation("typescript", rlsFn)
 			if IsAgentTurn(err) {
 				return TestArtifactPaths{}, err
 			}
@@ -651,7 +669,7 @@ func llmGoStub(pipe *LLMPipe, _ string, feature, specMD string, isBugFix bool) (
 			// TypeScript stub generators above and ship:spec:generate.
 			6000)
 	}
-	gen, complete, err := generateWithValidation(genFn)
+	gen, complete, err := generateCodeWithValidation("go", genFn)
 	if IsAgentTurn(err) {
 		return "", err
 	}
@@ -691,4 +709,24 @@ func featureTitle(feature string) string {
 		return "Feature"
 	}
 	return result
+}
+
+// llmCodeStub asks the pipeline (or the host agent, in agent mode) for a test
+// file in lang and returns it only when it validates as whole source code.
+func llmCodeStub(pipe *LLMPipe, op, lang, role, feature, specMD string) (string, error) {
+	ctx := ""
+	if specMD != "" {
+		ctx = "Feature spec:\n" + specMD + "\n\n"
+	}
+	gen, complete, err := generateCodeWithValidation(lang, func() (string, bool, error) {
+		return pipe.InvokeChecked(op, "", "You are "+role+". Reply with the complete test file only.",
+			ctx+"Generate the test file for feature: "+feature, 6000)
+	})
+	if IsAgentTurn(err) {
+		return "", err
+	}
+	if err != nil || !complete || gen == "" {
+		return "", nil
+	}
+	return gen, nil
 }

@@ -113,8 +113,8 @@ var fourStageTestingGate = Hook{
 					"earlier version, that is why. "+
 					"Either document evidence for all 4 stages (local / pre-push / staging / "+
 					"production) in %s, or waive the gate: `forge ship --no-strict-testing` for "+
-					"one run, or \"strict-testing: false\" in .forge/hooks.yaml for the project",
-				filepath.Base(path), filepath.Base(path),
+					"one run, or \"strict-testing: false\" in .forge/hooks.yaml for the project. %s",
+				filepath.Base(path), filepath.Base(path), qaVerifyChecklist(ctxSpecSlug(ctx)),
 			)
 		}
 
