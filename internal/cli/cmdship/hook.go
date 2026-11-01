@@ -750,29 +750,12 @@ var manualTestPlanGate = Hook{
 		planPath := filepath.Join(ctx.Root, ".forge", "specs", slug, "manual-test-plan.md")
 		data, err := os.ReadFile(planPath)
 		if err != nil {
-			return gateFail("manual-test-plan-gate: manual-test-plan.md not found — run qa-verify with an LLM configured")
+			return gateFail("manual-test-plan-gate: manual-test-plan.md not found — run qa-verify with an LLM configured, or write it by hand. %s", qaVerifyChecklist(slug))
 		}
-		content := strings.ToLower(string(data))
 		// Each of the 6 role sections must be identifiable by a heading keyword.
-		requiredSections := []struct {
-			keyword string
-			role    string
-		}{
-			{"product owner", "Product Owner (UAT)"},
-			{"business analyst", "Business Analyst"},
-			{"quality engineer", "Quality Engineer"},
-			{"security", "Security Reviewer"},
-			{"devops", "DevOps / SRE"},
-			{"compliance", "Compliance / CPO"},
-		}
-		var missing []string
-		for _, s := range requiredSections {
-			if !strings.Contains(content, s.keyword) {
-				missing = append(missing, s.role)
-			}
-		}
+		missing := missingManualPlanRoles(string(data))
 		if len(missing) > 0 {
-			return gateFail("manual-test-plan-gate: missing role sections in manual-test-plan.md: %s", strings.Join(missing, ", "))
+			return gateFail("manual-test-plan-gate: missing role sections in manual-test-plan.md: %s. %s", strings.Join(missing, ", "), qaVerifyChecklist(slug))
 		}
 		return gatePass()
 	},
@@ -913,4 +896,17 @@ func hasGivenWhenThen(content string) bool {
 // (AC-1 does not match AC-10).
 func containsACID(text, id string) bool {
 	return regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(id) + `\b`).MatchString(text)
+}
+
+// qaVerifyChecklist spells out every evidence file the qa-verify gates read,
+// so a host agent (which is never issued a qa-verify turn in --agent-mode) can
+// write all of them in one pass instead of discovering them one failure at a
+// time.
+func qaVerifyChecklist(slug string) string {
+	dir := ".forge/specs/" + slug + "/"
+	return "qa-verify needs three files in " + dir + ": " +
+		"(1) manual-test-plan.md with a heading for each role — Product Owner (UAT), Business Analyst, " +
+		"Quality Engineer, Security Reviewer, DevOps / SRE, Compliance / CPO; " +
+		"(2) testing-pipeline.md covering all four stages — local, pre-push, staging, production; " +
+		"(3) qa-report.md referencing every acceptance criterion by its AC-n id"
 }

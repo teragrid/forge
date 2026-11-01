@@ -2,6 +2,18 @@
 
 All notable changes to forge will be documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.12] — 2026-11-01 — real test answers reach disk; qa-verify says what it needs
+
+Patch release: bug fixes only, no breaking change.
+
+### Fixed
+
+- **Integration and RLS test answers were replaced by red stubs.** Test answers (TypeScript, Go, and now Python/Java) were checked with the Markdown completeness check, which cuts everything before the first `#` line and requires the answer to end on prose punctuation, so a real Jest suite ending in `});` was judged truncated and the generic stub (importing `supertest` / `../src/app`, or `expect(false)`) was written instead. Test answers are now validated as code: a fenced block is extracted, prose around it is dropped, and the answer is complete when it has no unterminated fence and balanced `()`, `{}`, `[]` outside strings and comments. Python and Java projects now use the submitted answer too (previously always the static stub).
+- **qa-verify requirements were only discoverable by failing.** In agent mode no qa-verify turn is issued, so the first failure revealed one file, the next one more headings. The manual-test-plan and four-stage-testing failures now list all three required files (`manual-test-plan.md` with the six role headings, `testing-pipeline.md` with the four stages, `qa-report.md` referencing every `AC-n`) at once.
+- **Agent mode now issues qa-verify turns.** `forge ship --agent-mode` asks the host agent for `manual-test-plan.md`, `testing-pipeline.md` and `qa-report.md` (`ship:qa:manual-plan`, `ship:qa:testing-pipeline`, `ship:qa:report`). Each answer is validated with the rules the gates apply (six role headings, four stages, every `AC-n` cited) and written only when it passes; files already on disk and valid are not re-requested.
+- **Integration and RLS tests are scaffolded where CI collects them.** They go to `tests/` when it exists instead of `src/test/`, which the integration jest config does not collect.
+- **`TestBudget_MonthlySpend` failed on the 1st of every month** (its "yesterday" record fell in the previous month). It now uses fixed mid-month dates. Test-only.
+
 ## [1.10.11] — 2026-11-01 — `forge ship` gates stop rejecting valid specs and reports
 
 Patch release: bug fixes only, no breaking change. The ship-gate fixes were found shipping real features with `--agent-mode` on a Next.js/Supabase repo.
