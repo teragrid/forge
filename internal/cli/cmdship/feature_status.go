@@ -156,11 +156,37 @@ func buildEntry(specsDir, slug string) FeatureStatusEntry {
 func countCheckpoints(featureDir string) int {
 	done := 0
 	for _, f := range checkpointFiles {
-		if _, err := os.Stat(filepath.Join(featureDir, f)); err == nil {
+		if checkpointDone(featureDir, f) {
 			done++
 		}
 	}
 	return done
+}
+
+// checkpointRecordPath is where forge records that a checkpoint ran. It is a
+// separate directory so a status record can never occupy the path of a real
+// artefact (test.md, breakdown.md).
+func checkpointRecordPath(root, slug, name string) string {
+	return filepath.Join(root, ".forge", "specs", slug, ".checkpoints", name+".md")
+}
+
+// checkpointDone reports whether the checkpoint whose file is f (e.g.
+// "breakdown.md") is complete for the feature in featureDir. A record with
+// "Status: warning" is not completion, and neither is a legacy status record
+// that forge wrote over an artefact's path.
+func checkpointDone(featureDir, f string) bool {
+	if data, err := os.ReadFile(filepath.Join(featureDir, ".checkpoints", f)); err == nil {
+		return !strings.Contains(string(data), "\nStatus: warning")
+	}
+	data, err := os.ReadFile(filepath.Join(featureDir, f))
+	if err != nil {
+		return false
+	}
+	if f != "spec.md" && f != "arch.md" && strings.HasPrefix(string(data), "# ") &&
+		strings.Contains(string(data), " checkpoint\n\nStatus: warning") {
+		return false
+	}
+	return true
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -208,7 +234,7 @@ func renderStatusDetail(w io.Writer, featureDir string, entry FeatureStatusEntry
 	fmt.Fprintln(w)
 	for i, f := range checkpointFiles {
 		marker := "○ pending"
-		if _, err := os.Stat(filepath.Join(featureDir, f)); err == nil {
+		if checkpointDone(featureDir, f) {
 			marker = "✓ done"
 		}
 		fmt.Fprintf(w, "  [%d/%d] %-12s %s\n",

@@ -1890,9 +1890,19 @@ func TestCheckCode_LLM_ProviderFails_GracefulFallback(t *testing.T) {
 	mock := &llmprovider.MockProvider{Err: fmt.Errorf("FORGE-4051 transport not implemented")}
 	cp := checkCode(root, "provider fail code", "", mockPipe(root, mock))
 
-	// With changed files but provider error, status is "ok" (structural fallback).
+	// Changed source but no code artefact for the feature (no code-plan.md,
+	// impl-notes.md or tasks.md): the changes cannot be attributed, so warning.
+	if cp.Status != "warning" {
+		t.Fatalf("expected warning (no code artefact), got %q: %s", cp.Status, cp.Detail)
+	}
+
+	// With the artefact present, the structural fallback is ok.
+	if err := os.WriteFile(filepath.Join(dir, "tasks.md"), []byte("- [x] T1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cp = checkCode(root, "provider fail code", "", mockPipe(root, mock))
 	if cp.Status != "ok" {
-		t.Fatalf("expected ok (structural fallback), got %q: %s", cp.Status, cp.Detail)
+		t.Fatalf("expected ok (structural fallback with artefact), got %q: %s", cp.Status, cp.Detail)
 	}
 }
 

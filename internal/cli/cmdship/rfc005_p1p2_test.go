@@ -417,7 +417,10 @@ func TestRunWithOptions_WritesCheckpointMarkers(t *testing.T) {
 
 	specDir := filepath.Join(root, ".forge", "specs", slug)
 	for _, cpName := range []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"} {
-		marker := filepath.Join(specDir, cpName+".md")
+		marker := filepath.Join(specDir, ".checkpoints", cpName+".md")
+		if cpName == "spec" || cpName == "arch" {
+			marker = filepath.Join(specDir, cpName+".md")
+		}
 		if _, err := os.Stat(marker); err != nil {
 			t.Errorf("expected marker file %s.md to exist after passing checkpoint, got: %v", cpName, err)
 		}

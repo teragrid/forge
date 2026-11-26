@@ -2,6 +2,19 @@
 
 All notable changes to forge will be documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.13] — 2026-11-26 — agent-mode replay is feature-scoped; checkpoint records stop posing as artefacts
+
+Patch release: bug fixes only, no breaking change. Fixes the high-severity issues #56, #58, #60, #61, #62.
+
+### Fixed
+
+- **Agent-mode replay no longer crosses features or clobbers hand edits (#56).** Recorded responses now carry the feature slug; the replay-by-position fallback ignores responses recorded for another slug (or by older forge with no slug). The turn hash ignores the volatile `Generated: <timestamp>` line of `workspace-context.md`, so content replay and `--strict-replay` can hit. When `spec.md` changed since its recorded review, the stale answer is no longer written over it ("kept your version").
+- **Checkpoint status records no longer share names with artefacts (#60).** Records go to `.forge/specs/<slug>/.checkpoints/<name>.md`; nothing is written for an empty checkpoint name (no more `.md` / `digests/.digest.yaml`). `forge ship status` / `resume` treat a `Status: warning` record, including legacy ones written over `breakdown.md`/`test.md`, as not done.
+- **`--name`-only runs issue the generation turns (#61).** `forge ship breakdown -n <slug>` (and test stubs / code plan) used the empty description as "nothing to do" and printed "run forge ship breakdown". The slug is now the feature context.
+- **Code checkpoint is not `ok` without its artefact (#62).** Changed source files alone no longer satisfy it; `code-plan.md`, `impl-notes.md` or `tasks.md` must exist for the feature.
+- **"Unverified file references" is no longer written into `spec.md`/`arch.md` (#58).** It is printed as a warning on stderr.
+- **README badges under the logo rendered as broken images.** The version badge is static and the release badge uses GitHub's own.
+
 ## [1.10.12] — 2026-11-01 — real test answers reach disk; qa-verify says what it needs
 
 Patch release: bug fixes only, no breaking change.

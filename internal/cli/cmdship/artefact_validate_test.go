@@ -24,7 +24,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -344,28 +343,15 @@ func TestFindUnverifiedFileReferences_Idempotent(t *testing.T) {
 	}
 }
 
-func TestAppendUnverifiedPathsWarning_ListsDedupedUnverifiedPaths(t *testing.T) {
+func TestAppendUnverifiedPathsWarning_NeverModifiesArtefact(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	content := "Touches `src/missing/a.ts` and again `src/missing/a.ts`, plus `src/missing/b.ts`."
 
-	out := appendUnverifiedPathsWarning(root, content)
-	if !strings.Contains(out, content) {
-		t.Error("original content must be preserved")
-	}
-	// content mentions src/missing/a.ts twice already (2 occurrences); the
-	// warning list must add exactly one more (deduplicated), not two.
-	if strings.Count(out, "src/missing/a.ts") != 3 {
-		t.Errorf("expected the warning list to add exactly 1 deduplicated occurrence (2 in body + 1 in list = 3 total): %s", out)
-	}
-	if strings.Count(out, "> - `src/missing/a.ts`") != 1 {
-		t.Errorf("expected exactly one bullet line for the deduplicated path in the warning list: %s", out)
-	}
-	if !strings.Contains(out, "src/missing/b.ts") {
-		t.Error("expected the second unverified path in the warning list")
-	}
-	if !strings.Contains(out, "Unverified file references") {
-		t.Error("expected the warning callout heading")
+	// The warning goes to stderr; the artefact text must come back unchanged
+	// (it used to carry the callout into spec.md and every later prompt).
+	if out := appendUnverifiedPathsWarning(root, content); out != content {
+		t.Errorf("artefact must be unchanged, got: %s", out)
 	}
 }
 

@@ -524,6 +524,11 @@ func specStub(description string) string {
 // slug, and must pass the same value here so the two agree on the directory.
 // Returns ("", nil) when description is empty or pipe is nil.
 func generateTestStubs(root, description, specName string, pipe *LLMPipe) (string, error) {
+	// Only --name/-n given (e.g. `forge ship breakdown -n <slug>`): the slug is
+	// the feature context. Returning early here issued no turn at all.
+	if description == "" {
+		description = specName
+	}
 	if description == "" || pipe == nil {
 		return "", nil
 	}
@@ -637,6 +642,11 @@ func testStubLanguageProfile(fw TestFrameworkContext) (lang, langLabel, codeFenc
 // generateTestStubs for why the caller-resolved slug must be threaded through.
 // Returns ("", nil) when description is empty or pipe is nil.
 func generateBreakdown(root, description, specName string, pipe *LLMPipe) (string, error) {
+	// Only --name/-n given (e.g. `forge ship breakdown -n <slug>`): the slug is
+	// the feature context. Returning early here issued no turn at all.
+	if description == "" {
+		description = specName
+	}
 	if description == "" || pipe == nil {
 		return "", nil
 	}
@@ -782,6 +792,11 @@ func extractTasksMD(feature, breakdown string) string {
 // generateTestStubs for why the caller-resolved slug must be threaded through.
 // Returns ("", nil) when description is empty, pipe is nil, or no context exists.
 func generateCodePlan(root, description, specName string, pipe *LLMPipe) (string, error) {
+	// Only --name/-n given (e.g. `forge ship breakdown -n <slug>`): the slug is
+	// the feature context. Returning early here issued no turn at all.
+	if description == "" {
+		description = specName
+	}
 	if description == "" || pipe == nil {
 		return "", nil
 	}
