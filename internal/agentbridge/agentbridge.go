@@ -84,6 +84,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -95,6 +96,19 @@ const DefaultDir = ".forge/agent"
 
 // DefaultSession is the session name used when the caller does not pick one.
 const DefaultSession = "default"
+
+var volatileLine = regexp.MustCompile(`(?m)^Generated: \d{4}-\d{2}-\d{2}T[^\n]*$`)
+
+// Drifted reports how many replays in this run were served by position because
+// the prompt no longer matched the recorded one.
+func (b *Bridge) Drifted() int {
+	if b == nil {
+		return 0
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.drifted
+}
 
 // ErrTurnRequired is returned by Lookup when no recorded response satisfies
 // the prompt and a host-agent turn is therefore owed. Callers detect it with
@@ -114,6 +128,7 @@ type Turn struct {
 	MaxTokens  int       `json:"max_tokens"`
 	Hash       string    `json:"hash"`
 	Ordinal    string    `json:"ordinal"`
+	Slug       string    `json:"slug,omitempty"`
 	System     string    `json:"system"`
 	User       string    `json:"user"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -124,6 +139,7 @@ type Response struct {
 	Hash      string    `json:"hash"`
 	Ordinal   string    `json:"ordinal"`
 	Operation string    `json:"operation"`
+	Slug      string    `json:"slug,omitempty"`
 	Content   string    `json:"content"`
 	Chars     int       `json:"chars"`
 	FilledAt  time.Time `json:"filled_at"`
@@ -347,7 +363,10 @@ func (b *Bridge) Lookup(operation, checkpoint, model, system, user string, maxTo
 		return resp.Content, nil
 	}
 	if !b.StrictReplay {
-		if resp, ok := b.byOrdinal[ordinal]; ok {
+		// A response recorded for another feature (or by an older forge that did
+		// not record a slug) is never replayed by position: that is how one
+		// feature's spec ended up written into another's.
+		if resp, ok := b.byOrdinal[ordinal]; ok && resp.Slug == b.session.Slug {
 			// The question changed but its position in the run did not — the
 			// host agent's own writes moved the prompt out from under us.
 			// Replay rather than loop, and count it so status can show it.
@@ -380,6 +399,7 @@ func (b *Bridge) Lookup(operation, checkpoint, model, system, user string, maxTo
 		MaxTokens:  maxTokens,
 		Hash:       hash,
 		Ordinal:    ordinal,
+		Slug:       b.session.Slug,
 		System:     system,
 		User:       user,
 		CreatedAt:  time.Now().UTC(),
@@ -410,6 +430,7 @@ func (b *Bridge) Fulfil(content string) (Turn, error) {
 		Hash:      t.Hash,
 		Ordinal:   t.Ordinal,
 		Operation: t.Operation,
+		Slug:      t.Slug,
 		Content:   content,
 		Chars:     len(content),
 		FilledAt:  time.Now().UTC(),
@@ -478,13 +499,17 @@ func (b *Bridge) Stats() Stats {
 
 // Hash is the content address of a prompt: sha256 over the operation name and
 // both prompt halves, with NUL separators so no concatenation can collide.
+//
+// Volatile "Generated: <timestamp>" lines (workspace-context.md embeds one) are
+// removed first; otherwise every run hashes differently and replay can never
+// hit by content.
 func Hash(operation, system, user string) string {
 	h := sha256.New()
 	h.Write([]byte(operation))
 	h.Write([]byte{0})
-	h.Write([]byte(system))
+	h.Write([]byte(volatileLine.ReplaceAllString(system, "")))
 	h.Write([]byte{0})
-	h.Write([]byte(user))
+	h.Write([]byte(volatileLine.ReplaceAllString(user, "")))
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 

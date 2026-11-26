@@ -743,8 +743,7 @@ func New() *cobra.Command {
 			checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 			resumeFrom := ""
 			for _, cp := range checkpoints {
-				cpFile := filepath.Join(specsDir, cp+".md")
-				if _, err := os.Stat(cpFile); os.IsNotExist(err) {
+				if !checkpointDone(specsDir, cp+".md") {
 					resumeFrom = cp
 					break
 				}
@@ -795,8 +794,7 @@ func runResumeFlag(cmd *cobra.Command, feature, rootDir string) error {
 	checkpoints := []string{"spec", "arch", "test", "breakdown", "code", "ship", "qa-verify"}
 	resumeFrom := ""
 	for _, cp := range checkpoints {
-		cpFile := filepath.Join(specsDir, cp+".md")
-		if _, err := os.Stat(cpFile); os.IsNotExist(err) {
+		if !checkpointDone(specsDir, cp+".md") {
 			resumeFrom = cp
 			break
 		}
@@ -991,8 +989,18 @@ func checkSpec(root, description, specName string, pipe *LLMPipe, dryRun bool) C
 				}
 				// J8/J9: strip conversational preamble and detect truncation
 				// before overwriting an existing, presumably-good spec.md.
+				driftBefore := pipe.Bridge().Drifted()
 				reviewed, complete, reviewErr := generateWithValidation(reviewFn)
 				if agentPauseCheckpoint(&cp, "ship:spec:review", reviewErr) {
+					return cp
+				}
+				// The answer was replayed by position because spec.md no longer
+				// matches the text it was recorded against: the file was edited
+				// since. Keep the edit rather than overwrite it with a stale answer.
+				if reviewErr == nil && reviewed != "" && pipe.Bridge().Drifted() > driftBefore {
+					cp.Status = "ok"
+					cp.Detail = fmt.Sprintf("spec.md changed since its recorded review — kept your version: "+
+						".forge/specs/%s/spec.md (run 'forge agent reset' to re-review)", slug)
 					return cp
 				}
 				if reviewErr != nil {
@@ -1610,7 +1618,7 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 			return cp
 		}
 		if err != nil {
-			if changedSource > 0 {
+			if changedSource > 0 && codeArtefactExists(root, slug) {
 				cp.Status = "ok"
 				cp.Detail = fmt.Sprintf("%d changed source file(s) [LLM:%s — %s]",
 					changedSource, pipe.ProviderName(), llmErrNote(err))
@@ -1633,7 +1641,7 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 				ambient = fmt.Sprintf(" (%d other working-tree change(s) not attributed to this checkpoint)",
 					changedFiles-changedSource)
 			}
-			if changedSource > 0 {
+			if changedSource > 0 && codeArtefactExists(root, slug) {
 				cp.Status = "ok"
 				cp.Detail = fmt.Sprintf("%d changed source file(s); code plan written by %s (see .forge/specs/%s/code-plan.md)%s",
 					changedSource, pipe.ProviderName(), slug, ambient)
@@ -1654,7 +1662,17 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		return cp
 	}
 
-	// Structural fallback (no LLM or no spec/breakdown context).
+	// Structural fallback (no LLM or no spec/breakdown context). Changed source
+	// files alone never satisfy the checkpoint: they may be unrelated edits.
+	// The artefact this checkpoint gates (tasks.md, code-plan.md or
+	// impl-notes.md) must exist too.
+	if changedSource > 0 && !codeArtefactExists(root, slug) {
+		cp.Status = "warning"
+		cp.Detail = fmt.Sprintf("%d changed source file(s) in the working tree, but no code artefact for %q "+
+			"(code-plan.md, impl-notes.md or tasks.md) — the changes cannot be attributed to this feature",
+			changedSource, slug)
+		return cp
+	}
 	if changedSource > 0 {
 		cp.Status = "ok"
 		cp.Detail = fmt.Sprintf("%d changed source file(s) detected in working tree", changedSource)
@@ -1666,6 +1684,20 @@ func checkCode(root, description, specName string, pipe *LLMPipe) Checkpoint {
 		cp.Detail += " (run 'forge config set llm.provider <name>' or set ANTHROPIC_API_KEY / OPENAI_API_KEY)"
 	}
 	return cp
+}
+
+// codeArtefactExists reports whether the feature has any artefact the Code
+// checkpoint gates.
+func codeArtefactExists(root, slug string) bool {
+	if slug == "" {
+		return false
+	}
+	for _, n := range []string{"code-plan.md", "impl-notes.md", "tasks.md"} {
+		if _, err := os.Stat(filepath.Join(root, ".forge", "specs", slug, n)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // countChangedFiles returns the number of modified/untracked files via git status
@@ -2692,7 +2724,7 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		// showed token_estimate:~19 and empty decisions/constraints even on a
 		// multi-KB, fully successful generation, making the digest useless
 		// for auditing whether a checkpoint actually engaged the LLM.
-		if cp.Status != "fail" && specSlug != "" {
+		if cp.Status != "fail" && specSlug != "" && strings.TrimSpace(cp.Name) != "" {
 			digestSource := checkpointArtefactContent(root, specSlug, cp.Name)
 			if digestSource == "" {
 				digestSource = cp.Detail
@@ -2705,9 +2737,14 @@ func runWithOptions(opts RunOptions) *ShipResult {
 		// `forge ship status` can count this checkpoint as done.
 		// spec.md / arch.md / breakdown.md are already written by their check* functions;
 		// test.md, code.md, ship.md, qa-verify.md are not — write them here.
-		if cp.Status != "fail" && specSlug != "" {
+		//
+		// The record lives in .checkpoints/ — never beside the real artefacts.
+		// Writing it to test.md / breakdown.md let a "no breakdown.md found"
+		// warning occupy the artefact's own path and count as done.
+		if cp.Status != "fail" && specSlug != "" && strings.TrimSpace(cp.Name) != "" {
 			cpLowerName := strings.ToLower(cp.Name)
-			markerPath := filepath.Join(root, ".forge", "specs", specSlug, cpLowerName+".md")
+			markerPath := checkpointRecordPath(root, specSlug, cpLowerName)
+			_ = os.MkdirAll(filepath.Dir(markerPath), 0o755)
 			if _, statErr := os.Stat(markerPath); os.IsNotExist(statErr) {
 				// M1: the marker is the durable record — what `forge ship
 				// status` reads and what a human opens months later to ask

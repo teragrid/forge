@@ -357,14 +357,14 @@ func appendUnverifiedPathsWarning(root, content string) string {
 	if len(unverified) == 0 {
 		return content
 	}
+	// Reported on stderr, never written into the artefact: the text used to
+	// become part of spec.md, travel into every later prompt and need removing
+	// by hand on each run.
 	var b strings.Builder
-	b.WriteString(content)
-	if !strings.HasSuffix(content, "\n") {
-		b.WriteString("\n")
-	}
-	b.WriteString("\n---\n\n> **⚠ Unverified file references (automated check):** the following paths mentioned above were not found in this repository or its forge.yml related_repos — verify before relying on them, they may be hallucinated:\n")
+	b.WriteString("forge: warning: unverified file references (not found in this repository or its forge.yml related_repos; verify before relying on them):\n")
 	for _, p := range unverified {
-		b.WriteString("> - `" + p + "`\n")
+		b.WriteString("  - " + p + "\n")
 	}
-	return b.String()
+	_, _ = os.Stderr.WriteString(b.String())
+	return content
 }
